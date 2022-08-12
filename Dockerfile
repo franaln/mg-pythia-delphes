@@ -113,7 +113,6 @@ RUN mkdir /code && \
     tar xvfz pythia${PYTHIA_VERSION}.tgz && \
     cd pythia${PYTHIA_VERSION} && \
     ./configure --help && \
-    export PYTHON_MINOR_VERSION=${PYTHON_VERSION::3} && \
     ./configure \
       --prefix=/usr/local/venv \
       --arch=Linux \
@@ -121,16 +120,18 @@ RUN mkdir /code && \
       --enable-64bit \
       --with-gzip \
       --with-hepmc2=/usr/local/venv \
+      --with-hepmc2-include=/usr/local/venv/include \
       --with-lhapdf6=/usr/local/venv \
       --with-fastjet3=/usr/local/venv \
-      --with-python-bin=/usr/local/venv/bin/ \
-      --with-python-lib=/usr/local/venv/lib/python${PYTHON_MINOR_VERSION} \
-      --with-python-include=/usr/local/include/python${PYTHON_MINOR_VERSION} \
       --cxx-common="-O2 -m64 -pedantic -W -Wall -Wshadow -fPIC -std=c++11" \
       --cxx-shared="-shared -std=c++11" && \
     make -j$(($(nproc) - 1)) && \
     make install && \
     rm -rf /code
+
+# --with-python-bin=/usr/local/venv/bin/ \
+# --with-python-lib=/usr/local/venv/lib/python${PYTHON_MINOR_VERSION} \
+# --with-python-include=/usr/local/include/python${PYTHON_MINOR_VERSION} \
 
 # Install BOOST (needed? it doesn't seem so)
 # c.f. https://www.boost.org/doc/libs/1_76_0/more/getting_started/unix-variants.html
@@ -167,7 +168,7 @@ RUN cd /usr/local/venv && \
 
 # Install MadGraph5_aMC@NLO for Python 3 and PYTHIA 8 interface
 ARG MG_VERSION=3.4.0
-ARG MG5aMC_PY8_INTERFACE_VERSION=1.2
+ARG MG5aMC_PY8_INTERFACE_VERSION=1.3
 
 RUN cd /usr/local/venv && \
     wget --quiet https://launchpad.net/mg5amcnlo/3.0/3.4.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz && \
