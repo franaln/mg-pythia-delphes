@@ -1,0 +1,25 @@
+# ------------------------------------------------------
+# config
+run_name      = test_ttbb
+run_input     = input_test_ttbb.tar.gz
+run_mg_file   = run.mg5
+run_card_file = ttbb_run_card.dat
+output_name   = output_$(run_name)_$(Cluster)_$(Process)
+nevents       = 1000
+njobs         = 1
+# ------------------------------------------------------
+
+executable = run_mg.sh
+arguments  = $(run_name) $(run_input) $(run_mg_file) $(run_card_file) $(output_name) $(nevents)
+
+output      = job_$(Cluster)_$(Process).out
+error       = job_$(Cluster)_$(Process).err
+log         = job_$(Cluster)_$(Process).log
+
+should_transfer_files = YES
+transfer_input_files = $(run_input)
+
+transfer_output_files = $(output_name).tar.gz
+when_to_transfer_output = ON_EXIT
+
+queue $(njobs)
