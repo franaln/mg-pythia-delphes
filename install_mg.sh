@@ -227,7 +227,7 @@ function dowload_pdfs () {
 
 mkdir -p ${ins_dir}
 
-#install_root
+install_root
 setup_root
 install_hepmc
 install_fastjet
