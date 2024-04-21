@@ -67,7 +67,7 @@ if [ -n "${PYTHONHOME:-}" ] ; then
 fi
 
 # ROOT
-. /mnt/R5/hep_tools/mg_pythia_delphes/root/bin/thisroot.sh
+. $MG_DIR/root/bin/thisroot.sh
 
 # PYTHONPATH
 _OLD_VIRTUAL_PYTHONPATH="$PYTHONPATH"
@@ -97,5 +97,3 @@ fi
 if [ -n "${BASH:-}" -o -n "${ZSH_VERSION:-}" ] ; then
     hash -r
 fi
-
-

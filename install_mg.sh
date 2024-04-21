@@ -66,11 +66,11 @@ function install_setup_root () {
 function install_mg () {
 
     download $pkg_dir/MG5_aMC_v${MG_VERSION}.tar.gz https://launchpad.net/mg5amcnlo/3.0/3.4.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
-    
+
     mkdir -p ${ins_dir}/MG5_aMC
     tar -xzvf $pkg_dir/MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=$ins_dir/MG5_aMC
 
-    # Patch hepmcremove bug    
+    # Patch hepmcremove bug
     patch ${ins_dir}/MG5_aMC/madgraph/interface/madevent_interface.py < data/mg_patch_autoremove.patch
 
     # copy needed python file
@@ -81,22 +81,22 @@ function install_mg () {
 
 function install_hepmc () {
 
-    download $pkg_dir/hepmc${HEPMC_VERSION}.tgz http://hepmc.web.cern.ch/hepmc/releases/hepmc${HEPMC_VERSION}.tgz 
+    download $pkg_dir/hepmc${HEPMC_VERSION}.tgz http://hepmc.web.cern.ch/hepmc/releases/hepmc${HEPMC_VERSION}.tgz
 
     do_tmp_dir
-    
+
     tar xvfz $pkg_dir/hepmc${HEPMC_VERSION}.tgz
-   
-    mv hepmc${HEPMC_VERSION} src 
+
+    mv hepmc${HEPMC_VERSION} src
     #    mv HepMC-${HEPMC_VERSION} src
 
     # HEPMC HACK to support named weights
     cp ${data_dir}/WeightContainer.cc src/src/WeightContainer.cc
     cp ${data_dir}/WeightContainer.h src/HepMC/WeightContainer.h
-    
+
     mkdir build
     cd build
-    
+
     cmake \
         -DCMAKE_CXX_COMPILER=$(command -v g++) \
         -DCMAKE_BUILD_TYPE=Release \
@@ -107,10 +107,10 @@ function install_hepmc () {
         -S ../src
 
     # ./configure --prefix=${inst_dir} --with-momentum=GEV --with-length=MM
-    
+
     make -j4
     make install
-    
+
     rm_tmp_dir
 }
 
@@ -123,7 +123,7 @@ function install_fastjet () {
     tar xvfz $pkg_dir/fastjet-${FASTJET_VERSION}.tar.gz
 
     cd fastjet-${FASTJET_VERSION}
-    
+
     ./configure \
         --prefix=${ins_dir} \
         --enable-pyext=yes
@@ -131,7 +131,7 @@ function install_fastjet () {
     make -j4
     make check
     make install
-    
+
     rm_tmp_dir
 }
 
@@ -214,8 +214,8 @@ function install_mg_py8_interface () {
     cd $tmp_dir/MG5aMC_PY8_interface
     python3 compile.py ${ins_dir}/ --pythia8_makefile $(find ${ins_dir} -type d -name MG5_aMC)
     mkdir -p ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface
-    cp *.h ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/ 
-    cp *_VERSION_ON_INSTALL ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/ 
+    cp *.h ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/
+    cp *_VERSION_ON_INSTALL ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/
     cp MG5aMC_PY8_interface ${ins_dir}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/
 
     rm_tmp_dir
@@ -224,12 +224,12 @@ function install_mg_py8_interface () {
 function config_mg () {
 
     # Change python version in mg bin
-    sed -i 's|/usr/bin/env python3.*|/usr/bin/env python3.8|g' ${ins_dir}/MG5_aMC/bin/mg5_aMC    
+    sed -i 's|/usr/bin/env python3.*|/usr/bin/env python3.8|g' ${ins_dir}/MG5_aMC/bin/mg5_aMC
 
     # Change the MadGraph5_aMC@NLO configuration settings
     mg_config_file=${ins_dir}/MG5_aMC/input/mg5_configuration.txt
     cp ${ins_dir}/MG5_aMC/input/.mg5_configuration_default.txt ${mg_config_file}
-    
+
     sed -i "s|# fastjet.*|fastjet = ${ins_dir}/bin/fastjet-config|g" ${mg_config_file}
     sed -i "s|# pythia8_path.*|pythia8_path = ${ins_dir}|g" ${mg_config_file}
     sed -i "/mg5amc_py8_interface_path =/s/^# //g" ${mg_config_file}
@@ -241,7 +241,7 @@ function config_mg () {
     sed -i "s|# delphes_path.*|delphes_path = ../Delphes|g" ${mg_config_file}
     sed -i "s|# lhapdf_py2.*|lhapdf = ${ins_dir}/bin/lhapdf-config|g" ${mg_config_file}
     sed -i "s|# lhapdf_py3.*|lhapdf_py3 = ${ins_dir}/bin/lhapdf-config|g" ${mg_config_file}
-  
+
 }
 
 function create_venv () {
@@ -270,7 +270,7 @@ function copy_scripts () {
 
 
 # -------
-# Install 
+# Install
 # -------
 
 mkdir -p ${ins_dir}
@@ -320,5 +320,3 @@ create_venv
 create_setup_file
 copy_scripts
 dowload_pdfs
-
-
