@@ -1,6 +1,11 @@
 #!/bin/bash
 
-# run_mg.sh {run_name} {run_input} {run_mg_file} {run_card_file} {output_name} {nevents}
+# run_mg_pythia_delphes.sh {run_name} {run_input} {run_mg_file} {run_card_file} {output_name} {nevents}
+
+if [[ ($# -lt 6) || ($# -gt 7) ]] ; then
+    echo "run_mg_pythia_delphes.sh [run_name] [run_input] [run_mg_file] [run_card_file] [output_name] [nevents]"
+    exit 1
+fi
 
 run_name=$1
 run_input=$2
@@ -27,7 +32,12 @@ echo ""
 # ------
 job_dir=$PWD
 
-mg_dir=__INS_DIR__/mg_pythia_delphes
+if [ -z "${MG_DIR:-}" ] ; then
+    echo -e "\n>>> Setup MG+Pythia+Delphes\n"
+    source /setup_mg_pythia_delphes.sh
+fi
+
+mg_dir=$MG_DIR
 mg_bin=${mg_dir}/MG5_aMC/bin/mg5_aMC
 delphes_root2lhco_bin=${mg_dir}/Delphes/root2lhco
 mg_setup_file=${mg_dir}/setup_mg_pythia_delphes.sh
@@ -58,13 +68,6 @@ tar -xzmf ${run_tar_file}
 rm ${run_tar_file}
 
 ls
-
-# -----
-# Setup
-# -----
-echo -e "\n>>> Setup MG+Pythia+Delphes\n"
-source ${mg_setup_file}
-
 
 # ---
 # Run
