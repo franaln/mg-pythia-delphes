@@ -1,0 +1,5 @@
+-------------------------------------------
+  To setup mg-pythia-delphes use:
+
+      source /setup_mg_pythia_delphes.sh
+-------------------------------------------
