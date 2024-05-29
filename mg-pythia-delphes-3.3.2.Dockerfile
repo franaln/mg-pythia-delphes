@@ -1,16 +1,16 @@
 # Dockerfile for MadGraph + Pythia8 + Delphes
 # using the following versions:
-# Python 3.8
-# ROOT Version 6.24.02
-# MadGraph 3.3.2
-# hepmc 2.06.09
-# fastjet 3.3.4
-# LHAPDF 6.3.0
-# pythia 8.306
-# Delphes 3.5.0
-# MG5aMC_PY8_interface 1.3
+# python=3.8
+# ROOT=6.24.02
+# MadGraph=3.3.2
+# hepmc=2.06.09
+# fastjet= 3.3.4
+# LHAPDF=6.3.0
+# pythia=8.306
+# Delphes=3.5.0
+# MG5aMC_PY8_interface=1.3
 
-FROM  ubuntu:20.04
+FROM ubuntu:20.04
 ARG DEBIAN_FRONTEND=noninteractive
 
 USER root
@@ -18,9 +18,9 @@ WORKDIR /
 
 SHELL [ "/bin/bash", "-c" ]
 
-# CMake provided by base image
+#
 RUN apt-get -qq -y update && \
-    apt-get install -y \
+    apt-get -y install \
       gcc \
       g++ \
       gfortran \

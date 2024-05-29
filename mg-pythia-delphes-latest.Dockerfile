@@ -1,41 +1,48 @@
 # Dockerfile for MadGraph + Pythia8 + Delphes
-# Based on https://github.com/scailfin/MadGraph5_aMC-NLO
+# using (almost) latest version available:
+# python=3.8
+# root=6.30.06
+# MadGraph=3.5.4
+# hepmc=2.06.09
+# FastJet=3.4.2
+# LHAPDF=6.5.1
+# Pythia=8306
+# Delphes=3.5.0
+# MG5aMC_PY8_INTERFACE_VERSION=1.3
 
-#FROM  --platform=linux/amd64 centos:centos8
-FROM  centos:centos8
+
+FROM ubuntu:20.04
+ARG DEBIAN_FRONTEND=noninteractive
 
 USER root
 WORKDIR /
 
 SHELL [ "/bin/bash", "-c" ]
 
-# Fix yum repos
-RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
-    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-
-# CMake provided by base image
-RUN yum update -y && \
-    yum install -y \
+#
+RUN apt-get -qq -y update && \
+    apt-get -y install \
       gcc \
-      gcc-c++ \
-      gcc-gfortran \
+      g++ \
+      gfortran \
       patch \
       cmake \
       vim \
-      zlib \
-      zlib-devel \
-      bzip2 \
-      bzip2-devel \
+      zlib1g-dev \
+      libtbb-dev \
       rsync \
       wget \
       ghostscript \
       bc \
       cmake \
-      python39 \
-      python39-six \
-      python39-devel \
+      python3 \
+      python3-pip \
+      python3-dev \
+      python3-venv \
+      coreutils \
       git && \
-    yum clean all
+    apt-get -y autoclean && \
+    apt-get -y autoremove
 
 # Install directory
 ARG INSTALL_DIR=/mg_pythia_delphes
@@ -52,7 +59,7 @@ COPY data/* ${INSTALL_DIR}/data/
 WORKDIR /
 
 # Install ROOT
-ARG ROOT_VERSION=root_v6.26.14.Linux-centos8-x86_64-gcc8.5.tar.gz
+ARG ROOT_VERSION=root_v6.30.06.Linux-ubuntu20.04-x86_64-gcc9.4.tar.gz
 ARG ROOT_URL=https://root.cern/download/${ROOT_VERSION}
 RUN wget ${ROOT_URL} && \
     tar xvfz ${ROOT_VERSION} -C ${INSTALL_DIR} && \
@@ -109,9 +116,9 @@ RUN mkdir ${TMP_DIR} && \
     rm -rf ${TMP_DIR}
 
 RUN echo "CXX=$(command -v g++)" > /setup_build.sh && \
-    echo "export PYTHON=/usr/bin/python3.9" >> /setup_build.sh && \
-    echo "export PYTHON_CONFIG=/usr/lib64/python3.9/config-3.9-aarch64-linux-gnu/python-config.py" >> /setup_build.sh && \
-    echo "export PYTHON_INCLUDE=-I/usr/include/python3.9" >> /setup_build.sh && \
+    echo "export PYTHON=/usr/bin/python3.8" >> /setup_build.sh && \
+    echo "export PYTHON_CONFIG=/usr/lib/python3.8/config-3.8-x86_64-linux-gnu/python-config.py" >> /setup_build.sh && \
+    echo "export PYTHON_INCLUDE=-I/usr/include/python3.8" >> /setup_build.sh && \
     echo "source ${INSTALL_DIR}/root/bin/thisroot.sh" >> /setup_build.sh
 
 # Install LHAPDF
@@ -196,7 +203,8 @@ RUN cp ${INSTALL_DIR}/MG5_aMC/input/.mg5_configuration_default.txt ${MG_CONFIG_F
     sed -i "s|# fortran_compiler.*|fortran_compiler = "$(command -v gfortran)"|g" ${MG_CONFIG_FILE} && \
     sed -i "s|# delphes_path.*|delphes_path = ../Delphes|g" ${MG_CONFIG_FILE} && \
     sed -i "s|# lhapdf_py2.*|lhapdf = ${INSTALL_DIR}/bin/lhapdf-config|g" ${MG_CONFIG_FILE} && \
-    sed -i "s|# lhapdf_py3.*|lhapdf_py3 = ${INSTALL_DIR}/bin/lhapdf-config|g" ${MG_CONFIG_FILE}
+    sed -i "s|# lhapdf_py3.*|lhapdf_py3 = ${INSTALL_DIR}/bin/lhapdf-config|g" ${MG_CONFIG_FILE} && \
+    sed -i "s|# auto_update = 7|auto_update = 0|g" ${MG_CONFIG_FILE}
 
 # Fix this o_O
 RUN cp ${INSTALL_DIR}/MG5_aMC/Template/LO/Source/.make_opts ${INSTALL_DIR}/MG5_aMC/Template/LO/Source/make_opts
