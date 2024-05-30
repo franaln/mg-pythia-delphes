@@ -83,7 +83,7 @@ export PYTHIA8DATA="$MG_DIR/share/Pythia8/xmldoc/"
 
 if [ -z "${VIRTUAL_ENV_DISABLE_PROMPT:-}" ] ; then
     _OLD_VIRTUAL_PS1="${PS1:-}"
-    if [ "x(venv) " != x ] ; then
+    if [ "x($MG_NAME) " != x ] ; then
 	PS1="($MG_NAME) ${PS1:-}"
     else
     PS1="($MG_NAME)$PS1"
