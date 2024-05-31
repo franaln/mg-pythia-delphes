@@ -68,6 +68,8 @@ RUN wget ${MG_URL} && \
     mkdir ${INSTALL_DIR}/MG5_aMC && \
     tar -xzvf MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=${INSTALL_DIR}/MG5_aMC && \
     rm MG5_aMC_v${MG_VERSION}.tar.gz && \
+    # Patch to not try to update MG
+    patch ${INSTALL_DIR}/MG5_aMC/madgraph/interface/madgraph_interface.py < ${INSTALL_DIR}/data/no_update_3_3_2.patch && \
     # copy needed python file
     cp ${DATA_DIR}/six.py ${INSTALL_DIR}/python/
 
