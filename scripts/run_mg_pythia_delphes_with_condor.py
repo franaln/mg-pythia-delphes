@@ -330,7 +330,7 @@ def main():
         container_image = f'{image_dir}/{config["image"]}'
         if not os.path.exists(container_image):
             print(f'Image {container_image} does not exist. Use one of the existint images:')
-            print('     mg-pythia-delphes-3.3.2.sif')
+            print('     mg-pythia-delphes-3_3_2.sif')
             print('     mg-pythia-delphes-latest.sif')
             sys.exit(1)
 
