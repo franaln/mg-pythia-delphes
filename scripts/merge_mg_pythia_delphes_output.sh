@@ -2,7 +2,7 @@
 
 # merge_mg_pythia_delphes_output.sh output_name input_files
 
-USAGE_MSG="merge_mg_pythia_delphes_output.sh output_name input_files"
+USAGE_MSG="usage: merge_mg_pythia_delphes_output.sh [output_name] [input_files]"
 
 if [[ ($# -lt 2) ]] ; then
     echo $USAGE_MSG
