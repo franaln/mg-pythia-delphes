@@ -1,0 +1,15 @@
+import model sm
+
+generate p p > t t~ b b~
+
+output RUN
+launch RUN
+
+shower=Pythia8
+
+param_card.dat
+run_card.dat
+pythia8_card.dat
+delphes_card_ATLAS.dat
+
+done

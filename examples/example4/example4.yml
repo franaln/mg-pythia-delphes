@@ -3,7 +3,7 @@ run:
   image: mg-pythia-delphes-3_3_2
   nevents: 1000
   njobs: 2
-  outputs: [lhco, lhe]
+  outputs: [lhe, hepmc0, lhco]
 
 input_files:
   - run.mg5
