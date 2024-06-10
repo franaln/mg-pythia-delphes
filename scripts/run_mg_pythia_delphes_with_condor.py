@@ -254,21 +254,6 @@ def main():
             for f in config['input_files']:
                 shutil.copy(f, inputs_dir)
 
-
-        # # Try to get run_tag
-        # if os.path.exits(f'{inputs_dir}/run_card.dat'):
-        #     run_card_str = open(f'{inputs_dir}/run_card.dat').read()
-
-        #     match = re.match(r'(.*) = run_tag', run_card_str)
-        #     if match is not None:
-        #         run_name = match.group(1)
-
-        #     match = re.match(r'(.*) = run_tag', run_card_str)
-        #     if match is not None:
-        #         run_name = match.group(1)
-
-        #print('Using'
-
         if not os.path.exists(f'{inputs_dir}/run.mg5'):
             print('error')
             sys.exit(1)
