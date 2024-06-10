@@ -12,7 +12,7 @@ Images available on: [franaln/mg-pythia-delphes](https://hub.docker.com/r/franal
 run_mg_pythia_delphes_with_condor.py -c config.yml -o output_dir
 `
 
-where the configuration file should be in yaml format like the following example (more examples in example/):
+where the configuration file should be in yaml format like the following example (more examples in example/test*.yml):
 
 ```
 run:
@@ -22,7 +22,7 @@ run:
     njobs: 10
     outputs: [lhco, lhe]
 
-process: |
+process: |-
     import model sm
 
     generate p p > t t~ b b~
@@ -32,7 +32,29 @@ cards:
     param: param_card.dat
     pythia: pythia8_card.dat
     delphes: delphes_card_ATLAS.dat
+
+options:
+    seed: 0
+    use_syst: False
 ```
+
+- run:
+    - name: name of the run
+    - image: image to use (mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest)
+    - nevents: number of events for each job
+    - njobs: number of jobs
+    - outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco]
+
+- Madgraph process and cards can be specified in different ways:
+    - Using process + cards (param cards can be a list)
+    - Using only cards (including proc_card.dat)
+    - Using input_dir or list of input_files. They should include a "run.mg5" and all the needed files to run
+
+- Options
+    - seed: random seed
+    - use_syst: save systematic output
+    - ecm: center of mass energy
+
 
 ## Output
 
