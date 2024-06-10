@@ -1,0 +1,17 @@
+run:
+  name: ttbb1
+  image: mg-pythia-delphes-3_3_2.sif
+  nevents: 1000
+  njobs: 2
+  outputs: [lhco, lhe, root]
+
+process: |
+  import model sm
+
+  generate p p > t t~ b b~
+
+cards:
+  run: run_card.dat
+  param: param_card.dat
+  pythia: pythia8_card.dat
+  delphes: delphes_card_ATLAS.dat

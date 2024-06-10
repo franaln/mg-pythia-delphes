@@ -1,0 +1,13 @@
+run:
+  name: ttbb2
+  image: mg-pythia-delphes-3_3_2.sif
+  nevents: 1000
+  njobs: 2
+  outputs: [lhco, lhe, hepmc0, root]
+
+cards:
+  proc: proc_card.dat
+  run: run_card.dat
+  param: param_card.dat
+  pythia: pythia8_card.dat
+  delphes: delphes_card_ATLAS.dat

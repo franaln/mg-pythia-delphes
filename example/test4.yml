@@ -1,0 +1,17 @@
+run:
+  name: ttbb4
+  image: mg-pythia-delphes-3_3_2.sif
+  nevents: 1000
+  njobs: 2
+  outputs: [lhco, lhe]
+
+input_files:
+  - run.mg5
+  - run_card.dat
+  - param_card.dat
+  - pythia8_card.dat
+  - delphes_card_ATLAS.dat
+
+options:
+  seed: 0
+  use_syst: False
