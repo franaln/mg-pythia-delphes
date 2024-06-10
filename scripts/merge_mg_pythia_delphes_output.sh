@@ -2,12 +2,25 @@
 
 # merge_mg_pythia_delphes_output.sh output_name input_files
 
+USAGE_MSG="merge_mg_pythia_delphes_output.sh output_name input_files"
+
+if [[ ($# -lt 2) ]] ; then
+    echo $USAGE_MSG
+    exit 1
+fi
+
+if [[ ($# -eq 1) && ( ($1 == "-h") || ($1 == "--help") ) ]] ; then
+    echo "$USAGE_MSG"
+    exit 0
+fi
+
 output_file=$1
 shift
 input_files=$@
 
-tmpdir=tmp_${outname}
+tmpdir=tmp_merge
 
+echo "Running merge_mg_pythia_delphes_output with:"
 echo output_file = $output_file
 echo input_files = $input_files
 
@@ -48,6 +61,6 @@ if [ $count != 0 ] ; then
     docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/share $image "$cmd_merge_lhco"
 fi
 
-tar -czf ${output_file}.tar.gz -C $tmpdir/merged .
+tar -czf ${output_file} -C $tmpdir/merged .
 
 rm -r $tmpdir
