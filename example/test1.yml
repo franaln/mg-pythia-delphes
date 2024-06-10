@@ -1,6 +1,6 @@
 run:
   name: ttbb1
-  image: mg-pythia-delphes-3_3_2.sif
+  image: mg-pythia-delphes-3_3_2
   nevents: 1000
   njobs: 2
   outputs: [lhco, lhe, root]

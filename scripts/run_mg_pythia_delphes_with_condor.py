@@ -210,15 +210,19 @@ def main():
 
     ## Docker/Apptainer image
     image_dir = '/mnt/R5/images'
+    available_images = [
+        'mg-pythia-delphes-3_3_2',
+        'mg-pythia-delphes-latest',
+    ]
+
     if 'image' not in config_run:
-        print('- No image was configured. Using latest: mg-pythia-delphes-latest.sif')
+        print('- No image was configured. Using latest: mg-pythia-delphes-latest')
         container_image = f'{image_dir}/mg-pythia-delphes-latest.sif'
     else:
-        container_image = f'{image_dir}/{config_run["image"]}'
+        container_image = f'{image_dir}/{config_run["image"]}.sif'
         if not os.path.exists(container_image):
-            print(f'Error: Image {container_image} does not exist. Use one of the existint images:')
-            print('     mg-pythia-delphes-3_3_2.sif')
-            print('     mg-pythia-delphes-latest.sif')
+            print(f'Error: Image {config_run["image"]} does not exist. Use one of the existint images:')
+            print('\n'.join(available_images))
             sys.exit(1)
 
     run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
