@@ -56,7 +56,7 @@ options:
     - ecm: center of mass energy
 
 
-## Chekc job status
+## Check jobs status
 
 `
 condor_q
