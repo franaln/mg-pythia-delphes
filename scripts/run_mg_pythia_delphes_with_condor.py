@@ -227,7 +227,7 @@ def main():
 
     run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
     run_njobs   = config_run['njobs'] if 'njobs' in config_run else 1
-    run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhco']
+    run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhe', 'lhco']
 
 
     # Create working directory

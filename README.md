@@ -43,7 +43,7 @@ options:
     - image: image to use, mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest (default)
     - nevents: number of events for each job (default = 10K)
     - njobs: number of jobs (default = 1)
-    - outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco] (default = lhco). hepmc0 will sace hepmc only for the first job
+    - outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco] (default = [lhe, lhco]). hepmc0 will save the hepmc output only for the first job
 
 - Madgraph process and cards can be specified in different ways:
     - Using process + cards (param cards can be a list)
@@ -56,8 +56,20 @@ options:
     - ecm: center of mass energy
 
 
+## Chekc job status
+
+`
+condor_q
+`
+
 ## Output
+
+Merge lhe, root and lhco outputs:
 
 `
 merge_mg_pythia_delphes_output.sh [output_file] [input_files]
 `
+
+for example:
+
+merge_mg_pythia_delphes_output.sh output_ttbb_merged.tar.gz output_ttbb_*.tar.gz
