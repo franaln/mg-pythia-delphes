@@ -1,6 +1,7 @@
 # ------------------------------------------------------
 # config
 run_name      = test_ttbb
+image         = mg-pythia-delphes-3_3_2
 run_input     = input_test_ttbb.tar.gz
 run_mg_file   = run.mg5
 run_card_file = ttbb_run_card.dat
@@ -9,7 +10,10 @@ nevents       = 1000
 njobs         = 1
 # ------------------------------------------------------
 
-executable = run_mg.sh
+universe = container
+container_image = /mnt/R5/images/$(image).sif
+
+executable = run_mg_pythia_delphes.sh
 arguments  = $(run_name) $(run_input) $(run_mg_file) $(run_card_file) $(output_name) $(nevents)
 
 output      = job_$(Cluster)_$(Process).out

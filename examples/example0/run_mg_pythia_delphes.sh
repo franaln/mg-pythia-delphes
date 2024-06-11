@@ -32,10 +32,8 @@ echo ""
 # ------
 job_dir=$PWD
 
-if [ -z "${MG_DIR:-}" ] ; then
-    echo -e "\n>>> Setup MG+Pythia+Delphes\n"
-    source /setup_mg_pythia_delphes.sh
-fi
+echo -e "\n>>> Setup MG+Pythia+Delphes\n"
+source /setup_mg_pythia_delphes.sh
 
 mg_dir=$MG_DIR
 mg_bin=${mg_dir}/MG5_aMC/bin/mg5_aMC
@@ -54,9 +52,6 @@ output_banner_file=${run_output_dir}/run_01_${run_name}_banner.txt
 
 mg_debug_file=${run_dir}/run_01_${run_name}_debug.log
 pythia_debug_file=${run_dir}/${run_name}_pythia8.log
-
-# ??
-export HOME=${job_dir}
 
 
 # ------------
