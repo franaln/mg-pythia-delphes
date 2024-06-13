@@ -221,10 +221,16 @@ RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_DIR}/setup_mg_pythia_delphes.sh 
 COPY scripts/* ${INSTALL_DIR}/scripts/
 
 # Download PDFs
-RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh
+# 230000: NNPDF23_nlo_as_0119
+# 247000: NNPDF23_lo_as_0130_qed
+# 260000: NNPDF30_nlo_as_0118
+# 303000: NNPDF30_nlo_as_0118_hessian
+RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119         && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed      && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118         && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian
 
-# NNPDF23
-RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed
 
 # Create non-root user "docker"
 RUN useradd --shell /bin/bash -m docker && \
