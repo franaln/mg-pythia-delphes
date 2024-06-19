@@ -12,7 +12,7 @@ Images available on: [franaln/mg-pythia-delphes](https://hub.docker.com/r/franal
 run_mg_pythia_delphes_with_condor.py -c config.yml -o output_dir
 `
 
-where the configuration file should be in yaml format like the following example (more examples in example/test*.yml):
+where the configuration file should be in yaml format like the following example (more examples in examples):
 
 ```
 run:
@@ -50,7 +50,7 @@ options:
     - Using only cards (including proc_card.dat)
     - Using input_dir or list of input_files. They should include a "run.mg5" and all the needed files to run
 
-- Options [optional]
+- options [optional] (these options will replace run_card values)
     - seed: random seed
     - use_syst: save systematic output
     - ecm: center of mass energy
@@ -64,7 +64,7 @@ condor_q
 
 ## Output
 
-Merge lhe, root and lhco outputs:
+Merge lhe, root and lhco outputs after jobs finished:
 
 `
 merge_mg_pythia_delphes_output.sh [output_file] [input_files]
@@ -72,4 +72,6 @@ merge_mg_pythia_delphes_output.sh [output_file] [input_files]
 
 for example:
 
+`
 merge_mg_pythia_delphes_output.sh output_ttbb_merged.tar.gz output_ttbb_*.tar.gz
+`
