@@ -110,7 +110,7 @@ mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_roo
 
 all_output_files=()
 
-if [[ "#{outputs}" =~ "root" ]] ; then
+if [[ "${outputs}" =~ "root" ]] ; then
     all_output_files+=(${output_file_root})
 fi
 
