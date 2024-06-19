@@ -108,8 +108,11 @@ echo "> Preparing outputs"
 output_file_root=${output_name}_delphes_events.root
 mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_root}
 
-
 all_output_files=()
+
+if [[ "#{outputs}" =~ "root" ]] ; then
+    all_output_files+=(${output_file_root})
+fi
 
 if [[ "${outputs}" =~ "hepmc" ]] ; then
     output_file_hepmc=${output_name}_pythia8_events.hepmc.gz
