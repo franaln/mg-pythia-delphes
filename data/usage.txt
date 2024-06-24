@@ -2,4 +2,8 @@
   To setup mg-pythia-delphes use:
 
       source /setup_mg_pythia_delphes.sh
+
+  To run MadGraph use:
+
+      mg5_aMC
 -------------------------------------------

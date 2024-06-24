@@ -44,14 +44,15 @@ RUN apt-get -qq -y update && \
 # Install directory
 ARG INSTALL_DIR=/mg_pythia_delphes
 ARG TMP_DIR=/code
-ARG DATA_DIR=$INSTALL_DIR/data
+ARG DATA_TMP_DIR=/data
 
+# Create install directories
 RUN mkdir -p ${INSTALL_DIR} && \
     mkdir -p ${INSTALL_DIR}/python && \
-    mkdir -p ${INSTALL_DIR}/scripts && \
-    mkdir -p ${INSTALL_DIR}/data
+    mkdir -p ${INSTALL_DIR}/scripts
 
-COPY data/* ${INSTALL_DIR}/data/
+# Create tmp build directories
+RUN mkdir -p ${DATA_TMP_DIR}
 
 # Install ROOT
 ARG ROOT_VERSION=root_v6.24.02.Linux-ubuntu20-x86_64-gcc9.3.tar.gz
@@ -64,25 +65,27 @@ RUN wget ${ROOT_URL} && \
 # Install MG
 ARG MG_VERSION=3.3.2
 ARG MG_URL=https://launchpad.net/mg5amcnlo/3.0/3.3.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
+COPY data/no_update_3_3_2.patch ${DATA_TMP_DIR}
+COPY data/six.py ${INSTALL_DIR}/python
 RUN wget ${MG_URL} && \
     mkdir ${INSTALL_DIR}/MG5_aMC && \
     tar -xzvf MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=${INSTALL_DIR}/MG5_aMC && \
     rm MG5_aMC_v${MG_VERSION}.tar.gz && \
     # Patch to not try to update MG
-    patch ${INSTALL_DIR}/MG5_aMC/madgraph/interface/madgraph_interface.py < ${INSTALL_DIR}/data/no_update_3_3_2.patch && \
-    # copy needed python file
-    cp ${DATA_DIR}/six.py ${INSTALL_DIR}/python/
+    patch ${INSTALL_DIR}/MG5_aMC/madgraph/interface/madgraph_interface.py < ${DATA_TMP_DIR}/no_update_3_3_2.patch
+
 
 # Install HepMC
 ARG HEPMC_VERSION=2.06.09
+COPY data/WeightContainer* ${DATA_TMP_DIR}
 RUN mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     wget http://hepmc.web.cern.ch/hepmc/releases/hepmc${HEPMC_VERSION}.tgz && \
     tar xvfz hepmc${HEPMC_VERSION}.tgz && \
     mv hepmc${HEPMC_VERSION} src && \
     # HEPMC HACK to support named weights
-    cp ${DATA_DIR}/WeightContainer.cc src/src/WeightContainer.cc && \
-    cp ${DATA_DIR}/WeightContainer.h  src/HepMC/WeightContainer.h && \
+    cp ${DATA_TMP_DIR}/WeightContainer.cc src/src/WeightContainer.cc && \
+    cp ${DATA_TMP_DIR}/WeightContainer.h  src/HepMC/WeightContainer.h && \
     mkdir build && \
     cd build && \
     cmake \
@@ -184,7 +187,7 @@ RUN wget http://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY
     cp *.h ${INSTALL_DIR}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/ && \
     cp *_VERSION_ON_INSTALL ${INSTALL_DIR}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/ && \
     cp MG5aMC_PY8_interface ${INSTALL_DIR}/MG5_aMC/HEPTools/MG5aMC_PY8_interface/ && \
-    rm -rf /MG5aMC_PY8_interface_V{MG5aMC_PY8_INTERFACE_VERSION}.tar.gz && \
+    rm -rf /MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz && \
     rm -rf ${TMP_DIR}
 
 # Change the MadGraph5_aMC@NLO configuration settings
@@ -212,16 +215,22 @@ RUN python3 -m venv ${INSTALL_DIR}/venv && \
     pip install --upgrade pip gnureadline
 
 # Create setup file
-RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
-
-#
-COPY scripts/* ${INSTALL_DIR}/scripts/
+COPY data/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
+RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
 # Download PDFs
-RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh
-
-# NNPDF23
-RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed
+# 230000: NNPDF23_nlo_as_0119
+# 247000: NNPDF23_lo_as_0130_qed
+# 260000: NNPDF30_nlo_as_0118
+# 303000: NNPDF30_nlo_as_0118_hessian
+# 91500: PDF4LHC15_nnlo_mc
+COPY scripts/download_pdf.sh ${INSTALL_DIR}/scripts/
+RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119         && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed      && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118         && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian && \
+    ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC15_nnlo_mc
 
 # Create non-root user "docker"
 RUN useradd --shell /bin/bash -m docker && \
@@ -231,7 +240,10 @@ RUN useradd --shell /bin/bash -m docker && \
    chown -R --from=root docker ${INSTALL_DIR} && \
    chown -R --from=503 docker /${INSTALL_DIR}/MG5_aMC
 
-RUN echo "cat ${INSTALL_DIR}/data/usage.txt" >> /home/docker/.bashrc
+COPY data/usage.txt /home/docker/
+RUN echo "cat /home/docker/usage.txt" >> /home/docker/.bashrc
+
+RUN rm -rf ${DATA_TMP_DIR}
 
 ENV HOME /home/docker
 USER docker
