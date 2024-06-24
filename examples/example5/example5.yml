@@ -1,6 +1,6 @@
 run:
   name: ttbb5
-  image: mg-pythia-delphes-3_3_2
+  image: mg-pythia-delphes-latest
   nevents: 1000
   njobs: 2
   outputs: [lhe, hepmc0, lhco]

@@ -214,7 +214,7 @@ def main():
     ## Docker/Apptainer image
     image_dir = '/mnt/R5/images'
     available_images = [
-        'mg-pythia-delphes-3_3_2',
+        'mg-pythia-delphes-3.3.2',
         'mg-pythia-delphes-latest',
     ]
 

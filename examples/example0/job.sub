@@ -1,7 +1,7 @@
 # ------------------------------------------------------
 # config
 run_name      = test_ttbb
-image         = mg-pythia-delphes-3_3_2
+image         = mg-pythia-delphes-latest
 run_input     = input_test_ttbb.tar.gz
 run_mg_file   = run.mg5
 run_card_file = ttbb_run_card.dat
