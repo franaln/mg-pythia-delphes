@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+
+# Example for converting Delphes output to SimpleAnalysis slimmed format
+# lepton id/isolation and flavour tagging levels are not implemented
+#
+# Assumes Delphes and ROOT is setup already
+#
+# export DELPHES_PATH=/mg_pythia_delphes/Delphes
+# export ROOT_INCLUDE_PATH=$DELPHES_PATH:$DELPHES_PATH/external/
+
+from __future__ import annotations
+
+import argparse
+import os
+from array import array
+
+import ROOT
+
+delphes_path = os.environ.get("DELPHES_PATH")
+ROOT.gInterpreter.Declare(f'#include "{delphes_path}/classes/DelphesClasses.h"')
+ROOT.gInterpreter.Declare(f'#include "{delphes_path}/external/ExRootAnalysis/ExRootTreeReader.h"')
+ROOT.gSystem.Load(f'{delphes_path}/libDelphes.so')
+
+try:
+    ROOT.gInterpreter.Declare('#include "classes/DelphesClasses.h"')
+    ROOT.gInterpreter.Declare('#include "external/ExRootAnalysis/ExRootTreeReader.h"')
+except Exception:
+    pass
+
+
+class NtupleVar:
+    def __init__(self, name, tree, floatVar=False):
+        if floatVar:
+            rootVar = array("f", [0])
+            tree.Branch(name, rootVar, name + "/F")
+        else:
+            rootVar = array("i", [0])
+            tree.Branch(name, rootVar, name + "/I")
+        self.var = rootVar
+
+    def Set(self, value):
+        self.var[0] = value
+
+
+outVectors = []
+
+
+class NtupleVector:
+
+    def __init__(self, name, tree, floatVar=False):
+        rootVar = ROOT.std.vector("float")() if floatVar else ROOT.std.vector("int")()
+        tree.Branch(name, rootVar)
+        self.var = rootVar
+        outVectors.append(rootVar)
+
+    def Add(self, value):
+        self.var.push_back(value)
+
+
+class ObjectVector:
+
+    def __init__(self, name, tree, storeMass=False):
+        self.pt = NtupleVector(name + "_pt", tree, True)
+        self.eta = NtupleVector(name + "_eta", tree, True)
+        self.phi = NtupleVector(name + "_phi", tree, True)
+        self.charge = NtupleVector(name + "_charge", tree)
+        self.objID = NtupleVector(name + "_id", tree)
+        self.motherID = NtupleVector(name + "_motherID", tree)
+        self.storeMass = storeMass
+        if storeMass:
+            self.mass = NtupleVector(name + "_m", tree, True)
+
+    def Add(self, obj, objID=0x7FFFFFFF, charge=999):
+        self.pt.Add(obj.PT)
+        self.eta.Add(obj.Eta)
+        self.phi.Add(obj.Phi)
+        if charge == 999:
+            self.charge.Add(obj.Charge)
+        else:
+            self.charge.Add(charge)
+        self.objID.Add(objID)
+        self.motherID.Add(0)  # FIXME truth pointing not implemented
+        if self.storeMass:
+            self.mass.Add(obj.Mass)
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-i', '--input', required='true', help='Input file')
+parser.add_argument('-o', '--output', required='true', help='Output file')
+# parser.add_argument("--lumi", action="store", default=1000.0)  # 1 fb-1.  not actually used.
+# parser.add_argument("--XS", action="store", default=1.0)  # fb
+# parser.add_argument("--debug", action="store_true")  # not actually used.
+
+args = parser.parse_args()
+
+inputFile = args.input
+outputFile = args.output
+
+# Create chain of root trees
+chain = ROOT.TChain("Delphes")
+chain.Add(inputFile)
+
+# Create object of class ExRootTreeReader
+treeReader = ROOT.ExRootTreeReader(chain)
+numberOfEntries = treeReader.GetEntries()
+
+# Get pointers to branches used in this analysis
+branchEvent = treeReader.UseBranch("Event")
+branchMET = treeReader.UseBranch("MissingET")
+branchHT = treeReader.UseBranch("ScalarHT")
+
+branchPhoton = treeReader.UseBranch("Photon")
+branchElectron = treeReader.UseBranch("Electron")
+branchMuon = treeReader.UseBranch("Muon")
+branchJet = treeReader.UseBranch("Jet")
+branchFatJet = treeReader.UseBranch("FatJet")
+
+# Output file and tree
+outFH = ROOT.TFile(outputFile, "RECREATE")
+outTree = ROOT.TTree("ntuple", "Simple Analysis slim format from delphes")
+outTree.SetDirectory(outFH)
+
+EventNumber = NtupleVar("Event", outTree)
+mcChannel = NtupleVar("mcChannel", outTree)
+mcVetoCode = NtupleVar("mcVetoCode", outTree)
+susyChannel = NtupleVar("susyChannel", outTree)
+mcWeights = NtupleVector("mcWeights", outTree, True)
+genMET = NtupleVar("genMET", outTree, True)
+genHT = NtupleVar("genHT", outTree, True)
+pdf_id1 = NtupleVar("pdf_id1", outTree)
+pdf_x1 = NtupleVar("pdf_x1", outTree, True)
+pdf_pdf1 = NtupleVar("pdf_pdf1", outTree, True)
+pdf_id2 = NtupleVar("pdf_id2", outTree)
+pdf_x2 = NtupleVar("pdf_x2", outTree, True)
+pdf_pdf2 = NtupleVar("pdf_pdf2", outTree, True)
+pdf_scale = NtupleVar("pdf_scale", outTree, True)
+
+sumet = NtupleVar("sumet", outTree, True)
+met_pt = NtupleVar("met_pt", outTree, True)
+met_phi = NtupleVar("met_phi", outTree, True)
+
+electrons = ObjectVector("el", outTree)
+muons = ObjectVector("mu", outTree)
+taus = ObjectVector("tau", outTree)
+photons = ObjectVector("ph", outTree)
+jets = ObjectVector("jet", outTree, True)
+#fatjets = ObjectVector("fatjet", outTree, True)
+# not supporting hard-scatter truth record for now
+
+# bit of a hack, but should work:
+sumweights = 0.0
+for entry in range(numberOfEntries):
+    treeReader.ReadEntry(entry)
+    sumweights += float(branchEvent.At(0).Weight)
+
+# will normalize everything to XS
+#print(f"Using cross section {args.XS}")
+#weightscale = float(args.XS) / sumweights
+
+# Loop over all events
+print(f"Looping over {numberOfEntries} events")
+for entry in range(numberOfEntries):
+    for vec in outVectors:
+        vec.clear()
+
+    # Load selected branches with data from specified event
+    treeReader.ReadEntry(entry)
+
+    # Fill in event info (some is left at default 0)
+    EventNumber.Set(branchEvent.At(0).Number)
+    mcChannel.Set(branchEvent.At(0).ProcessID)
+    #mcWeights.Add(branchEvent.At(0).Weight * weightscale)
+    # FIXME: add PDF info etc. if available
+
+    metvec = ROOT.TLorentzVector()
+    metvec.SetPtEtaPhiM(branchMET.At(0).MET, 0, branchMET.At(0).Phi, 0)
+
+    # object id not implemented for now
+    for idx in range(branchElectron.GetEntries()):
+        electrons.Add(branchElectron.At(idx))
+
+    for idx in range(branchMuon.GetEntries()):
+        muons.Add(branchMuon.At(idx))
+        muonvec = ROOT.TLorentzVector()
+        muonvec.SetPtEtaPhiM(
+            branchMuon.At(idx).PT, branchMuon.At(idx).Eta, branchMuon.At(idx).Phi, 0.1
+        )
+        # remove muons from MET.  MET is only built from calorimeter info in Delphes,
+        # so events with muons will have the muon showing up as MET, which artificially
+        # increases the MET.
+        #
+        # see https://arxiv.org/abs/0903.2225 for an explicit statement, and
+        # http://arxiv.org/abs/1307.6346 for a more recent reference that doesn't contradict this.
+        #
+        metvec = metvec - muonvec
+
+    for idx in range(branchPhoton.GetEntries()):
+        photons.Add(branchPhoton.At(idx), charge=0)
+
+    # MET/HT
+    sumet.Set(branchHT.At(0).HT)
+    met_pt.Set(metvec.Pt())
+    met_phi.Set(metvec.Phi())
+
+    # If event contains at least 1 jet
+    for idx in range(branchJet.GetEntries()):
+        jet = branchJet.At(idx)
+        jetID = 0x000FDF00  # flag as good jet
+        if jet.BTag:
+            jetID |= 0x00F000FF  # flags as bjet
+        jets.Add(jet, jetID)
+        if jet.TauTag:
+            tauID = 0xFF
+            if jet.NCharged == 1:
+                tauID |= 1 << 10
+            if jet.NCharged == 3:
+                tauID |= 1 << 11
+            taus.Add(jet, tauID)
+
+    # if branchFatJet:
+    #     for idx in range(branchFatJet.GetEntries()):
+    #         jet = branchFatJet.At(idx)
+    #         jetID = 0x000FDF00  # flag as good jet
+    #         if jet.BTag:
+    #             jetID |= 0x00F000FF  # flags as bjet
+    #         fatjets.Add(jet, jetID)
+
+    outTree.Fill()
+
+print(f"wrote {outTree.GetEntriesFast()} entries to the tree.")
+outFH.Write()
+outFH.Close()
