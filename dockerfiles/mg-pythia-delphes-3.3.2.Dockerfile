@@ -218,6 +218,35 @@ RUN python3 -m venv ${INSTALL_DIR}/venv && \
 COPY data/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
 RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
+# Install/compile needed tools for loops
+RUN source /setup_mg_pythia_delphes.sh && \
+    echo "install ninja" | mg5_aMC && \
+    echo "install collier" | mg5_aMC
+
+# build cuttools
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
+    make clean && \
+    make
+
+# build iregi
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
+    make clean && \
+    make
+
+# build StdHEP
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
+    make
+
+# Install loop_qcd_qed_sm model
+COPY data/loop_qcd_qed_sm.tar.gz /
+RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
+    rm /loop_qcd_qed_sm.tar.gz
+
+# Install SM_LQHH_MU2-LAM3-LAM1-LAM2
+COPY data/SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz /
+RUN tar -xvzf SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
+    rm /SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz
+
 # Download PDFs
 # 230000: NNPDF23_nlo_as_0119
 # 247000: NNPDF23_lo_as_0130_qed

@@ -80,6 +80,10 @@ export LD_LIBRARY_PATH="$MG_DIR/lib:$MG_DIR/root/lib:$LD_LIBRARY_PATH"
 # PYTHIA DATA
 export PYTHIA8DATA="$MG_DIR/share/Pythia8/xmldoc/"
 
+# Delphes location
+export DELPHES_PATH=$MG_DIR/Delphes
+export ROOT_INCLUDE_PATH=$DELPHES_PATH:$DELPHES_PATH/external/
+
 
 if [ -z "${VIRTUAL_ENV_DISABLE_PROMPT:-}" ] ; then
     _OLD_VIRTUAL_PS1="${PS1:-}"
