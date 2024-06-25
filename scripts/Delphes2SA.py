@@ -121,19 +121,19 @@ outTree = ROOT.TTree("ntuple", "Simple Analysis slim format from delphes")
 outTree.SetDirectory(outFH)
 
 EventNumber = NtupleVar("Event", outTree)
-mcChannel = NtupleVar("mcChannel", outTree)
-mcVetoCode = NtupleVar("mcVetoCode", outTree)
-susyChannel = NtupleVar("susyChannel", outTree)
-mcWeights = NtupleVector("mcWeights", outTree, True)
-genMET = NtupleVar("genMET", outTree, True)
-genHT = NtupleVar("genHT", outTree, True)
-pdf_id1 = NtupleVar("pdf_id1", outTree)
-pdf_x1 = NtupleVar("pdf_x1", outTree, True)
-pdf_pdf1 = NtupleVar("pdf_pdf1", outTree, True)
-pdf_id2 = NtupleVar("pdf_id2", outTree)
-pdf_x2 = NtupleVar("pdf_x2", outTree, True)
-pdf_pdf2 = NtupleVar("pdf_pdf2", outTree, True)
-pdf_scale = NtupleVar("pdf_scale", outTree, True)
+# mcChannel = NtupleVar("mcChannel", outTree)
+# mcVetoCode = NtupleVar("mcVetoCode", outTree)
+# susyChannel = NtupleVar("susyChannel", outTree)
+# mcWeights = NtupleVector("mcWeights", outTree, True)
+# genMET = NtupleVar("genMET", outTree, True)
+# genHT = NtupleVar("genHT", outTree, True)
+# pdf_id1 = NtupleVar("pdf_id1", outTree)
+# pdf_x1 = NtupleVar("pdf_x1", outTree, True)
+# pdf_pdf1 = NtupleVar("pdf_pdf1", outTree, True)
+# pdf_id2 = NtupleVar("pdf_id2", outTree)
+# pdf_x2 = NtupleVar("pdf_x2", outTree, True)
+# pdf_pdf2 = NtupleVar("pdf_pdf2", outTree, True)
+# pdf_scale = NtupleVar("pdf_scale", outTree, True)
 
 sumet = NtupleVar("sumet", outTree, True)
 met_pt = NtupleVar("met_pt", outTree, True)
@@ -148,10 +148,10 @@ jets = ObjectVector("jet", outTree, True)
 # not supporting hard-scatter truth record for now
 
 # bit of a hack, but should work:
-sumweights = 0.0
-for entry in range(numberOfEntries):
-    treeReader.ReadEntry(entry)
-    sumweights += float(branchEvent.At(0).Weight)
+# sumweights = 0.0
+# for entry in range(numberOfEntries):
+#     treeReader.ReadEntry(entry)
+#     sumweights += float(branchEvent.At(0).Weight)
 
 # will normalize everything to XS
 #print(f"Using cross section {args.XS}")
@@ -168,7 +168,7 @@ for entry in range(numberOfEntries):
 
     # Fill in event info (some is left at default 0)
     EventNumber.Set(branchEvent.At(0).Number)
-    mcChannel.Set(branchEvent.At(0).ProcessID)
+    #mcChannel.Set(branchEvent.At(0).ProcessID)
     #mcWeights.Add(branchEvent.At(0).Weight * weightscale)
     # FIXME: add PDF info etc. if available
 
