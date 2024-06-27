@@ -26,20 +26,20 @@ RUN apt-get -qq -y update && \
       gfortran \
       patch \
       cmake \
-      vim \
       zlib1g-dev \
       rsync \
       wget \
       ghostscript \
       bc \
+      python3 \
       python3-pip \
       python3-dev \
       python3-venv \
       coreutils \
       git && \
     apt-get -y autoclean && \
-    apt-get -y autoremove
-
+    apt-get -y autoremove && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install directory
 ARG INSTALL_DIR=/mg_pythia_delphes
@@ -76,13 +76,13 @@ RUN wget ${MG_URL} && \
 
 
 # Install HepMC
-ARG HEPMC_VERSION=2.06.09
+ARG HEPMC_VERSION=02_06_09
 COPY data/WeightContainer* ${DATA_TMP_DIR}
 RUN mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
-    wget http://hepmc.web.cern.ch/hepmc/releases/hepmc${HEPMC_VERSION}.tgz && \
-    tar xvfz hepmc${HEPMC_VERSION}.tgz && \
-    mv hepmc${HEPMC_VERSION} src && \
+    wget https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_${HEPMC_VERSION}/HepMC-HEPMC_${HEPMC_VERSION}.tar.gz && \
+    tar -xvzf HepMC-HEPMC_${HEPMC_VERSION}.tar.gz && \
+    mv HepMC-HEPMC_${HEPMC_VERSION} src && \
     # HEPMC HACK to support named weights
     cp ${DATA_TMP_DIR}/WeightContainer.cc src/src/WeightContainer.cc && \
     cp ${DATA_TMP_DIR}/WeightContainer.h  src/HepMC/WeightContainer.h && \
@@ -269,10 +269,11 @@ RUN useradd --shell /bin/bash -m docker && \
    chown -R --from=root docker ${INSTALL_DIR} && \
    chown -R --from=503 docker /${INSTALL_DIR}/MG5_aMC
 
-COPY data/usage.txt /home/docker/
-RUN echo "cat /home/docker/usage.txt" >> /home/docker/.bashrc
 
-RUN rm -rf ${DATA_TMP_DIR}
+ARG bashrc=/etc/profile
+RUN echo source /setup_mg_pythia_delphes.sh >> ${bashrc}
+
+RUN rm -rf ${DATA_TMP_DIR} /setup_build.sh
 
 ENV HOME /home/docker
 USER docker
