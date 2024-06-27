@@ -31,22 +31,41 @@ for file in ${input_files} ; do
     tar -xzf $file -C $tmpdir/all
 done
 
-image=franaln/mg-pythia-delphes
+
+if [[ "$HOSTNAME" == "jupiter.iflp.unlp.edu.ar" ]] ; then
+    use_docker=false
+    image=/mnt/R5/images/mg-pythia-delphes-latest.sif
+else
+    use_docker=true
+    image=franaln/mg-pythia-delphes:latest
+fi
+
 
 # Merge lhe
 count=`ls -1 ${tmpdir}/all/*unweighted_events.lhe.gz 2>/dev/null | wc -l`
 if [ $count != 0 ] ; then
     echo "Merging lhe files"
-    cmd_merge_lhe="source /setup_mg_pythia_delphes.sh && /mg_pythia_delphes/MG5_aMC/Template/LO/bin/internal/merge.pl share/all/*unweighted_events.lhe.gz share/merged/merged_unweighted_events.lhe.gz share/banner.txt"
-    docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/share $image "$cmd_merge_lhe"
+    cmd_merge_lhe="/mg_pythia_delphes/MG5_aMC/Template/LO/bin/internal/merge.pl tmp_merge/all/*unweighted_events.lhe.gz tmp_merge/merged/merged_unweighted_events.lhe.gz tmp_merge/banner.txt"
+
+    if [ "$use_docker" = true ]  ; then
+        docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/tmp_merge "$image" "$cmd_merge_lhe"
+    else
+        apptainer exec "$image" $cmd_merge_lhe
+    fi
 fi
 
 # Merge root
 count=`ls -1 ${tmpdir}/all/*_delphes_events.root 2>/dev/null | wc -l`
 if [ $count != 0 ] ; then
     echo "Merging root files"
-    cmd_merge_root="source /setup_mg_pythia_delphes.sh && hadd share/merged/merged_delphes_events.root share/all/*_delphes_events.root"
-    docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/share $image "$cmd_merge_root"
+
+    cmd_merge_root="hadd tmp_merge/merged/merged_delphes_events.root tmp_merge/all/*_delphes_events.root"
+
+    if [ "$use_docker" = true ] ; then
+        docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/tmp_merge "$image" "$cmd_merge_root"
+    else
+        apptainer exec $image /bin/bash -l -c "$cmd_merge_root"
+    fi
 fi
 
 # Merge lhco
@@ -54,11 +73,17 @@ count=`ls -1 ${tmpdir}/all/*_delphes_events.lhco 2>/dev/null | wc -l`
 if [ $count != 0 ] ; then
     echo "Merging lhco files"
     if [ ! -f $tmpdir/merged/merged_delphes_events.root ] ; then
-        cmd_merge_lhco="source /setup_mg_pythia_delphes.sh && lhco2root share/merged_delphes_events.root share/all/*_delphes_events.lhco && root2lhco share/merged_delphes_events.root share/merged/merged_delphes_events.lhco"
+        cmd_merge_lhco="lhco2root tmp_merge/merged_delphes_events.root tmp_merge/all/*_delphes_events.lhco && root2lhco tmp_merge/merged_delphes_events.root tmp_merge/merged/merged_delphes_events.lhco"
     else
-        cmd_merge_lhco="source /setup_mg_pythia_delphes.sh && root2lhco share/merged/merged_delphes_events.root share/merged/merged_delphes_events.lhco"
+        cmd_merge_lhco="root2lhco tmp_merge/merged/merged_delphes_events.root tmp_merge/merged/merged_delphes_events.lhco"
     fi
-    docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/share $image "$cmd_merge_lhco"
+
+    if [ "$use_docker" = true ] ; then
+        docker run --rm -u $UID:$GROUPS -v $PWD/$tmpdir:/home/docker/work/tmp_merge "$image" "$cmd_merge_lhco"
+    else
+        apptainer exec "$image" /bin/bash -l -c "$cmd_merge_lhco"
+    fi
+
 fi
 
 tar -czf ${output_file} -C $tmpdir/merged .
