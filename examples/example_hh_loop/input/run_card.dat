@@ -14,11 +14,11 @@
 #   To display more options, you can type the command:               *
 #      update to_full                                                *
 #*********************************************************************
-#                                                                    
+#
 #*********************************************************************
 # Tag name for the run (one word)                                    *
 #*********************************************************************
-  tag_1     = run_tag ! name of the run 
+  tag_1     = run_tag ! name of the run
 #*********************************************************************
 # Number of events and rnd seed                                      *
 # Warning: Do not generate more than 1M events in a single run       *
@@ -35,7 +35,8 @@
      1        = lpp2    ! beam 2 type
      6500.0     = ebeam1  ! beam 1 total energy in GeV
      6500.0     = ebeam2  ! beam 2 total energy in GeV
-# To see polarised beam options: type "update beam_pol"
+# To see polarised beam options: type "update beam_pol",
+
 
 #*********************************************************************
 # PDF CHOICE: this automatically fixes alpha_s and its evol.         *
@@ -44,8 +45,8 @@
 #          eva=Effective W/Z/A Approx.       [21yy.zzzzz]            *
 #          none=No PDF, same as lhapdf with lppx=0                   *
 #*********************************************************************
-     nn23lo1    = pdlabel     ! PDF set 
-     230000    = lhaid     ! if pdlabel=lhapdf, this is the lhapdf number
+  lhapdf = pdlabel     ! PDF set
+  91500  = lhaid     ! if pdlabel=lhapdf, this is the lhapdf number
 # To see heavy ion options: type "update ion_pdf"
 #*********************************************************************
 # Renormalization and factorization scales                           *
@@ -58,7 +59,7 @@
  -1 = dynamical_scale_choice ! Choose one of the preselected dynamical choices
  1.0  = scalefact        ! scale factor for event-by-event scales
 
- 
+
 #*********************************************************************
 # Type and output format
 #*********************************************************************
@@ -77,7 +78,7 @@
    1  = sde_strategy  ! default integration strategy (hep-ph/2021.00773)
                              ! 1 is old strategy (using amp square)
 			     ! 2 is new strategy (using only the denominator)
-# To see advanced option for Phase-Space optimization: type "update psoptim"			     
+# To see advanced option for Phase-Space optimization: type "update psoptim"
 #*********************************************************************
 # Generation bias, check the wiki page below for more information:   *
 #  'cp3.irmp.ucl.ac.be/projects/madgraph/wiki/LOEventGenerationBias' *
@@ -85,14 +86,14 @@
  None = bias_module  ! Bias type of bias, [None, ptj_bias, -custom_folder-]
  {} = bias_parameters ! Specifies the parameters of the module.
 #
-#*******************************                                                 
+#*******************************
 # Parton level cuts definition *
 #*******************************
   0.0  = dsqrt_shat ! minimal shat for full process
-#                                                                    
+#
 #
 #*********************************************************************
-# BW cutoff (M+/-bwcutoff*Gamma) ! Define on/off-shell for "$" and decay  
+# BW cutoff (M+/-bwcutoff*Gamma) ! Define on/off-shell for "$" and decay
 #*********************************************************************
   15.0  = bwcutoff      ! (M+/-bwcutoff*Gamma)
 #*********************************************************************
@@ -101,7 +102,7 @@
 # Minimum and maximum pt's (for max, -1 means no cut)                *
 #*********************************************************************
  {} = pt_min_pdg ! pt cut for other particles (use pdg code). Applied on particle and anti-particle
- {}	= pt_max_pdg ! pt cut for other particles (syntax e.g. {6: 100, 25: 50}) 
+ {}	= pt_max_pdg ! pt cut for other particles (syntax e.g. {6: 100, 25: 50})
 #
 # For display option for energy cut in the partonic center of mass frame type 'update ecut'
 #
@@ -117,8 +118,8 @@
 # Minimum and maximum invariant mass for pairs                       *
 #*********************************************************************
  {} = mxx_min_pdg ! min invariant mass of a pair of particles X/X~ (e.g. {6:250})
- {'default': False} = mxx_only_part_antipart ! if True the invariant mass is applied only 
-                       ! to pairs of particle/antiparticle and not to pairs of the same pdg codes.  
+ {'default': False} = mxx_only_part_antipart ! if True the invariant mass is applied only
+                       ! to pairs of particle/antiparticle and not to pairs of the same pdg codes.
 #*********************************************************************
 # Inclusive cuts                                                     *
 #*********************************************************************

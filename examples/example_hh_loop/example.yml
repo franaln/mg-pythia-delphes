@@ -6,3 +6,6 @@ run:
   outputs: [lhco, lhe, root]
 
 input_dir: input
+
+options:
+  seed: RANDOM
