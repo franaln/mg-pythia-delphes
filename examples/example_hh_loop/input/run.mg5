@@ -1,0 +1,16 @@
+import model loop_qcd_qed_sm
+import model SM_LQHH_MU2-LAM3-LAM1-LAM2
+
+generate g g > h h [noborn=QCD]
+add process g g > h h j [noborn=QCD]
+
+output RUN
+launch RUN
+
+shower=Pythia8
+
+run_card.dat
+pythia8_card.dat
+delphes_card_ATLAS.dat
+
+done

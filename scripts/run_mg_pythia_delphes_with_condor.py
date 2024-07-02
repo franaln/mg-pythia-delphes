@@ -75,9 +75,17 @@ tar -xzmf ${input_file}
 rm ${input_file}
 ls
 
+if grep -Fxq "set iseed = RANDOM" run.mg5 ; then
+    random_seed=${RANDOM}
+    echo "Setting random seed = ${random_seed}"
+    sed -i "s|set iseed = RANDOM|set iseed = ${random_seed}|g" run.mg5
+fi
+
 echo "> Runnning MG+Pythia+Delphes "
 
-source /setup_mg_pythia_delphes.sh
+if [ -z ${MG_DIR+x} ];
+    source /setup_mg_pythia_delphes.sh
+fi
 
 run_dir=${job_dir}/RUN
 output_dir=${run_dir}/Events/run_01
@@ -172,7 +180,10 @@ def get_config_options(config):
     if 'options' in config:
         opts = config['options']
         if 'seed' in opts:
-            config_options.append(f'set iseed = {opts["seed"]}')
+            if opts['seed'].strip().upper() == 'RANDOM':
+                config_options.append(f'set iseed = RANDOM')
+            else:
+                config_options.append(f'set iseed = {opts["seed"]}')
         if 'ecm' in opts:
             config_options.append(f'set ebeam1 = {float(opts["ecm"]) / 2}')
             config_options.append(f'set ebeam2 = {float(opts["ecm"]) / 2}')
@@ -269,7 +280,7 @@ def main():
 
         options = [
             f'set run_tag = {run_name}',
-            f'set nevents= {run_nevents}',
+            f'set nevents = {run_nevents}',
         ]
 
         options += get_config_options(config)

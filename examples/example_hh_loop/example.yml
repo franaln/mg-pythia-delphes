@@ -1,0 +1,11 @@
+run:
+  name: hh_j
+  image: mg-pythia-delphes-3.3.2
+  nevents: 10000
+  njobs: 10
+  outputs: [lhco, lhe, root]
+
+input_dir: input
+
+options:
+  seed: RANDOM
