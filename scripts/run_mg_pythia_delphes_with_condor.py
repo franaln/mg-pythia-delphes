@@ -23,6 +23,30 @@ ${options}
 done
 """
 
+# template_job_desc = """# MG+Pythia+Delphes - job submission file
+
+# universe = container
+# container_image = ${container_image}
+
+# executable = run_mg_pythia_delphes.sh
+
+# input_file = inputs_$$(run_name).tar.gz
+# job_name = $$(Cluster)_$$(Process)
+# output_name = output_$$(run_name)_$$(job_name)
+
+# arguments  = $$(run_name) $$(input_file) $$(outputs) $$(output_name)
+
+# output      = job_$$(run_name)_$$(job_name).out
+# error       = job_$$(run_name)_$$(job_name).err
+# log         = job_$$(run_name)_$$(job_name).log
+
+# should_transfer_files = YES
+# transfer_input_files = inputs_$$(run_name).tar.gz
+
+# transfer_output_files = output_$$(run_name)_$$(job_name).tar.gz
+# when_to_transfer_output = ON_EXIT
+# """
+
 template_job_desc = """# MG+Pythia+Delphes - job submission file
 
 universe = container
@@ -30,21 +54,24 @@ container_image = ${container_image}
 
 executable = run_mg_pythia_delphes.sh
 
-input_file = inputs_$$(run_name).tar.gz
+input_file = ${input_file}
 job_name = $$(Cluster)_$$(Process)
 output_name = output_$$(run_name)_$$(job_name)
 
-arguments  = $$(run_name) $$(input_file) $$(outputs) $$(output_name)
+arguments  = ${arguments}
 
 output      = job_$$(run_name)_$$(job_name).out
 error       = job_$$(run_name)_$$(job_name).err
 log         = job_$$(run_name)_$$(job_name).log
 
 should_transfer_files = YES
-transfer_input_files = inputs_$$(run_name).tar.gz
+transfer_input_files = $$(input_file)
 
-transfer_output_files = output_$$(run_name)_$$(job_name).tar.gz
+transfer_output_files = $$(output_name).tar.gz
 when_to_transfer_output = ON_EXIT
+
+${jobs}
+
 """
 
 template_run_script = """#!/bin/bash
@@ -83,7 +110,7 @@ fi
 
 echo "> Runnning MG+Pythia+Delphes "
 
-if [ -z ${MG_DIR+x} ];
+if [ -z ${MG_DIR+x} ] ; then
     source /setup_mg_pythia_delphes.sh
 fi
 
@@ -168,6 +195,127 @@ fi
 echo "Finished OK, $(date)"
 """
 
+template_run_script_with_gridpack = """#!/bin/bash
+
+run_name=$1
+input_file=$2
+outputs=$3
+output_name=$4
+nevents=$5
+
+output_file=${output_name}.tar.gz
+
+echo -e ">>> Running run_mg_pythia_delphes.sh with the following configuration:\n"
+echo "date          = "$(date)
+echo "hostname      = "$HOSTNAME
+echo "current dir   = "$PWD
+echo ""
+echo "run_name      = "${run_name}
+echo "input_file    = "${input_file}
+echo "outputs       = "${outputs}
+echo "output_name   = "${output_name}
+echo "output_file   = "${output_file}
+echo ""
+
+job_dir=$PWD
+
+echo "> Preparing input files "
+tar -xzmf ${input_file}
+rm ${input_file}
+ls
+
+if [ -z ${MG_DIR+x} ] ; then
+    source /setup_mg_pythia_delphes.sh
+fi
+
+
+echo "> Runnning MG+Pythia+Delphes using gridpack"
+
+seed=${RANDOM}
+echo "random seed = ${seed}"
+echo "nevents     = ${nevents}"
+
+#run_dir=${job_dir}/madevent/
+output_dir=madevent/Events/GridRun_${seed}
+#mg_debug_file=${run_dir}/run_01_${run_name}_debug.log
+#pythia_log_file=${output_dir}/${run_name}_pythia8.log
+
+./madevent/bin/gridrun ${nevents} ${seed} 1
+
+
+# # Check if something failed (in that case save debug output and exit)
+# sc=$?
+# if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
+#     echo "ERROR running MG. Exiting ..."
+#     echo "-- MG DEBUG --"
+#     cat ${mg_debug_file}
+#     echo "-- Pythia8 DEBUG --"
+#     cat ${pythia_log_file}
+#     tar -czf ${output_file} -C ${output_dir} *
+#     exit 1
+# fi
+
+ls ${output_dir}
+# cat ${pythia_log_file}
+echo "Finished running MG+Pythia+Delphes, $(date)"
+
+# Output
+echo "> Preparing outputs"
+
+output_file_root=${output_name}_delphes_events.root
+mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_root}
+
+all_output_files=()
+
+if [[ "${outputs}" =~ "root" ]] ; then
+    all_output_files+=(${output_file_root})
+fi
+
+if [[ "${outputs}" =~ "hepmc" ]] ; then
+    output_file_hepmc=${output_name}_pythia8_events.hepmc.gz
+    mv ${output_dir}/${run_name}_pythia8_events.hepmc.gz ${output_dir}/${output_file_hepmc}
+    all_output_files+=(${output_file_hepmc})
+fi
+
+if [[ "${outputs}" =~ "lhe" ]] ; then
+    output_file_lhe=${output_name}_unweighted_events.lhe.gz
+    mv ${output_dir}/unweighted_events.lhe.gz ${output_dir}/${output_file_lhe}
+    all_output_files+=(${output_file_lhe})
+fi
+
+if [[ "${outputs}" =~ "lhco" ]] ; then
+
+    echo "> Creating lhco output "
+
+    output_file_tmp_lhco=${output_name}_delphes_events_tmp.lhco
+    output_file_lhco=${output_name}_delphes_events.lhco
+    output_file_banner=run_01_${run_name}_banner.txt
+
+    root2lhco ${output_dir}/${output_file_root} ${output_dir}/${output_file_tmp_lhco}
+
+    if [ ! -e ${output_dir}/${output_file_tmp_lhco} ]; then
+        echo "ERROR: no lhco output file. Exiting ..."
+        ls ${output_dir}
+        tar -czf ${output_file} -C ${job_dir} *
+        exit 1
+    fi
+
+    # Merge lhco and banner (copied from run_delphes3)
+    sed -e "s/^/# /g" ${output_dir}/${output_file_banner} > ${output_dir}/${output_file_lhco}
+    echo "" >> ${output_dir}/${output_file_lhco}
+    cat ${output_dir}/${output_file_tmp_lhco} >> ${output_dir}/${output_file_lhco}
+
+    all_output_files+=(${output_file_lhco})
+fi
+
+if [[ "${outputs}" =~ "all" ]] ; then
+    tar -czf ${output_file} -C ${output_dir} *
+else
+    tar -cvzf ${output_file} -C ${output_dir} ${all_output_files[@]}
+fi
+
+echo "Finished OK, $(date)"
+"""
 
 def mkdir(path):
     try:
@@ -180,7 +328,7 @@ def get_config_options(config):
     if 'options' in config:
         opts = config['options']
         if 'seed' in opts:
-            if opts['seed'].strip().upper() == 'RANDOM':
+            if isinstance(opts['seed'], str) and opts['seed'].strip().upper() == 'RANDOM':
                 config_options.append(f'set iseed = RANDOM')
             else:
                 config_options.append(f'set iseed = {opts["seed"]}')
@@ -252,15 +400,26 @@ def main():
         output_dir = os.path.join(os.getcwd(), output)
 
     print(f'- Using working/output dir: {output_dir}')
-    if not os.path.exists(output_dir):
+    if os.path.exists(output_dir):
+        print('Output dir already exist. Remove it or use another one. Exit.')
+        sys.exit(1)
+    else:
         mkdir(output_dir)
 
 
     # Inputs
     inputs_dirs = {}
+    use_gridpack = False
+
+
+    # Gridpack
+    if 'gridpack' in config:
+        use_gridpack = True
+        gridpack_path = config['gridpack']
+        shutil.copy(gridpack_path, f'{output_dir}/gridpack_{run_name}.tar.gz')
 
     #  Custom input
-    if 'input_files' in config or 'input_dir' in config:
+    elif 'input_files' in config or 'input_dir' in config:
 
         inputs_dir = f'{output_dir}/inputs_{run_name}'
         inputs_dirs[run_name] = inputs_dir
@@ -409,7 +568,10 @@ def main():
 
     print(f'- Preparing run script: {script_path}')
     with open(script_path, 'w') as f:
-        f.write(template_run_script)
+        if use_gridpack:
+            f.write(template_run_script_with_gridpack)
+        else:
+            f.write(template_run_script)
 
     os.chmod(script_path, 0o755)
 
@@ -417,35 +579,53 @@ def main():
     # Prepare and submit jobs
 
     # Job script
-    template = string.Template(template_job_desc)
-    job_desc = template.substitute(
-        {
-            'container_image': container_image,
-        }
-    )
+    job_replace_dict = {}
+
+    job_replace_dict['container_image'] = container_image
+
+    if use_gridpack:
+        job_replace_dict['input_file'] = 'gridpack_$(run_name).tar.gz'
+        job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name) $(nevents)'
+    else:
+        job_replace_dict['input_file'] = 'inputs_$(run_name).tar.gz'
+        job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name)'
+
+    jobs = ''
+    if use_gridpack:
+
+            jobs += f'run_name = {run_name}\n'
+            jobs += f'nevents = {run_nevents}\n'
+            jobs += f'outputs = {",".join(run_outputs)}\n'
+            jobs += f'queue {run_njobs}\n'
+
+    else:
+
+        for name in inputs_dirs.keys():
+
+            if 'hepmc0' in run_outputs and run_njobs > 1:
+                outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
+
+                jobs += f'run_name = {name}\n'
+                jobs += f'outputs = {outputs_str},hepmc\n'
+                jobs += f'queue\n'
+
+                jobs += f'run_name = {name}\n'
+                jobs += f'outputs = {outputs_str}\n'
+                jobs += f'queue {run_njobs-1}\n'
+
+            else:
+                jobs += f'run_name = {name}\n'
+                jobs += f'outputs = {",".join(run_outputs)}\n'
+                jobs += f'queue {run_njobs}\n'
 
 
-    for name in inputs_dirs.keys():
-
-        if 'hepmc0' in run_outputs and run_njobs > 1:
-            outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
-
-            job_desc += f'run_name = {name}\n'
-            job_desc += f'outputs = {outputs_str},hepmc\n'
-            job_desc += f'queue\n'
-
-            job_desc += f'run_name = {name}\n'
-            job_desc += f'outputs = {outputs_str}\n'
-            job_desc += f'queue {run_njobs-1}\n'
-
-        else:
-            job_desc += f'run_name = {name}\n'
-            job_desc += f'outputs = {",".join(run_outputs)}\n'
-            job_desc += f'queue {run_njobs}\n'
-
+    job_replace_dict['jobs'] = jobs
 
     # Save job.sub file
     job_file = f'job_{run_name}.sub'
+
+    template = string.Template(template_job_desc)
+    job_desc = template.substitute(job_replace_dict)
 
     print(f'- Saving job submission description in {output_dir}/{job_file}')
     with open(f'{output_dir}/{job_file}', 'w') as f:
