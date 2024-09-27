@@ -8,44 +8,30 @@ import yaml
 import shutil
 
 
-template_run_mg = """${process}
+template_run_mg = """# run.mg5
 
+# Config options
+${expert_options}
+
+# Process
+${process}
+
+# Output dir
 output RUN
 launch RUN
 
+# MadSpin/Pythia
 ${run_madspin}
 ${run_pythia}
 
+# Cards
 ${cards}
 
+# Run Options
 ${options}
 
 done
 """
-
-# template_job_desc = """# MG+Pythia+Delphes - job submission file
-
-# universe = container
-# container_image = ${container_image}
-
-# executable = run_mg_pythia_delphes.sh
-
-# input_file = inputs_$$(run_name).tar.gz
-# job_name = $$(Cluster)_$$(Process)
-# output_name = output_$$(run_name)_$$(job_name)
-
-# arguments  = $$(run_name) $$(input_file) $$(outputs) $$(output_name)
-
-# output      = job_$$(run_name)_$$(job_name).out
-# error       = job_$$(run_name)_$$(job_name).err
-# log         = job_$$(run_name)_$$(job_name).log
-
-# should_transfer_files = YES
-# transfer_input_files = inputs_$$(run_name).tar.gz
-
-# transfer_output_files = output_$$(run_name)_$$(job_name).tar.gz
-# when_to_transfer_output = ON_EXIT
-# """
 
 template_job_desc = """# MG+Pythia+Delphes - job submission file
 
@@ -340,6 +326,21 @@ def get_config_options(config):
 
     return config_options
 
+def get_expert_options(config):
+    config_options = []
+    if 'expert' in config:
+        opts = config['expert']
+        if 'mode' in opts:
+            if opts["run_mode"] == 'single':
+                config_options.append('set run_mode 0')
+            elif opts['mode'] == 'multi':
+                config_options.append('set run_mode 2')
+        if 'ncores' in opts:
+            if opts['ncores'].lower() == 'all':
+                opts['ncores'] = 'None'
+            config_options.append(f'set nb_core {opts["ncores"]}')
+
+    return config_options
 
 def main():
 
@@ -371,7 +372,7 @@ def main():
     print(f'> Running mg-pythia-delphes with condor. Run name = {run_name}. Configuration = {config_file}')
 
     ## Docker/Apptainer image
-    image_dir = '/mnt/R5/images'
+    image_dir = '/opt/images'
     available_images = [
         'mg-pythia-delphes-3.3.2',
         'mg-pythia-delphes-latest',
@@ -529,6 +530,7 @@ def main():
             process_str = config['process']
 
         config_options = get_config_options(config)
+        expert_options  = get_expert_options(config)
 
         for name, inputs_dir in inputs_dirs.items():
 
@@ -547,6 +549,7 @@ def main():
                     'run_pythia': 'shower=Pythia8' if run_pythia else 'shower=OFF',
                     'cards': cards_str,
                     'options': '\n'.join(options),
+                    'expert_options': '\n'.join(expert_options) if expert_options else ''
                 }
             )
 

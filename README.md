@@ -8,6 +8,9 @@ Images available on: [franaln/mg-pythia-delphes](https://hub.docker.com/r/franal
 
 ## Run with htcondor
 
+You can run with condor using the default way of writing the submission file [[example0](examples/example0)]
+
+
 `
 run_mg_pythia_delphes_with_condor.py -c config.yml -o output_dir
 `
@@ -38,29 +41,85 @@ options:
     use_syst: False
 ```
 
-- run:
-    - name: name of the run (required)
-    - image: image to use, mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest (default)
-    - nevents: number of events for each job (default = 10K)
-    - njobs: number of jobs (default = 1)
-    - outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco] (default = [lhe, lhco]). hepmc0 will save the hepmc output only for the first job
+### Configuration
+
+- The first section of the configuration is called "run" and is required:
+
+```
+run:
+    name: name of the run (required)
+    image: image to use, mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest (default=mg-pythia-delphes-latest)
+    nevents: number of events for each job (default=10000)
+    njobs: number of jobs (default=1)
+    outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco] (default = [lhe, lhco]). hepmc0 will save the hepmc output only for the first job
+```
 
 - Madgraph process and cards can be specified in different ways:
-    - Using process + cards (param cards can be a list)
-    - Using only cards (including proc_card.dat)
-    - Using input_dir or list of input_files. They should include a "run.mg5" and all the needed files to run
 
-- options [optional] (these options will replace run_card values)
-    - seed: random seed
-    - use_syst: save systematic output
-    - ecm: center of mass energy
+1. Using process + cards. For example [[example1](examples/example1)]:
+
+```
+process:
+    import model sm
+
+    generate p p > t t~ b b~
+
+cards:
+    run: run_card.dat
+    param: param_card.dat
+    pythia: pythia8_card.dat
+    delphes: delphes_card_ATLAS.dat
+```
+
+2. Replacing 'process' with a proc_card [[example2](examples/example2)]:
+
+```
+cards:
+    proc: proc_card.dat
+    run: run_card.dat
+    param: param_card.dat
+    pythia: pythia8_card.dat
+    delphes: delphes_card_ATLAS.dat
+```
+
+3. Using input_dir or list of input_files. They should include a "run.mg5" and all the needed files to run
+
+    - If you have an input directory <INPUT_PATH> with all the files needed to run (run.mg5, cards, ...) you can put the following option in the config file (without process and cards options) [[example5](examples/example5)]:
+    ```
+    input_dir: <INPUT_PATH>
+    ```
+
+    - Or instead of using a directory you can list the input files like [[example4](examples/example4)]:
+    ```
+    input_files:
+      - run.mg5
+      - run_card.dat
+      - param_card.dat
+      - pythia8_card.dat
+      - delphes_card_ATLAS.dat
+    ```
+
+* It is possible to use a list of param cards. For example to produce similar process with different parameters [[example3](examples/example3)]
 
 
-## Check jobs status
+- Other options can be speciffied using "options". This is optional and they will replace run_card values. The default values are the ones in the run card used. For example:
+```
+options:
+    seed: interger to use random seed or the word "RANDOM" to choose a random seed for each job
+    use_syst: True/False (to save systematics output, default=False)
+    ecm: center of mass energy
+```
 
-`
-condor_q
-`
+- Expert options
+    - mode: single/multi (default=single)
+    - ncores: number of cores to use (default=all)
+
+For example to run in multicore (use with care in condor):
+```
+expert:
+    mode: multi
+```
+
 
 ## Output
 

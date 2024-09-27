@@ -16,6 +16,8 @@ container_image = /mnt/R5/images/$(image).sif
 executable = run_mg_pythia_delphes.sh
 arguments  = $(run_name) $(run_input) $(run_mg_file) $(run_card_file) $(output_name) $(nevents)
 
+requirements = ("machine" != "node0")
+    
 output      = job_$(Cluster)_$(Process).out
 error       = job_$(Cluster)_$(Process).err
 log         = job_$(Cluster)_$(Process).log
