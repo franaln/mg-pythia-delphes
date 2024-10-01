@@ -101,29 +101,32 @@ if [ -z ${MG_DIR+x} ] ; then
 fi
 
 run_dir=${job_dir}/RUN
-output_dir=${run_dir}/Events/run_01
-mg_debug_file=${run_dir}/run_01_${run_name}_debug.log
-pythia_log_file=${output_dir}/${run_name}_pythia8.log
 
 mg5_aMC run.mg5
+
+if [ -d ${run_dir}/Events/run_01_decayed_1 ] ; then
+    output_dir_name=run_01_decayed_1
+elif  [ -d ${run_dir}/Events/run_01 ] ; then
+    output_dir_name=run_01
+fi
+
+output_dir=${run_dir}/Events/${output_dir_name}
+
 
 # Check if something failed (in that case save debug output and exit)
 sc=$?
 if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
     echo "ERROR running MG. Exiting ..."
-    echo "-- MG DEBUG --"
-    cat ${mg_debug_file}
-    echo "-- Pythia8 DEBUG --"
-    cat ${pythia_log_file}
     tar -czf ${output_file} -C ${output_dir} *
     exit 1
 fi
 
 ls ${output_dir}
-cat ${pythia_log_file}
+
 echo "Finished running MG+Pythia+Delphes, $(date)"
 
-# Output
+
+# Outputs
 echo "> Preparing outputs"
 
 output_file_root=${output_name}_delphes_events.root
@@ -131,29 +134,50 @@ mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_roo
 
 all_output_files=()
 
+## logs
+if [[ "${outputs}" =~ "log" ]] ; then
+    output_file_logs=${output_name}_logs.tar
+    find ${run_dir} -iname '*.log' -print0 | tar -cvf ${output_dir}/${output_file_logs} --null -T -
+    all_output_files+=(${output_file_logs})
+fi
+
+## delphes .root
 if [[ "${outputs}" =~ "root" ]] ; then
     all_output_files+=(${output_file_root})
 fi
 
+## HEPMC (Pythia8 output)
 if [[ "${outputs}" =~ "hepmc" ]] ; then
     output_file_hepmc=${output_name}_pythia8_events.hepmc.gz
     mv ${output_dir}/${run_name}_pythia8_events.hepmc.gz ${output_dir}/${output_file_hepmc}
     all_output_files+=(${output_file_hepmc})
 fi
 
+## LHE
 if [[ "${outputs}" =~ "lhe" ]] ; then
     output_file_lhe=${output_name}_unweighted_events.lhe.gz
+
     mv ${output_dir}/unweighted_events.lhe.gz ${output_dir}/${output_file_lhe}
     all_output_files+=(${output_file_lhe})
+
+    # if madspin output also save lhe before (useful or not?)
+    if [[ "${output_dir_name}" =~ "decayed" && -f ${run_dir}/Events/run_01/unweighted_events.lhe ]] ; then
+        output_file_lhe_before=${output_name}_unweighted_events_before_decay.lhe.gz
+        gzip ${run_dir}/Events/run_01/unweighted_events.lhe
+        mv ${run_dir}/Events/run_01/unweighted_events.lhe.gz ${output_dir}/${output_file_lhe_before}
+        all_output_files+=(${output_file_lhe_before})
+    fi
+
 fi
 
+## LHCO (Delphes output)
 if [[ "${outputs}" =~ "lhco" ]] ; then
 
     echo "> Creating lhco output "
 
     output_file_tmp_lhco=${output_name}_delphes_events_tmp.lhco
     output_file_lhco=${output_name}_delphes_events.lhco
-    output_file_banner=run_01_${run_name}_banner.txt
+    output_file_banner=${output_dir_name}_${run_name}_banner.txt
 
     root2lhco ${output_dir}/${output_file_root} ${output_dir}/${output_file_tmp_lhco}
 
@@ -177,6 +201,8 @@ if [[ "${outputs}" =~ "all" ]] ; then
 else
     tar -cvzf ${output_file} -C ${output_dir} ${all_output_files[@]}
 fi
+
+
 
 echo "Finished OK, $(date)"
 """
@@ -390,7 +416,7 @@ def main():
 
     run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
     run_njobs   = config_run['njobs'] if 'njobs' in config_run else 1
-    run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhe', 'lhco']
+    run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhe', 'lhco', 'log']
 
 
     # Create working directory
