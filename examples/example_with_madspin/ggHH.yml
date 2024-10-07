@@ -1,0 +1,18 @@
+run:
+  name: ggHH
+  image: mg-pythia-delphes-3.3.2 
+  nevents: 100
+  njobs: 10
+  outputs: [lhco, lhe, root, log]
+
+cards:
+  proc: proc_card_mg5.dat
+  run: run_card.dat
+  param: param_card.dat 
+  delphes: delphes_card.dat
+  madspin: madspin_card.dat
+  pythia: pythia8_card.dat
+
+options:
+    seed: random
+    use_syst: False
