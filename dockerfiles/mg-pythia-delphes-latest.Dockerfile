@@ -2,7 +2,7 @@
 # using (almost) latest version available:
 # python=3.8
 # root=6.30.06
-# MadGraph=3.5.4
+# MadGraph=3.5.6
 # hepmc=2.06.09
 # FastJet=3.4.2
 # LHAPDF=6.5.1
@@ -64,7 +64,7 @@ RUN wget ${ROOT_URL} && \
     rm ${ROOT_VERSION}
 
 # Install MG
-ARG MG_VERSION=3.5.4
+ARG MG_VERSION=3.5.6
 ARG MG_URL=https://launchpad.net/mg5amcnlo/3.0/3.5.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
 COPY data/six.py ${INSTALL_DIR}/python
 RUN wget ${MG_URL} && \
@@ -239,6 +239,11 @@ RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
 COPY data/loop_qcd_qed_sm.tar.gz /
 RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
     rm /loop_qcd_qed_sm.tar.gz
+
+# Install model invisibleBA_UFO
+COPY data/invisibleBA_UFO.tar.gz /
+RUN tar -xvzf invisibleBA_UFO.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
+    rm /invisibleBA_UFO.tar.gz
 
 # Download PDFs
 # 230000: NNPDF23_nlo_as_0119
