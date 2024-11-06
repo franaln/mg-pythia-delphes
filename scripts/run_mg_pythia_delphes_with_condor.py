@@ -56,6 +56,8 @@ transfer_input_files = $$(input_file)
 transfer_output_files = $$(output_name).tar.gz
 when_to_transfer_output = ON_EXIT
 
+${requirements}
+
 ${jobs}
 
 """
@@ -357,7 +359,7 @@ def get_expert_options(config):
     if 'expert' in config:
         opts = config['expert']
         if 'mode' in opts:
-            if opts["run_mode"] == 'single':
+            if opts["mode"] == 'single':
                 config_options.append('set run_mode 0')
             elif opts['mode'] == 'multi':
                 config_options.append('set run_mode 2')
@@ -611,6 +613,18 @@ def main():
     job_replace_dict = {}
 
     job_replace_dict['container_image'] = container_image
+
+
+    # job requirements
+    if 'requirements' in config_run:
+        requirements = config_run['requirements']
+
+        job_replace_dict['requirements'] = f'requirements = {requirements}'
+
+    else:
+        job_replace_dict['requirements'] = ''
+
+
 
     if use_gridpack:
         job_replace_dict['input_file'] = 'gridpack_$(run_name).tar.gz'
