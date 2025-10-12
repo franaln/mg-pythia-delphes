@@ -23,6 +23,7 @@ launch RUN
 # MadSpin/Pythia
 ${run_madspin}
 ${run_pythia}
+${run_delphes}
 
 # Cards
 ${cards}
@@ -62,7 +63,66 @@ ${jobs}
 
 """
 
-template_run_script = """#!/bin/bash
+template_run_local_script = """#!/bin/bash
+
+run_name=$1
+run_dir=$2
+
+echo -e ">>> Running run_mg_pythia_delphes.sh with the following configuration:\n"
+echo "date          = "$(date)
+echo "hostname      = "$HOSTNAME
+echo "current dir   = "$PWD
+echo ""
+echo "run_name      = "${run_name}
+echo "run_dir       = "${run_dir}
+echo ""
+
+job_dir=$PWD
+
+echo "> Moving to run_directory ${run_dir}"
+cd ${run_dir}
+
+
+if grep -Fxq "set iseed = RANDOM" run.mg5 ; then
+    random_seed=${RANDOM}
+    echo "Setting random seed = ${random_seed}"
+    sed -i "s|set iseed = RANDOM|set iseed = ${random_seed}|g" run.mg5
+fi
+
+echo "> Runnning MG+Pythia+Delphes "
+
+if [ -z ${MG_DIR+x} ] ; then
+    source /setup_mg_pythia_delphes.sh
+fi
+
+run_dir=${job_dir}/RUN
+
+mg5_aMC run.mg5
+
+if [ -d ${run_dir}/Events/run_01_decayed_1 ] ; then
+    output_dir_name=run_01_decayed_1
+elif  [ -d ${run_dir}/Events/run_01 ] ; then
+    output_dir_name=run_01
+fi
+
+output_dir=${run_dir}/Events/${output_dir_name}
+
+
+# Check if something failed (in that case save debug output and exit)
+sc=$?
+if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
+    echo "ERROR running MG. Exiting ..."
+    tar -czf ${output_file} -C ${output_dir} *
+    exit 1
+fi
+
+ls ${output_dir}
+
+echo "Finished running MG+Pythia+Delphes, $(date)"
+
+"""
+
+template_run_condor_script = """#!/bin/bash
 
 run_name=$1
 input_file=$2
@@ -113,7 +173,6 @@ elif  [ -d ${run_dir}/Events/run_01 ] ; then
 fi
 
 output_dir=${run_dir}/Events/${output_dir_name}
-
 
 # Check if something failed (in that case save debug output and exit)
 sc=$?
@@ -204,132 +263,9 @@ else
     tar -cvzf ${output_file} -C ${output_dir} ${all_output_files[@]}
 fi
 
-
-
 echo "Finished OK, $(date)"
 """
 
-template_run_script_with_gridpack = """#!/bin/bash
-
-run_name=$1
-input_file=$2
-outputs=$3
-output_name=$4
-nevents=$5
-
-output_file=${output_name}.tar.gz
-
-echo -e ">>> Running run_mg_pythia_delphes.sh with the following configuration:\n"
-echo "date          = "$(date)
-echo "hostname      = "$HOSTNAME
-echo "current dir   = "$PWD
-echo ""
-echo "run_name      = "${run_name}
-echo "input_file    = "${input_file}
-echo "outputs       = "${outputs}
-echo "output_name   = "${output_name}
-echo "output_file   = "${output_file}
-echo ""
-
-job_dir=$PWD
-
-echo "> Preparing input files "
-tar -xzmf ${input_file}
-rm ${input_file}
-ls
-
-if [ -z ${MG_DIR+x} ] ; then
-    source /setup_mg_pythia_delphes.sh
-fi
-
-
-echo "> Runnning MG+Pythia+Delphes using gridpack"
-
-seed=${RANDOM}
-echo "random seed = ${seed}"
-echo "nevents     = ${nevents}"
-
-#run_dir=${job_dir}/madevent/
-output_dir=madevent/Events/GridRun_${seed}
-#mg_debug_file=${run_dir}/run_01_${run_name}_debug.log
-#pythia_log_file=${output_dir}/${run_name}_pythia8.log
-
-./madevent/bin/gridrun ${nevents} ${seed} 1
-
-
-# # Check if something failed (in that case save debug output and exit)
-# sc=$?
-# if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
-#     echo "ERROR running MG. Exiting ..."
-#     echo "-- MG DEBUG --"
-#     cat ${mg_debug_file}
-#     echo "-- Pythia8 DEBUG --"
-#     cat ${pythia_log_file}
-#     tar -czf ${output_file} -C ${output_dir} *
-#     exit 1
-# fi
-
-ls ${output_dir}
-# cat ${pythia_log_file}
-echo "Finished running MG+Pythia+Delphes, $(date)"
-
-# Output
-echo "> Preparing outputs"
-
-output_file_root=${output_name}_delphes_events.root
-mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_root}
-
-all_output_files=()
-
-if [[ "${outputs}" =~ "root" ]] ; then
-    all_output_files+=(${output_file_root})
-fi
-
-if [[ "${outputs}" =~ "hepmc" ]] ; then
-    output_file_hepmc=${output_name}_pythia8_events.hepmc.gz
-    mv ${output_dir}/${run_name}_pythia8_events.hepmc.gz ${output_dir}/${output_file_hepmc}
-    all_output_files+=(${output_file_hepmc})
-fi
-
-if [[ "${outputs}" =~ "lhe" ]] ; then
-    output_file_lhe=${output_name}_unweighted_events.lhe.gz
-    mv ${output_dir}/unweighted_events.lhe.gz ${output_dir}/${output_file_lhe}
-    all_output_files+=(${output_file_lhe})
-fi
-
-if [[ "${outputs}" =~ "lhco" ]] ; then
-
-    echo "> Creating lhco output "
-
-    output_file_tmp_lhco=${output_name}_delphes_events_tmp.lhco
-    output_file_lhco=${output_name}_delphes_events.lhco
-    output_file_banner=run_01_${run_name}_banner.txt
-
-    root2lhco ${output_dir}/${output_file_root} ${output_dir}/${output_file_tmp_lhco}
-
-    if [ ! -e ${output_dir}/${output_file_tmp_lhco} ]; then
-        echo "ERROR: no lhco output file. Exiting ..."
-        ls ${output_dir}
-        tar -czf ${output_file} -C ${job_dir} *
-        exit 1
-    fi
-
-    # Merge lhco and banner (copied from run_delphes3)
-    sed -e "s/^/# /g" ${output_dir}/${output_file_banner} > ${output_dir}/${output_file_lhco}
-    echo "" >> ${output_dir}/${output_file_lhco}
-    cat ${output_dir}/${output_file_tmp_lhco} >> ${output_dir}/${output_file_lhco}
-
-    all_output_files+=(${output_file_lhco})
-fi
-
-if [[ "${outputs}" =~ "all" ]] ; then
-    tar -czf ${output_file} -C ${output_dir} *
-else
-    tar -cvzf ${output_file} -C ${output_dir} ${all_output_files[@]}
-fi
-
-echo "Finished OK, $(date)"
-"""
 
 def mkdir(path):
     try:
@@ -351,6 +287,8 @@ def get_config_options(config):
             config_options.append(f'set ebeam2 = {float(opts["ecm"]) / 2}')
         if 'use_syst' in opts:
             config_options.append(f'set use_syst = {opts["use_syst"]}')
+        if 'extra' in opts:
+            config_options.append(opts['extra'])
 
     return config_options
 
@@ -372,14 +310,23 @@ def get_expert_options(config):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='run_mg_pythia_delphes_with_condor.py')
+    parser = argparse.ArgumentParser(description='run_mg_pythia_delphes.py')
 
     # Main required arguments
     parser.add_argument('-c', '--config', required=True, help='Configuration file')
     parser.add_argument('-o', '--output', required=True, help='Output directory')
+    parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
-    # Submission options
-    parser.add_argument('--nosub', action='store_true', help='Prepare directory and files but don\' submit jobs')
+    # Run options
+    parser.add_argument('--run_mode', default=None, choices=['local', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
+
+    ## Local options
+    # parser.add_argument('--docker', action='store_true', help='(Only for LOCAL). Use Docker to run the jobs')
+
+
+    ## Condor/jupiter options
+    parser.add_argument('--nosub', action='store_true', help='(Only for CONDOR). Prepare directory and files but don\' submit jobs')
+    # parser.add_argument('--njobs', default=1, type=int, help='(Only for CONDOR). Number of jobs to run')
 
     args = parser.parse_args()
 
@@ -397,24 +344,56 @@ def main():
 
     run_name = config_run['name']
 
-    print(f'> Running mg-pythia-delphes with condor. Run name = {run_name}. Configuration = {config_file}')
+    if args.run_mode is not None:
+        run_mode = args.run_mode
+    elif 'mode' in config_run:
+        run_mode = config_run['mode']
+    else:
+        run_mode = 'local'
+
+    print(f'> Running mg-pythia-delphes with run_mode = {run_mode}. Run name = {run_name}. Configuration = {config_file}')
 
     ## Docker/Apptainer image
-    image_dir = '/opt/images'
-    available_images = [
-        'mg-pythia-delphes-3.3.2',
-        'mg-pythia-delphes-latest',
-    ]
+    if run_mode in ('condor', 'jupiter'):
 
-    if 'image' not in config_run:
-        print('- No image was configured. Using latest: mg-pythia-delphes-latest')
-        container_image = f'{image_dir}/mg-pythia-delphes-latest.sif'
-    else:
-        container_image = f'{image_dir}/{config_run["image"]}.sif'
-        if not os.path.exists(container_image):
-            print(f'Error: Image {config_run["image"]} does not exist. Use one of the existint images:')
+        image_dir = '/opt/images'
+
+        available_images = [
+            'mg-pythia-delphes-3.3.2',
+            'mg-pythia-delphes-3.5.6',
+            'mg-pythia-delphes-latest',
+        ]
+
+        if 'image' not in config_run:
+            print('- No image was configured. Using latest: mg-pythia-delphes-latest')
+            container_image = 'mg-pythia-delphes-latest'
+        elif config_run['image'] not in available_images:
+            print(f'Error: Image {config_run["image"]} is not available. Use one of the existint images:')
             print('\n'.join(available_images))
             sys.exit(1)
+        else:
+            container_image = config_run["image"]
+
+        container_image_path = f'{image_dir}/{container_image}.sif'
+        print(f'- Running with condor using image: {container_image_path}')
+
+    elif run_mode == 'local':
+        if 'image' in config_run:
+            container_image_path = config_run['image']
+        else:
+            container_image_path = 'franaln/mg-pythia-delphes:latest'
+
+        print(f'- Running locally with docker using image: {container_image_path}')
+
+    elif run_mode == 'local-apptainer':
+
+        if 'image' in config_run:
+            container_image_path = config_run['image']
+        else:
+            print(f'Error: No default image is available.')
+            sys.exit(1)
+
+        print(f'- Running locally with apptainer using image: {container_image_path}')
 
     run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
     run_njobs   = config_run['njobs'] if 'njobs' in config_run else 1
@@ -430,41 +409,38 @@ def main():
 
     print(f'- Using working/output dir: {output_dir}')
     if os.path.exists(output_dir):
-        print('Output dir already exist. Remove it or use another one. Exit.')
-        sys.exit(1)
+        if args.force:
+            print('Output dir already exists. Removing it.')
+            shutil.rmtree(output_dir)
+            mkdir(output_dir)
+        else:
+            print('Output dir already exist. Remove it or use another one. Exit.')
+            sys.exit(1)
     else:
         mkdir(output_dir)
 
 
     # Inputs
-    inputs_dirs = {}
-    use_gridpack = False
-
-
-    # Gridpack
-    if 'gridpack' in config:
-        use_gridpack = True
-        gridpack_path = config['gridpack']
-        shutil.copy(gridpack_path, f'{output_dir}/gridpack_{run_name}.tar.gz')
+    run_dirs = {}
 
     #  Custom input
-    elif 'input_files' in config or 'input_dir' in config:
+    if 'input_files' in config or 'input_dir' in config:
 
-        inputs_dir = f'{output_dir}/inputs_{run_name}'
-        inputs_dirs[run_name] = inputs_dir
+        run_dir = f'{output_dir}/run_{run_name}'
+        run_dirs[run_name] = run_dir
 
         if 'input_dir' in config:
             shutil.copytree(config['input_dir'], inputs_dir)
         else:
-            mkdir(inputs_dir)
+            mkdir(run_dir)
             for f in config['input_files']:
-                shutil.copy(f, inputs_dir)
+                shutil.copy(f, run_dir)
 
-        if not os.path.exists(f'{inputs_dir}/run.mg5'):
+        if not os.path.exists(f'{run_dir}/run.mg5'):
             print('error')
             sys.exit(1)
 
-        run_mg5_str = open(f'{inputs_dir}/run.mg5').read()
+        run_mg5_str = open(f'{run_dir}/run.mg5').read()
 
         options = [
             f'set run_tag = {run_name}',
@@ -483,8 +459,7 @@ def main():
         run_mg5_str += options_str
         run_mg5_str += '\n\ndone\n'
 
-
-        with open(f'{inputs_dir}/run.mg5', 'w') as f:
+        with open(f'{run_dir}/run.mg5', 'w') as f:
             f.write(run_mg5_str)
 
 
@@ -497,54 +472,57 @@ def main():
         run_pythia = False
         run_delphes = False
 
-
         ## Param card
+        ## FIX: param card could be optional
         ## allow loop through param cards
-        if isinstance(config_cards['param'], dict):
+        if 'param' in config_cards and isinstance(config_cards['param'], dict):
 
             for name, card in config_cards['param'].items():
                 model_name = f'{run_name}_{name}'
-                inputs_dir_model = f'{output_dir}/inputs_{model_name}'
+                run_dir_model = f'{output_dir}/run_{model_name}'
 
-                inputs_dirs[model_name] = inputs_dir_model
+                run_dirs[model_name] = run_dir_model
 
-                mkdir(inputs_dir_model)
-                mkdir(f'{inputs_dir_model}/cards')
+                mkdir(run_dir_model)
+                mkdir(f'{run_dir_model}/cards')
 
-                shutil.copyfile(card, f'{inputs_dir_model}/cards/param_card.dat')
+                shutil.copyfile(card, f'{run_dir_model}/cards/param_card.dat')
 
         else:
-            inputs_dir = f'{output_dir}/inputs_{run_name}'
-            inputs_dirs[run_name] = inputs_dir
+            run_dir = f'{output_dir}/run_{run_name}'
+            run_dirs[run_name] = run_dir
 
             #if not os.path.exists(inputs_dir):
-            mkdir(inputs_dir)
-            mkdir(f'{inputs_dir}/cards')
+            mkdir(run_dir)
+            mkdir(f'{run_dir}/cards')
 
-            shutil.copyfile(config_cards["param"], f'{inputs_dir}/cards/param_card.dat')
+            if 'param' in config_cards:
+                shutil.copyfile(config_cards["param"], f'{run_dir}/cards/param_card.dat')
 
         ## Other cards
         run_madspin = 'madspin' in config_cards
         run_pythia  = 'pythia' in config_cards
         run_delphes = 'delphes' in config_cards
 
-        for name, inputs_dir in inputs_dirs.items():
-            shutil.copyfile(config_cards['run'], f'{inputs_dir}/cards/run_card.dat')
+        for name, run_dir in run_dirs.items():
+            shutil.copyfile(config_cards['run'], f'{run_dir}/cards/run_card.dat')
             if run_madspin:
-                shutil.copyfile(config_cards["madspin"], f'{inputs_dir}/cards/madspin_card.dat')
+                shutil.copyfile(config_cards["madspin"], f'{run_dir}/cards/madspin_card.dat')
             if run_pythia:
-                shutil.copyfile(config_cards["pythia"],  f'{inputs_dir}/cards/pythia8_card.dat')
+                shutil.copyfile(config_cards["pythia"],  f'{run_dir}/cards/pythia8_card.dat')
             if run_delphes:
-                shutil.copyfile(config_cards["delphes"], f'{inputs_dir}/cards/delphes_card.dat')
+                shutil.copyfile(config_cards["delphes"], f'{run_dir}/cards/delphes_card.dat')
 
         cards_str = 'cards/run_card.dat\n'
-        cards_str += 'cards/param_card.dat\n'
+        if 'param' in config_cards:
+            cards_str += 'cards/param_card.dat\n'
         if run_madspin:
             cards_str += 'cards/madspin_card.dat\n'
         if run_pythia:
             cards_str += 'cards/pythia8_card.dat\n'
         if run_delphes:
             cards_str += 'cards/delphes_card.dat\n'
+
 
         # -------------
         #  MG Run file
@@ -560,7 +538,7 @@ def main():
         config_options = get_config_options(config)
         expert_options  = get_expert_options(config)
 
-        for name, inputs_dir in inputs_dirs.items():
+        for name, run_dir in run_dirs.items():
 
             options = [
                 f'set run_tag = {name}',
@@ -575,22 +553,60 @@ def main():
                     'process': process_str,
                     'run_madspin': 'madspin=ON' if run_madspin else '', #madspin=OFF',
                     'run_pythia': 'shower=Pythia8' if run_pythia else 'shower=OFF',
+                    'run_delphes': 'detector=Delphes' if run_delphes else '',
                     'cards': cards_str,
                     'options': '\n'.join(options),
                     'expert_options': '\n'.join(expert_options) if expert_options else ''
                 }
             )
 
-            with open(f'{inputs_dir}/run.mg5', 'w') as f:
+            with open(f'{run_dir}/run.mg5', 'w') as f:
                 f.write(run_mg_str)
 
 
 
     # Prepare input files
-    for name, inputs_dir in inputs_dirs.items():
-        print(f'- Compressing input files here: {output_dir}/inputs_{name}.tar.gz')
-        os.system(f'tar -czf {output_dir}/inputs_{name}.tar.gz -C {inputs_dir} .')
+    if run_mode in ('condor', 'jupiter'):
+        for name, run_dir in run_dirs.items():
+            print(f'- Compressing input files here: {output_dir}/run_{name}.tar.gz')
+            os.system(f'tar -czf {output_dir}/run_{name}.tar.gz -C {run_dir} .')
+            os.system(f'rm -rf {run_dir}')
+    else:
+        print('- Running locally, no need to compress input files')
 
+
+
+
+    # # Configuration for each run dir
+    # for name, run_dir in run_dirs.items():
+
+    #     config_vars_dict = {}
+
+    #     config_vars_dict['run_name'] = name
+
+    #     if run_cluster:
+    #         config_vars_dict['input_file'] = 'run_$(run_name).tar.gz'
+    #     else:
+    #         config_vars_dict['input_file'] = 'SKIP'
+
+    #     # if 'hepmc0' in run_outputs and run_njobs > 1:
+    #     #     outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
+
+    #     #     jobs += f'outputs = {outputs_str},hepmc\n'
+    #     #             jobs += f'queue\n'
+
+    #     #             jobs += f'run_name = {name}\n'
+    #     #             jobs += f'outputs = {outputs_str}\n'
+    #     #             jobs += f'queue {run_njobs-1}\n'
+
+    #     config_vars_dict['outputs'] = ','.join(run_outputs)
+
+    #     # job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name)'
+
+    #     config_vars_str = '\n'.join([f'{key}={value}' for key, value in config_vars_dict.items()])
+
+    #     with open(f'{run_dir}/CONFIG_VARS', 'w') as f:
+    #         f.write(config_vars_str+'\n')
 
     # -----------
     # Run script
@@ -598,52 +614,67 @@ def main():
     script_path = f'{output_dir}/run_mg_pythia_delphes.sh'
 
     print(f'- Preparing run script: {script_path}')
-    with open(script_path, 'w') as f:
-        if use_gridpack:
-            f.write(template_run_script_with_gridpack)
-        else:
-            f.write(template_run_script)
+    if run_mode in ('condor', 'jupiter'):
+        with open(script_path, 'w') as f:
+            f.write(template_run_condor_script)
+    elif run_mode in ('local', 'local-apptainer'):
+        with open(script_path, 'w') as f:
+            f.write(template_run_local_script)
 
     os.chmod(script_path, 0o755)
 
 
-    # Prepare and submit jobs
+    #-----------
+    # Local run
+    #-----------
+    if run_mode == 'local':
 
-    # Job script
-    job_replace_dict = {}
+        for run_name in run_dirs.keys():
 
-    job_replace_dict['container_image'] = container_image
+            outputs = ",".join(run_outputs)
 
+            cmd = f'source /setup_mg_pythia_delphes.sh ; '
+            cmd += f'cd /local ; '
+            cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
 
-    # job requirements
-    if 'requirements' in config_run:
-        requirements = config_run['requirements']
-
-        job_replace_dict['requirements'] = f'requirements = {requirements}'
-
-    else:
-        job_replace_dict['requirements'] = ''
-
+            print(cmd)
+            os.system(f'docker run --rm -v {output_dir}:/local {container_image_path} "{cmd}"')
 
 
-    if use_gridpack:
-        job_replace_dict['input_file'] = 'gridpack_$(run_name).tar.gz'
-        job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name) $(nevents)'
-    else:
-        job_replace_dict['input_file'] = 'inputs_$(run_name).tar.gz'
+    elif run_mode == 'local-apptainer':
+
+        pass
+        # input_file = 'SKIP'
+        # outputs = ",".join(run_outputs)
+
+        # cmd = f'source /setup_mg_pythia_delphes.sh ; '
+        # cmd += f'cd /local ; '
+        # cmd += f'./run_mg_pythia_delphes.sh "{run_name} {input_file} {outputs} output_{run_name}"'
+
+        # print(cmd)
+
+        # run_cmd(cmd, app='apptainer')
+
+
+    elif run_mode in ('condor', 'jupiter'):
+
+        # Job script
+        job_replace_dict = {}
+
+        job_replace_dict['container_image'] = container_image_path
+
+        # job requirements
+        if 'requirements' in config_run:
+            requirements = config_run['requirements']
+            job_replace_dict['requirements'] = f'requirements = {requirements}'
+        else:
+            job_replace_dict['requirements'] = ''
+
+        job_replace_dict['input_file'] = 'run_$(run_name).tar.gz'
         job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name)'
 
-    jobs = ''
-    if use_gridpack:
-
-            jobs += f'run_name = {run_name}\n'
-            jobs += f'nevents = {run_nevents}\n'
-            jobs += f'outputs = {",".join(run_outputs)}\n'
-            jobs += f'queue {run_njobs}\n'
-
-    else:
-
-        for name in inputs_dirs.keys():
+        jobs = ''
+        for name in run_dirs.keys():
 
             if 'hepmc0' in run_outputs and run_njobs > 1:
                 outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
@@ -662,23 +693,22 @@ def main():
                 jobs += f'queue {run_njobs}\n'
 
 
-    job_replace_dict['jobs'] = jobs
+        job_replace_dict['jobs'] = jobs
 
-    # Save job.sub file
-    job_file = f'job_{run_name}.sub'
+        # Save job.sub file
+        job_file = f'job_{run_name}.sub'
 
-    template = string.Template(template_job_desc)
-    job_desc = template.substitute(job_replace_dict)
+        template = string.Template(template_job_desc)
+        job_desc = template.substitute(job_replace_dict)
 
-    print(f'- Saving job submission description in {output_dir}/{job_file}')
-    with open(f'{output_dir}/{job_file}', 'w') as f:
-        f.write(job_desc)
+        print(f'- Saving job submission description in {output_dir}/{job_file}')
+        with open(f'{output_dir}/{job_file}', 'w') as f:
+            f.write(job_desc)
 
-
-    if not args.nosub:
-        # not using htcondor python api because it does nto support multiple queue in the same job?
-        os.chdir(output_dir)
-        os.system(f'condor_submit {job_file}')
+        if not args.nosub:
+            # not using htcondor python api because it does nto support multiple queue in the same job?
+            os.chdir(output_dir)
+            os.system(f'condor_submit {job_file}')
 
 
 
