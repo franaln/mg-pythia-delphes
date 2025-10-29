@@ -20,7 +20,7 @@ ${process}
 output RUN
 launch RUN
 
-# MadSpin/Pythia
+# MadSpin/Pythia/Delphes
 ${run_madspin}
 ${run_pythia}
 ${run_delphes}
@@ -318,11 +318,10 @@ def main():
     parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
     # Run options
-    parser.add_argument('--run_mode', default=None, choices=['local', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
+    parser.add_argument('--run_mode', default='local-docker', choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
 
     ## Local options
     # parser.add_argument('--docker', action='store_true', help='(Only for LOCAL). Use Docker to run the jobs')
-
 
     ## Condor/jupiter options
     parser.add_argument('--nosub', action='store_true', help='(Only for CONDOR). Prepare directory and files but don\' submit jobs')
@@ -349,7 +348,7 @@ def main():
     elif 'mode' in config_run:
         run_mode = config_run['mode']
     else:
-        run_mode = 'local'
+        run_mode = 'local-docker'
 
     print(f'> Running mg-pythia-delphes with run_mode = {run_mode}. Run name = {run_name}. Configuration = {config_file}')
 
@@ -377,7 +376,7 @@ def main():
         container_image_path = f'{image_dir}/{container_image}.sif'
         print(f'- Running with condor using image: {container_image_path}')
 
-    elif run_mode == 'local':
+    elif run_mode == 'local-docker':
         if 'image' in config_run:
             container_image_path = config_run['image']
         else:
@@ -536,7 +535,7 @@ def main():
             process_str = config['process']
 
         config_options = get_config_options(config)
-        expert_options  = get_expert_options(config)
+        expert_options = get_expert_options(config)
 
         for name, run_dir in run_dirs.items():
 
@@ -617,7 +616,7 @@ def main():
     if run_mode in ('condor', 'jupiter'):
         with open(script_path, 'w') as f:
             f.write(template_run_condor_script)
-    elif run_mode in ('local', 'local-apptainer'):
+    elif run_mode in ('local-docker', 'local-apptainer'):
         with open(script_path, 'w') as f:
             f.write(template_run_local_script)
 
@@ -627,34 +626,34 @@ def main():
     #-----------
     # Local run
     #-----------
-    if run_mode == 'local':
+    if run_mode == 'local-docker':
+
+        # outputs = ",".join(run_outputs)
 
         for run_name in run_dirs.keys():
-
-            outputs = ",".join(run_outputs)
 
             cmd = f'source /setup_mg_pythia_delphes.sh ; '
             cmd += f'cd /local ; '
             cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
 
-            print(cmd)
-            os.system(f'docker run --rm -v {output_dir}:/local {container_image_path} "{cmd}"')
+            docker_cmd = f'docker run --rm -v {output_dir}:/local {container_image_path} "{cmd}"'
+
+            print(docker_cmd)
+            os.system(docker_cmd)
 
 
     elif run_mode == 'local-apptainer':
 
-        pass
-        # input_file = 'SKIP'
-        # outputs = ",".join(run_outputs)
+        for run_name in run_dirs.keys():
 
-        # cmd = f'source /setup_mg_pythia_delphes.sh ; '
-        # cmd += f'cd /local ; '
-        # cmd += f'./run_mg_pythia_delphes.sh "{run_name} {input_file} {outputs} output_{run_name}"'
+            cmd = f'source /setup_mg_pythia_delphes.sh ; '
+            cmd += f'cd /local ; '
+            cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
 
-        # print(cmd)
+            apptainer_cmd = f'apptainer exec --bind {output_dir}:/local {container_image_path} /bin/bash -l -c "{cmd}"'
 
-        # run_cmd(cmd, app='apptainer')
-
+            print(apptainer_cmd)
+            os.system(apptainer_cmd)
 
     elif run_mode in ('condor', 'jupiter'):
 
