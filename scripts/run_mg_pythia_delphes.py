@@ -288,7 +288,10 @@ def get_config_options(config):
         if 'use_syst' in opts:
             config_options.append(f'set use_syst = {opts["use_syst"]}')
         if 'extra' in opts:
-            config_options.append(opts['extra'])
+            if isinstance(opts['extra'], str):
+                config_options.append(opts['extra'])
+            elif isinstance(opts['extra'], list):
+                config_options.extend(opts['extra'])
 
     return config_options
 
