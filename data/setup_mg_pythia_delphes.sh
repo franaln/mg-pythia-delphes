@@ -1,5 +1,23 @@
 MG_NAME="mg_pythia_delphes"
-MG_DIR="__INS_DIR__"
+
+# Use existing MG_DIR if set, otherwise fall back to __INS_DIR__ and create it.
+if [ -z "${MG_DIR:-}" ] ; then
+    MG_DIR="__INS_DIR__"
+fi
+
+echo "-----------------------"
+echo "mg-pythia-delphes setup"
+echo "-----------------------"
+
+echo "→ Using MG_DIR = $MG_DIR"
+
+# Ensure MG_DIR exists (create if needed)
+# if [ ! -d "$MG_DIR" ] ; then
+#     mkdir -p "$MG_DIR" || {
+#         echo "Error: failed to create MG_DIR='$MG_DIR'" >&2
+#         return 1 2>/dev/null || exit 1
+#     }
+# fi
 
 deactivate () {
     # reset old environment variables
@@ -71,7 +89,7 @@ fi
 
 # PYTHONPATH
 _OLD_VIRTUAL_PYTHONPATH="$PYTHONPATH"
-export PYTHONPATH="$MG_DIR/python:$MG_DIR/MG5_aMC:$MG_DIR/lib:$MG_DIR/root/lib:$PYTHONPATH"
+export PYTHONPATH="$MG_DIR/python:$MG_DIR:$MG_DIR/lib:$MG_DIR/root/lib:$PYTHONPATH"
 
 # LIBS
 _OLD_VIRTUAL_LIB="$LD_LIBRARY_PATH"

@@ -79,9 +79,8 @@ echo ""
 
 job_dir=$PWD
 
-echo "> Moving to run_directory ${run_dir}"
-cd ${run_dir}
-
+# echo "> Moving to run_directory ${run_dir}"
+# cd ${run_dir}
 
 if grep -Fxq "set iseed = RANDOM" run.mg5 ; then
     random_seed=${RANDOM}
@@ -292,6 +291,8 @@ def get_config_options(config):
                 config_options.append(opts['extra'])
             elif isinstance(opts['extra'], list):
                 config_options.extend(opts['extra'])
+        if 'user_cuts' in opts:
+            config_options.append('set user_cut_module user_modules.py')
 
     return config_options
 
@@ -321,14 +322,8 @@ def main():
     parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
     # Run options
-    parser.add_argument('--run_mode', default='local-docker', choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
-
-    ## Local options
-    # parser.add_argument('--docker', action='store_true', help='(Only for LOCAL). Use Docker to run the jobs')
-
-    ## Condor/jupiter options
-    parser.add_argument('--nosub', action='store_true', help='(Only for CONDOR). Prepare directory and files but don\' submit jobs')
-    # parser.add_argument('--njobs', default=1, type=int, help='(Only for CONDOR). Number of jobs to run')
+    parser.add_argument('--run_mode', default=None, choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
+    parser.add_argument('--dry-run', action='store_true', help='Prepare directory and files but don\'t run or submit jobs')
 
     args = parser.parse_args()
 
@@ -369,12 +364,16 @@ def main():
         if 'image' not in config_run:
             print('- No image was configured. Using latest: mg-pythia-delphes-latest')
             container_image = 'mg-pythia-delphes-latest'
-        elif config_run['image'] not in available_images:
-            print(f'Error: Image {config_run["image"]} is not available. Use one of the existint images:')
-            print('\n'.join(available_images))
-            sys.exit(1)
         else:
-            container_image = config_run["image"]
+            if ':' in config_run['image']:
+                config_run['image'] = config_run['image'].replace(':', '-')
+
+            if config_run['image'] not in available_images:
+                print(f'Error: Image {config_run["image"]} is not available. Use one of the existint images:')
+                print('\n'.join(available_images))
+                sys.exit(1)
+            else:
+                container_image = config_run["image"]
 
         container_image_path = f'{image_dir}/{container_image}.sif'
         print(f'- Running with condor using image: {container_image_path}')
@@ -426,43 +425,61 @@ def main():
     run_dirs = {}
 
     #  Custom input
-    if 'input_files' in config or 'input_dir' in config:
+    if 'input_files' in config or 'input_dir' in config or 'input_dirs' in config:
 
-        run_dir = f'{output_dir}/run_{run_name}'
-        run_dirs[run_name] = run_dir
+        if 'input_dirs' in config:
 
-        if 'input_dir' in config:
-            shutil.copytree(config['input_dir'], inputs_dir)
+            for name, input_dir in config['input_dirs'].items():
+
+                model_name = f'{run_name}_{name}'
+                run_dir_model = f'{output_dir}/run_{model_name}'
+                run_dirs[model_name] = run_dir_model
+
+                shutil.copytree(input_dir, run_dir_model)
+
+        elif 'input_dir' in config:
+
+            run_dir = f'{output_dir}/run_{run_name}'
+            run_dirs[run_name] = run_dir
+
+            shutil.copytree(config['input_dir'], run_dir)
+
         else:
+
+            run_dir = f'{output_dir}/run_{run_name}'
+            run_dirs[run_name] = run_dir
+
             mkdir(run_dir)
             for f in config['input_files']:
                 shutil.copy(f, run_dir)
 
-        if not os.path.exists(f'{run_dir}/run.mg5'):
-            print('error')
-            sys.exit(1)
 
-        run_mg5_str = open(f'{run_dir}/run.mg5').read()
+        for name, run_dir in run_dirs.items():
 
-        options = [
-            f'set run_tag = {run_name}',
-            f'set nevents = {run_nevents}',
-        ]
+            if not os.path.exists(f'{run_dir}/run.mg5'):
+                raise Exception('Error in input files: run.mg5 not found in input dir')
 
-        options += get_config_options(config)
+            run_mg5_str = open(f'{run_dir}/run.mg5').read()
 
-        options_str = '\n'.join(options)
+            options = [
+                f'set run_tag = {name}',
+                f'set nevents = {run_nevents}',
+            ]
 
-        print('Adding the following options to run.mg5')
-        print(options_str)
-        if 'done' in run_mg5_str:
-            run_mg5_str = run_mg5_str.replace('done', '')
+            options += get_config_options(config)
 
-        run_mg5_str += options_str
-        run_mg5_str += '\n\ndone\n'
+            options_str = '\n'.join(options)
 
-        with open(f'{run_dir}/run.mg5', 'w') as f:
-            f.write(run_mg5_str)
+            print('Adding the following options to run.mg5')
+            print(options_str)
+            if 'done' in run_mg5_str:
+                run_mg5_str = run_mg5_str.replace('done', '')
+
+            run_mg5_str += options_str
+            run_mg5_str += '\n\ndone\n'
+
+            with open(f'{run_dir}/run.mg5', 'w') as f:
+                f.write(run_mg5_str)
 
 
     else:
@@ -540,6 +557,10 @@ def main():
         config_options = get_config_options(config)
         expert_options = get_expert_options(config)
 
+        if 'set run_card custom_fcts /local/user_cuts.f' in config_options:
+            # copy user cut module to each run dir
+            shutil.copyfile('user_cuts.f', f'{run_dir}/user_cuts.f')
+
         for name, run_dir in run_dirs.items():
 
             options = [
@@ -577,8 +598,6 @@ def main():
         print('- Running locally, no need to compress input files')
 
 
-
-
     # # Configuration for each run dir
     # for name, run_dir in run_dirs.items():
 
@@ -613,50 +632,40 @@ def main():
     # -----------
     # Run script
     # -----------
-    script_path = f'{output_dir}/run_mg_pythia_delphes.sh'
-
-    print(f'- Preparing run script: {script_path}')
     if run_mode in ('condor', 'jupiter'):
+        script_path = f'{output_dir}/run_mg_pythia_delphes.sh'
+        print(f'- Preparing run script: {script_path}')
         with open(script_path, 'w') as f:
             f.write(template_run_condor_script)
+        os.chmod(script_path, 0o755)
     elif run_mode in ('local-docker', 'local-apptainer'):
-        with open(script_path, 'w') as f:
-            f.write(template_run_local_script)
-
-    os.chmod(script_path, 0o755)
+        for name, run_dir in run_dirs.items():
+            script_path = f'{run_dir}/run_mg_pythia_delphes.sh'
+            print(f'- Preparing run script: {script_path}')
+            with open(script_path, 'w') as f:
+                f.write(template_run_local_script)
+            os.chmod(script_path, 0o755)
 
 
     #-----------
     # Local run
     #-----------
-    if run_mode == 'local-docker':
+    if run_mode in ('local-docker', 'local-apptainer'):
 
-        # outputs = ",".join(run_outputs)
-
-        for run_name in run_dirs.keys():
+        for run_name, run_dir in run_dirs.items():
 
             cmd = f'source /setup_mg_pythia_delphes.sh ; '
             cmd += f'cd /local ; '
             cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
 
-            docker_cmd = f'docker run --rm -v {output_dir}:/local {container_image_path} "{cmd}"'
+            if run_mode == 'local-docker':
+                cmd = f'docker run --rm -v {run_dir}:/local {container_image_path} "{cmd}"'
+            elif run_mode == 'local-apptainer':
+                cmd = f'apptainer exec --bind {run_dir}:/local {container_image_path} /bin/bash -l -c "{cmd}"'
 
-            print(docker_cmd)
-            os.system(docker_cmd)
-
-
-    elif run_mode == 'local-apptainer':
-
-        for run_name in run_dirs.keys():
-
-            cmd = f'source /setup_mg_pythia_delphes.sh ; '
-            cmd += f'cd /local ; '
-            cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
-
-            apptainer_cmd = f'apptainer exec --bind {output_dir}:/local {container_image_path} /bin/bash -l -c "{cmd}"'
-
-            print(apptainer_cmd)
-            os.system(apptainer_cmd)
+            print(cmd)
+            if not args.dry_run:
+                os.system(cmd)
 
     elif run_mode in ('condor', 'jupiter'):
 
@@ -707,7 +716,7 @@ def main():
         with open(f'{output_dir}/{job_file}', 'w') as f:
             f.write(job_desc)
 
-        if not args.nosub:
+        if not args.dry_run:
             # not using htcondor python api because it does nto support multiple queue in the same job?
             os.chdir(output_dir)
             os.system(f'condor_submit {job_file}')
