@@ -1,5 +1,7 @@
 # Dockerfile for MadGraph + Pythia8 + Delphes
 # using (almost) latest version available:
+
+# ubuntu=20.04
 # python=3.8
 # root=6.30.06
 # MadGraph=3.5.6
@@ -228,33 +230,34 @@ COPY data/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
 RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
 # Install/compile needed tools for loops
-RUN source /setup_mg_pythia_delphes.sh && \
-    echo "install ninja" | mg5_aMC && \
-    echo "install collier" | mg5_aMC
+# RUN source /setup_mg_pythia_delphes.sh && \
+#     echo "install ninja" | mg5_aMC && \
+#     echo "install collier" | mg5_aMC && \
+#     rm -rf MG5_aMC/HEPTools/collier/COLLIER-1.2.9/build
 
 # build cuttools
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
-    make clean && \
-    make
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
+#     make clean && \
+#     make
 
-# build iregi
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
-    make clean && \
-    make
+# # build iregi
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
+#     make clean && \
+#     make
 
-# build StdHEP
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
-    make
+# # build StdHEP
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
+#     make
 
-# Install loop_qcd_qed_sm model
-COPY data/loop_qcd_qed_sm.tar.gz /
-RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-    rm /loop_qcd_qed_sm.tar.gz
+# # Install loop_qcd_qed_sm model
+# COPY data/loop_qcd_qed_sm.tar.gz /
+# RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
+#     rm /loop_qcd_qed_sm.tar.gz
 
-# Install model invisibleBA_UFO
-COPY data/invisibleBA_UFO.tar.gz /
-RUN tar -xvzf invisibleBA_UFO.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-    rm /invisibleBA_UFO.tar.gz
+# # Install model invisibleBA_UFO
+# COPY data/invisibleBA_UFO.tar.gz /
+# RUN tar -xvzf invisibleBA_UFO.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
+#     rm /invisibleBA_UFO.tar.gz
 
 # Download PDFs
 # 230000: NNPDF23_nlo_as_0119
@@ -263,12 +266,13 @@ RUN tar -xvzf invisibleBA_UFO.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
 # 303000: NNPDF30_nlo_as_0118_hessian
 # 91500: PDF4LHC15_nnlo_mc
 COPY scripts/download_pdf.sh ${INSTALL_DIR}/scripts/
-RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
-    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119         && \
-    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed      && \
-    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118         && \
-    ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian && \
-    ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC15_nnlo_mc
+RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC15_nnlo_mc
+RUN ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC21_mc
 
 # Create non-root user "docker"
 RUN useradd --shell /bin/bash -m docker && \
@@ -278,14 +282,22 @@ RUN useradd --shell /bin/bash -m docker && \
    chown -R --from=root docker ${INSTALL_DIR} && \
    chown -R --from=503 docker /${INSTALL_DIR}/MG5_aMC
 
+
 ARG bashrc=/etc/profile
 RUN echo source /setup_mg_pythia_delphes.sh >> ${bashrc}
 
 RUN rm -rf ${DATA_TMP_DIR} /setup_build.sh
 
+# COPY data/entrypoint.sh /usr/local/bin/
+# RUN chmod +x /usr/local/bin/entrypoint.sh
+
+#RUN chown -R a+rwx ${INSTALL_DIR}
+#RUN chmod -R a+rwX ${INSTALL_DIR}
+
 ENV HOME=/home/docker
 USER docker
 WORKDIR ${HOME}/work
 
+# ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 ENTRYPOINT ["/bin/bash", "-l", "-c"]
 CMD ["/bin/bash"]
