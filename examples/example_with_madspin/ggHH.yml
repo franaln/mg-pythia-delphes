@@ -1,8 +1,8 @@
 run:
   name: ggHH
   image: mg-pythia-delphes-3.3.2 
-  nevents: 100
-  njobs: 10
+  nevents: 1000
+  njobs: 2
   outputs: [lhco, lhe, root, log]
 
 cards:
@@ -16,3 +16,6 @@ cards:
 options:
     seed: random
     use_syst: False
+
+expert:
+    mode: multi

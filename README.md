@@ -102,27 +102,27 @@ cards:
       - delphes_card_ATLAS.dat
     ```
 
-* It is possible to use a list of param cards. For example to produce similar process with different parameters [[example3_multiple_models](examples/example3_multiple_models)]
+    * It is possible to use a list of param cards. For example to produce similar process with different parameters [[example3_multiple_models](examples/example3_multiple_models)]
 
-```
-cards:
-  run: run_card.dat
-  pythia: pythia8_card.dat
-  delphes: delphes_card_ATLAS.dat
-  param:
-    model1: param_card1.dat
-    model2: param_card2.dat
-    model3: param_card3.dat
-```
+    ```
+    cards:
+      run: run_card.dat
+      pythia: pythia8_card.dat
+      delphes: delphes_card_ATLAS.dat
+      param:
+        model1: param_card1.dat
+        model2: param_card2.dat
+        model3: param_card3.dat
+    ```
 
-* Also a list of input_dirs:
+    * Also a list of input_dirs:
 
-```
-input_dirs:
-  - name1: input_dir1
-  - name2: input_dir2
-  - name3: input_dir3
-```
+    ```
+    input_dirs:
+      - name1: input_dir1
+      - name2: input_dir2
+      - name3: input_dir3
+    ```
 
 
 - Other options can be speciffied using "options". This is optional and they will replace run_card values. The default values are the ones in the run card used. For example:

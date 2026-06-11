@@ -7,47 +7,59 @@ import argparse
 
 parser = argparse.ArgumentParser(description='merge_mg_pythia_delphes_output.py')
 
-parser.add_argument('-i', '--inputs', nargs='+', required=True, help='Configuration file')
-parser.add_argument('-o', '--output', required=True, help='Output directory')
+parser.add_argument('inputs', nargs='+', help='Input files')
+parser.add_argument('-o', '--output', required=True, help='Output file (e.g. output.tar.gz) or directory (output_merged/)')
 
 parser.add_argument('-e', '--extract-lhe', action='store_true', help='Extract lhe.gz files')
-parser.add_argument('-k', '--keep-all', action='store_true', help='Keep extracted job files')
+parser.add_argument('-k', '--keep-all', action='store_true', help='Keep exctracted input files')
 
 args = parser.parse_args()
 
 output_file = args.output
 input_files = args.inputs
 
+print("Running merge_mg_pythia_delphes_output with:")
+print(f'input_files = {input_files}')
+
 if output_file.endswith('.tar.gz'):
     tmpdir = 'tmp_output'
+    print(f'output file = {output_file}')
 else:
+    # Assuming directory
     tmpdir = output_file
+    print(f'output directory = {output_file}')
 
-
-print("Running merge_mg_pythia_delphes_output with:")
-print(f'output_file = {output_file}')
-print(f'input_files = {input_files}')
 
 # create tmp dir for uncompress files
 try:
     os.mkdir(tmpdir)
+except FileExistsError as e:
+    pass
+
+try:
     os.mkdir(f'{tmpdir}/all')
+except FileExistsError:
+    pass
+
+try:
     os.mkdir(f'{tmpdir}/merged')
 except FileExistsError:
     pass
 
+
 # Uncompress output
 for file in input_files:
-     os.system(f'tar -xzf {file} -C {tmpdir}/all')
+    cmd = f'tar -xzf {file} -C {tmpdir}/all'
+    print(f'Uncompressing input file using: {cmd}')
+    os.system(cmd)
 
 
-
-if os.environ['HOSTNAME'] == "jupiter.iflp.unlp.edu.ar":
+if 'jupiter' in os.environ['HOSTNAME']:
     use_docker = False
-    image = '/mnt/R5/images/mg-pythia-delphes-latest.sif'
+    image = '/mnt/R5/images/mg-pythia-delphes-3.5.6.sif'
 else:
     use_docker = True
-    image = 'franaln/mg-pythia-delphes:latest'
+    image = 'franaln/mg-pythia-delphes:3.5.6'
 
 def run_cmd(cmd):
     if use_docker:

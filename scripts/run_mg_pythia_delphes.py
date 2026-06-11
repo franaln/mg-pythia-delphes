@@ -350,16 +350,16 @@ def main():
 
     print(f'> Running mg-pythia-delphes with run_mode = {run_mode}. Run name = {run_name}. Configuration = {config_file}')
 
+    available_images = [
+        'mg-pythia-delphes-3.3.2',
+        'mg-pythia-delphes-3.5.6',
+        'mg-pythia-delphes-latest',
+    ]
+
     ## Docker/Apptainer image
     if run_mode in ('condor', 'jupiter'):
 
         image_dir = '/opt/images'
-
-        available_images = [
-            'mg-pythia-delphes-3.3.2',
-            'mg-pythia-delphes-3.5.6',
-            'mg-pythia-delphes-latest',
-        ]
 
         if 'image' not in config_run:
             print('- No image was configured. Using latest: mg-pythia-delphes-latest')
@@ -389,7 +389,10 @@ def main():
     elif run_mode == 'local-apptainer':
 
         if 'image' in config_run:
-            container_image_path = config_run['image']
+            if config_run['image'] in available_images and os.path.exists(f'/opt/images/{config_run["image"]}.sif'):
+                container_image_path = f'/opt/images/{config_run["image"]}.sif'
+            else:
+                container_image_path = config_run['image']
         else:
             print(f'Error: No default image is available.')
             sys.exit(1)
