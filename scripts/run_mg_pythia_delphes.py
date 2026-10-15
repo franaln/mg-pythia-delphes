@@ -51,6 +51,8 @@ output      = job_$$(run_name)_$$(job_name).out
 error       = job_$$(run_name)_$$(job_name).err
 log         = job_$$(run_name)_$$(job_name).log
 
+${notifications}
+
 should_transfer_files = YES
 transfer_input_files = $$(input_file)
 
@@ -402,6 +404,7 @@ def main():
     run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
     run_njobs   = config_run['njobs'] if 'njobs' in config_run else 1
     run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhe', 'lhco', 'log']
+    run_email   = config_run.get('email', '')
 
 
     # Create working directory
@@ -676,6 +679,12 @@ def main():
         job_replace_dict = {}
 
         job_replace_dict['container_image'] = container_image_path
+
+        if run_email:
+            job_replace_dict['notifications'] = f"notification = always\nnotify_user = {run_email}"
+        else:
+            job_replace_dict['notifications'] = ''
+
 
         # job requirements
         if 'requirements' in config_run:

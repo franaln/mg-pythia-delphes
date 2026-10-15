@@ -54,7 +54,9 @@ run:
     image: image to use, mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest (default=mg-pythia-delphes-latest)
     nevents: number of events for each job (default=10000)
     njobs: number of jobs (default=1)
+    email: xxx@gmail.com    (optional to get notifications)
     outputs: list of outputs to save including [lhe, hepmc, hepmc0, root, lhco] (default = [lhe, lhco]). hepmc0 will save the hepmc output only for the first job
+
 ```
 
 - Madgraph process and cards can be specified in different ways:
@@ -102,7 +104,7 @@ cards:
       - delphes_card_ATLAS.dat
     ```
 
-    * It is possible to use a list of param cards. For example to produce similar process with different parameters [[example3_multiple_models](examples/example3_multiple_models)]
+* It is possible to use a list of param cards. For example to produce similar process with different parameters [[example3_multiple_models](examples/example3_multiple_models)]
 
     ```
     cards:
@@ -115,7 +117,7 @@ cards:
         model3: param_card3.dat
     ```
 
-    * Also a list of input_dirs:
+* Also a list of input_dirs:
 
     ```
     input_dirs:
@@ -124,6 +126,7 @@ cards:
       - name3: input_dir3
     ```
 
+- Removing pythia or delphes card will remove Pythia/Delphes step
 
 - Other options can be speciffied using "options". This is optional and they will replace run_card values. The default values are the ones in the run card used. For example:
 ```
