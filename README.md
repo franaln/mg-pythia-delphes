@@ -189,3 +189,37 @@ for example:
 `
 merge_mg_pythia_delphes_output.sh output_ttbb_merged.tar.gz output_ttbb_*.tar.gz
 `
+
+## Runner validation and failure reporting
+
+Validate a configuration and its input files without creating output files,
+starting containers, or submitting jobs:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py -c config.yml --validate-only
+```
+
+Relative input paths are resolved from the current working directory, as before.
+Validation checks basic configuration structure, positive event/job counts,
+supported modes/outputs, and required input files. It does not validate physics,
+MadGraph syntax, container availability, or scheduler connectivity.
+
+`--dry-run` remains a preparation operation: it writes files and, with `--force`,
+can replace an existing output directory. Use `--validate-only` for inspection
+without filesystem changes. Do not use `--force` on directories containing work
+that must be preserved.
+
+Container, packaging, and submission command failures now propagate as errors.
+The generated wrappers stop when MadGraph returns a nonzero status and reject
+missing event directories. These checks do not yet prove that every requested
+physics output is complete or valid.
+
+Run the lightweight regression suite (requires PyYAML):
+
+```bash
+python3 -B -m unittest discover -s tests -v
+```
+
+This is the first preparation step for an agent/MCP interface. Production
+manifests, per-job seed allocation, structured scheduler tracking, and the MCP
+server are not implemented yet.

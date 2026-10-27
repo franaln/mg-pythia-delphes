@@ -6,6 +6,10 @@ import argparse
 import string
 import yaml
 import shutil
+import subprocess
+import shlex
+import re
+from pathlib import Path
 
 
 template_run_mg = """# run.mg5
@@ -98,7 +102,10 @@ fi
 
 run_dir=${job_dir}/RUN
 
-mg5_aMC run.mg5
+if ! mg5_aMC run.mg5; then
+    echo "ERROR running MadGraph; preserving working directory for diagnosis" >&2
+    exit 1
+fi
 
 if [ -d ${run_dir}/Events/run_01_decayed_1 ] ; then
     output_dir_name=run_01_decayed_1
@@ -109,11 +116,8 @@ fi
 output_dir=${run_dir}/Events/${output_dir_name}
 
 
-# Check if something failed (in that case save debug output and exit)
-sc=$?
-if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
-    echo "ERROR running MG. Exiting ..."
-    tar -czf ${output_file} -C ${output_dir} *
+if [ -z "${output_dir_name}" ] || [ ! -d "${output_dir}" ]; then
+    echo "ERROR: MadGraph output directory is missing" >&2
     exit 1
 fi
 
@@ -165,7 +169,10 @@ fi
 
 run_dir=${job_dir}/RUN
 
-mg5_aMC run.mg5
+if ! mg5_aMC run.mg5; then
+    echo "ERROR running MadGraph; preserving working directory for diagnosis" >&2
+    exit 1
+fi
 
 if [ -d ${run_dir}/Events/run_01_decayed_1 ] ; then
     output_dir_name=run_01_decayed_1
@@ -175,11 +182,9 @@ fi
 
 output_dir=${run_dir}/Events/${output_dir_name}
 
-# Check if something failed (in that case save debug output and exit)
-sc=$?
-if [ $sc -ne 0 ] || [ -f "${mg_debug_file}" ] ;  then
-    echo "ERROR running MG. Exiting ..."
-    tar -czf ${output_file} -C ${output_dir} *
+if [ -z "${output_dir_name}" ] || [ ! -d "${output_dir}" ]; then
+    echo "ERROR: MadGraph output directory is missing" >&2
+    tar -czf "${output_file}" RUN run.mg5
     exit 1
 fi
 
@@ -192,7 +197,9 @@ echo "Finished running MG+Pythia+Delphes, $(date)"
 echo "> Preparing outputs"
 
 output_file_root=${output_name}_delphes_events.root
-mv ${output_dir}/${run_name}_delphes_events.root ${output_dir}/${output_file_root}
+if [[ "${outputs}" =~ root|lhco|all ]]; then
+    mv "${output_dir}/${run_name}_delphes_events.root" "${output_dir}/${output_file_root}" || exit 1
+fi
 
 all_output_files=()
 
@@ -308,11 +315,63 @@ def get_expert_options(config):
             elif opts['mode'] == 'multi':
                 config_options.append('set run_mode 2')
         if 'ncores' in opts:
-            if opts['ncores'].lower() == 'all':
+            if str(opts['ncores']).lower() == 'all':
                 opts['ncores'] = 'None'
             config_options.append(f'set nb_core {opts["ncores"]}')
 
     return config_options
+
+def validate_config(config):
+    """Validate inputs without creating directories or submitting work.
+
+    Relative input paths retain the CLI's historical current-directory semantics.
+    """
+    if not isinstance(config, dict) or not isinstance(config.get('run'), dict):
+        raise ValueError("Configuration must contain a 'run' mapping")
+    run = config['run']
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', str(run.get('name', ''))):
+        raise ValueError('run.name must be a nonempty filesystem-safe name')
+    for key in ('nevents', 'njobs'):
+        value = run.get(key, 10000 if key == 'nevents' else 1)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f'run.{key} must be a positive integer')
+    modes = ('local-docker', 'local-apptainer', 'condor', 'jupiter')
+    if run.get('mode', 'local-docker') not in modes:
+        raise ValueError(f'run.mode must be one of {modes}')
+    outputs = run.get('outputs', ['lhe', 'lhco', 'log'])
+    if not isinstance(outputs, list) or not outputs or any(
+        x not in ('lhe', 'lhco', 'root', 'hepmc', 'hepmc0', 'log', 'all') for x in outputs
+    ):
+        raise ValueError('run.outputs must be a nonempty list of supported outputs')
+    paths = []
+    if 'input_dirs' in config:
+        if not isinstance(config['input_dirs'], dict) or not config['input_dirs']:
+            raise ValueError('input_dirs must be a nonempty name-to-directory mapping')
+        for name, directory in config['input_dirs'].items():
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', str(name)):
+                raise ValueError('input_dirs names must be filesystem-safe')
+            paths.append(Path(directory) / 'run.mg5')
+    elif 'input_dir' in config:
+        paths.append(Path(config['input_dir']) / 'run.mg5')
+    elif 'input_files' in config:
+        paths.extend(Path(x) for x in config['input_files'])
+        if not any(x.name == 'run.mg5' for x in paths):
+            raise ValueError('input_files must include run.mg5')
+    else:
+        cards = config.get('cards')
+        if not isinstance(cards, dict) or 'run' not in cards:
+            raise ValueError('cards.run is required')
+        if 'proc' not in cards and not config.get('process'):
+            raise ValueError('process or cards.proc is required')
+        for card in cards.values():
+            paths.extend(Path(x) for x in (card.values() if isinstance(card, dict) else [card]))
+        if any(x in outputs for x in ('root', 'lhco')) and 'delphes' not in cards:
+            raise ValueError('ROOT/LHCO output requires a Delphes card')
+    for path in paths:
+        if not path.is_file():
+            raise ValueError(f'Input file does not exist: {path}')
+    return config
+
 
 def main():
 
@@ -320,20 +379,32 @@ def main():
 
     # Main required arguments
     parser.add_argument('-c', '--config', required=True, help='Configuration file')
-    parser.add_argument('-o', '--output', required=True, help='Output directory')
+    parser.add_argument('-o', '--output', required=False, help='Output directory')
     parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
     # Run options
     parser.add_argument('--run_mode', default=None, choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
     parser.add_argument('--dry-run', action='store_true', help='Prepare directory and files but don\'t run or submit jobs')
 
+    parser.add_argument("--validate-only", action="store_true", help="Validate inputs without writing files or launching jobs")
     args = parser.parse_args()
+    if not args.validate_only and not args.output:
+        parser.error("--output is required unless --validate-only is used")
 
 
     # Read configuration
     config_file = args.config
     with open(config_file) as f:
         config = yaml.safe_load(f)
+    try:
+        if args.run_mode is not None and isinstance(config, dict) and isinstance(config.get("run"), dict):
+            config["run"]["mode"] = args.run_mode
+        validate_config(config)
+    except (ValueError, TypeError) as exc:
+        parser.error(str(exc))
+    if args.validate_only:
+        print("Configuration is valid")
+        return
 
 
     # ------------
@@ -408,7 +479,7 @@ def main():
 
 
     # Create working directory
-    output = args.output
+    output = os.path.expanduser(args.output)
     if output.startswith('~/') or output.startswith('/'):
         output_dir = output
     else:
@@ -598,8 +669,8 @@ def main():
     if run_mode in ('condor', 'jupiter'):
         for name, run_dir in run_dirs.items():
             print(f'- Compressing input files here: {output_dir}/run_{name}.tar.gz')
-            os.system(f'tar -czf {output_dir}/run_{name}.tar.gz -C {run_dir} .')
-            os.system(f'rm -rf {run_dir}')
+            subprocess.run(['tar', '-czf', f'{output_dir}/run_{name}.tar.gz', '-C', run_dir, '.'], check=True)
+            shutil.rmtree(run_dir)
     else:
         print('- Running locally, no need to compress input files')
 
@@ -660,18 +731,17 @@ def main():
 
         for run_name, run_dir in run_dirs.items():
 
-            cmd = f'source /setup_mg_pythia_delphes.sh ; '
-            cmd += f'cd /local ; '
-            cmd += f'./run_mg_pythia_delphes.sh {run_name} run_{run_name}'
+            cmd = 'source /setup_mg_pythia_delphes.sh && cd /local && '
+            cmd += shlex.join(['./run_mg_pythia_delphes.sh', run_name, f'run_{run_name}'])
 
             if run_mode == 'local-docker':
-                cmd = f'docker run --rm -v {run_dir}:/local {container_image_path} "{cmd}"'
+                cmd = ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', container_image_path, cmd]
             elif run_mode == 'local-apptainer':
-                cmd = f'apptainer exec --bind {run_dir}:/local {container_image_path} /bin/bash -l -c "{cmd}"'
+                cmd = ['apptainer', 'exec', '--bind', f'{run_dir}:/local', container_image_path, '/bin/bash', '-l', '-c', cmd]
 
             print(cmd)
             if not args.dry_run:
-                os.system(cmd)
+                subprocess.run(cmd, check=True)
 
     elif run_mode in ('condor', 'jupiter'):
 
@@ -730,8 +800,7 @@ def main():
 
         if not args.dry_run:
             # not using htcondor python api because it does nto support multiple queue in the same job?
-            os.chdir(output_dir)
-            os.system(f'condor_submit {job_file}')
+            subprocess.run(['condor_submit', job_file], cwd=output_dir, check=True)
 
 
 
