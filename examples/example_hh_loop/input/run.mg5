@@ -8,6 +8,7 @@ output RUN
 launch RUN
 
 shower=Pythia8
+detector=Delphes
 
 run_card.dat
 pythia8_card.dat

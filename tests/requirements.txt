@@ -1,0 +1,3 @@
+PyYAML>=6,<7
+# Needed by the integration driver when checking real Delphes ROOT outputs.
+uproot>=5,<6

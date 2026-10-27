@@ -1,0 +1,9 @@
+import model sm
+generate p p > mu+ mu-
+output RUN
+launch RUN
+shower=OFF
+detector=OFF
+
+set use_syst False
+done

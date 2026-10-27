@@ -1,0 +1,118 @@
+{
+  "examples": [
+    {
+      "name": "example1_process",
+      "config": "example1_process/example1.yml",
+      "samples": [
+        "ttbb1"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example2_proc_card",
+      "config": "example2_proc_card/example2.yml",
+      "samples": [
+        "ttbb2"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example3_multiple_models",
+      "config": "example3_multiple_models/example3.yml",
+      "samples": [
+        "ttbb3_model1",
+        "ttbb3_model2",
+        "ttbb3_model3"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example4_input_files",
+      "config": "example4_input_files/example4.yml",
+      "samples": [
+        "ttbb4"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example5_input_dir",
+      "config": "example5_input_dir/example5.yml",
+      "samples": [
+        "ttbb5"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example_hh_loop",
+      "config": "example_hh_loop/example.yml",
+      "samples": [
+        "hh_j"
+      ],
+      "jobs_per_sample": 10,
+      "smoke": false
+    },
+    {
+      "name": "example_with_madspin",
+      "config": "example_with_madspin/ggHH.yml",
+      "samples": [
+        "ggHH"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": false
+    },
+    {
+      "name": "example6_input_dirs",
+      "config": "example6_input_dirs/config.yml",
+      "samples": [
+        "smoke_inputs_electron",
+        "smoke_inputs_muon"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
+    },
+    {
+      "name": "example7_parton_only",
+      "config": "example7_parton_only/config.yml",
+      "samples": [
+        "smoke"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
+    },
+    {
+      "name": "example8_smoke_full",
+      "config": "example8_smoke_full/config.yml",
+      "samples": [
+        "smoke_full"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
+    },
+    {
+      "name": "example9_smoke_madspin",
+      "config": "example9_smoke_madspin/config.yml",
+      "samples": [
+        "smoke_madspin"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
+    },
+    {
+      "name": "example10_shower_only",
+      "config": "example10_shower_only/config.yml",
+      "samples": [
+        "smoke_shower"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
+    }
+  ],
+  "manual_only": {
+    "example0_sub": "Standalone historical submit-file example; does not exercise the YAML runner."
+  }
+}

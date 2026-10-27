@@ -22,7 +22,7 @@ where the configuration file should be in yaml format like the following example
 run:
     name: ttbb
     mode: condor
-    image: mg-pythia-delphes-3_3_2
+    image: mg-pythia-delphes-3.3.2
     nevents: 10000
     njobs: 10
     outputs: [lhco, lhe]
@@ -51,7 +51,7 @@ options:
 run:
     name: name of the run (required)
     xxxx: local/condor (default=local)
-    image: image to use, mg-pythia-delphes-3_3_2 or mg-pythia-delphes-latest (default=mg-pythia-delphes-latest)
+    image: image to use, mg-pythia-delphes-3.3.2 or mg-pythia-delphes-latest (default=mg-pythia-delphes-latest)
     nevents: number of events for each job (default=10000)
     njobs: number of jobs (default=1)
     email: xxx@gmail.com    (optional to get notifications)
@@ -256,3 +256,18 @@ digests. A manifest is provenance metadata, not a complete replay command or a
 guarantee of bitwise reproducibility.
 
 Structured scheduler tracking and the MCP server are the next stages.
+
+
+## Testing the documented examples
+
+See [examples/README.md](examples/README.md) for the example catalog, portable
+preparation checks, and explicitly enabled real HTCondor/container tests.
+
+```bash
+# Prepare all examples, without contacting Condor or starting containers:
+python3 scripts/test_examples.py --output test-results/preparation-01
+
+# On JUPITER, run the two-job SM full-chain smoke test (requires host uproot):
+python3 scripts/test_examples.py --execute --mode condor \
+  --example example8_smoke_full --output test-results/condor-full-01
+```
