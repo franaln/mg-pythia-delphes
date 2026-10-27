@@ -220,6 +220,39 @@ Run the lightweight regression suite (requires PyYAML):
 python3 -B -m unittest discover -s tests -v
 ```
 
-This is the first preparation step for an agent/MCP interface. Production
-manifests, per-job seed allocation, structured scheduler tracking, and the MCP
-server are not implemented yet.
+### Production manifests and seeds
+
+Every prepared production writes `manifest.json` containing the configuration,
+configured container reference, job/sample mapping, concrete MadGraph seeds,
+requested events and outputs, and SHA-256 hashes of prepared input files.
+Hashes describe the inputs before packaging; for Condor, sample inputs are
+preserved inside `run_<sample>.tar.gz`. Each job's exact seeded `.mg5` file is
+also retained separately and transferred to the worker.
+
+Seed behavior:
+
+- A positive `options.seed` starts a deterministic sequence across all samples
+  and jobs, wrapping within 1–30080.
+- `0`, `RANDOM`, or an omitted seed chooses a random starting point during
+  preparation. The resulting seeds are recorded, not regenerated on workers.
+- Seeds are distinct within a production; at most 30080 jobs are supported.
+  Different productions can still overlap: use explicit nonoverlapping ranges
+  when generating independent extensions of a sample.
+- The seed controls MadGraph; independent Pythia/Delphes random-number settings
+  in their cards are not overridden or tracked separately by this feature.
+
+Local mode now honors `njobs`, running jobs sequentially in separate directories
+when `njobs > 1`. HTCondor still shares the sample archive, with one seeded MG
+command file per job. `hepmc0` selects HepMC output only for the first job of
+each sample in Condor mode. Local output filtering is unchanged: all outputs
+produced by the programs remain in their individual run directories.
+
+The manifest initially has state `prepared`. Local execution updates it to
+`running`, `failed`, or `execution_finished`; the latter means commands returned
+success, not that physics outputs passed validation. Condor state tracking is
+not implemented yet, so its manifest remains `prepared` after submission.
+Container references such as `latest` are recorded but are not immutable image
+digests. A manifest is provenance metadata, not a complete replay command or a
+guarantee of bitwise reproducibility.
+
+Structured scheduler tracking and the MCP server are the next stages.

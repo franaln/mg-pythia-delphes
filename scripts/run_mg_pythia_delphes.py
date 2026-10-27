@@ -10,6 +10,11 @@ import subprocess
 import shlex
 import re
 from pathlib import Path
+import copy
+import hashlib
+import json
+import secrets
+from datetime import datetime, timezone
 
 
 template_run_mg = """# run.mg5
@@ -58,7 +63,7 @@ log         = job_$$(run_name)_$$(job_name).log
 ${notifications}
 
 should_transfer_files = YES
-transfer_input_files = $$(input_file)
+transfer_input_files = $$(input_file),$$(seed_file)
 
 transfer_output_files = $$(output_name).tar.gz
 when_to_transfer_output = ON_EXIT
@@ -88,11 +93,6 @@ job_dir=$PWD
 # echo "> Moving to run_directory ${run_dir}"
 # cd ${run_dir}
 
-if grep -Fxq "set iseed = RANDOM" run.mg5 ; then
-    random_seed=${RANDOM}
-    echo "Setting random seed = ${random_seed}"
-    sed -i "s|set iseed = RANDOM|set iseed = ${random_seed}|g" run.mg5
-fi
 
 echo "> Runnning MG+Pythia+Delphes "
 
@@ -151,15 +151,13 @@ echo ""
 job_dir=$PWD
 
 echo "> Preparing input files "
-tar -xzmf ${input_file}
-rm ${input_file}
+tar -xzmf "${input_file}" || exit 1
+if [ -n "${5:-}" ]; then
+    cp -- "$5" run.mg5 || exit 1
+fi
+rm "${input_file}"
 ls
 
-if grep -Fxq "set iseed = RANDOM" run.mg5 ; then
-    random_seed=${RANDOM}
-    echo "Setting random seed = ${random_seed}"
-    sed -i "s|set iseed = RANDOM|set iseed = ${random_seed}|g" run.mg5
-fi
 
 echo "> Runnning MG+Pythia+Delphes "
 
@@ -321,6 +319,42 @@ def get_expert_options(config):
 
     return config_options
 
+# MG5 uses positive seeds smaller than 30081. Allocate without replacement.
+MAX_SEED = 30080
+
+
+def allocate_seeds(seed, count):
+    """A numeric seed starts a deterministic sequence; 0/RANDOM selects a start."""
+    if count < 1 or count > MAX_SEED:
+        raise ValueError(f'Production needs between 1 and {MAX_SEED} jobs')
+    if seed is None or seed == 0 or (isinstance(seed, str) and seed.upper().strip() == 'RANDOM'):
+        start = secrets.randbelow(MAX_SEED) + 1
+    elif type(seed) is int and 1 <= seed <= MAX_SEED:
+        start = seed
+    else:
+        raise ValueError(f'options.seed must be 0, RANDOM, or an integer from 1 to {MAX_SEED}')
+    return [((start - 1 + index) % MAX_SEED) + 1 for index in range(count)]
+
+
+def render_seeded_run(text, seed):
+    """Replace seed overrides and insert one explicit seed before final done."""
+    lines = [line for line in text.splitlines()
+             if not re.match(r'^\s*set\s+iseed(?:\s|=)', line, re.IGNORECASE)]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].strip().lower() == 'done':
+        lines.pop()
+    return '\n'.join(lines + [f'set iseed = {seed}', 'done', ''])
+
+
+def write_manifest(output_dir, manifest):
+    """Atomically record production metadata beside prepared inputs."""
+    path = Path(output_dir) / 'manifest.json'
+    temporary = path.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+    temporary.replace(path)
+
+
 def validate_config(config):
     """Validate inputs without creating directories or submitting work.
 
@@ -343,6 +377,18 @@ def validate_config(config):
         x not in ('lhe', 'lhco', 'root', 'hepmc', 'hepmc0', 'log', 'all') for x in outputs
     ):
         raise ValueError('run.outputs must be a nonempty list of supported outputs')
+    options = config.get('options', {})
+    if not isinstance(options, dict):
+        raise ValueError('options must be a mapping')
+    seed = options.get('seed')
+    if not (seed is None or type(seed) is int and 0 <= seed <= MAX_SEED
+            or isinstance(seed, str) and seed.strip().upper() == 'RANDOM'):
+        raise ValueError(f'options.seed must be 0, RANDOM, or an integer from 1 to {MAX_SEED}')
+    samples = len(config.get('input_dirs', {})) if 'input_dirs' in config else 1
+    if isinstance(config.get('cards', {}).get('param'), dict):
+        samples = len(config['cards']['param'])
+    if not 1 <= samples * run.get('njobs', 1) <= MAX_SEED:
+        raise ValueError(f'Production must contain between 1 and {MAX_SEED} jobs')
     paths = []
     if 'input_dirs' in config:
         if not isinstance(config['input_dirs'], dict) or not config['input_dirs']:
@@ -410,6 +456,7 @@ def main():
     # ------------
     #  Run config
     # ------------
+    original_config = copy.deepcopy(config)
     config_run = config['run']
 
     run_name = config_run['name']
@@ -479,7 +526,7 @@ def main():
 
 
     # Create working directory
-    output = os.path.expanduser(args.output)
+    output = os.path.abspath(os.path.expanduser(args.output))
     if output.startswith('~/') or output.startswith('/'):
         output_dir = output
     else:
@@ -665,6 +712,45 @@ def main():
 
 
 
+    # Freeze concrete seeds and exact MG commands before any execution.
+    seeds = iter(allocate_seeds(config.get('options', {}).get('seed'), len(run_dirs) * run_njobs))
+    planned_jobs = []
+    local_dirs = {}
+    for sample, directory in run_dirs.items():
+        text = (Path(directory) / 'run.mg5').read_text()
+        for index in range(run_njobs):
+            seed = next(seeds)
+            job_id = f'{sample}_{index:05d}'
+            seeded_text = render_seeded_run(text, seed)
+            outputs = [value for value in run_outputs if value != 'hepmc0']
+            if 'hepmc0' in run_outputs and index == 0 and 'hepmc' not in outputs:
+                outputs.append('hepmc')
+            if run_mode in ('condor', 'jupiter'):
+                seed_path = Path(output_dir) / f'{job_id}.mg5'
+            else:
+                job_directory = directory if run_njobs == 1 else f'{directory}_job{index:05d}'
+                if job_directory != directory:
+                    shutil.copytree(directory, job_directory)
+                local_dirs[job_id] = (sample, job_directory)
+                seed_path = Path(job_directory) / 'run.mg5'
+            seed_path.write_text(seeded_text)
+            planned_jobs.append({'job_id': job_id, 'sample': sample, 'index': index,
+                                 'seed': seed, 'nevents': run_nevents, 'outputs': outputs or ['log'],
+                                 'run_file': str(seed_path.relative_to(output_dir))})
+    if local_dirs and run_njobs > 1:
+        for directory in run_dirs.values():
+            shutil.rmtree(directory)
+    prepared_files = {}
+    for path in sorted(Path(output_dir).rglob('*')):
+        if path.is_file():
+            prepared_files[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
+                'state': 'prepared', 'config': original_config,
+                'image': container_image_path, 'mode': run_mode,
+                'image_identity': 'configured reference; not a verified immutable digest',
+                'jobs': planned_jobs, 'prepared_input_sha256': prepared_files}
+    write_manifest(output_dir, manifest)
+
     # Prepare input files
     if run_mode in ('condor', 'jupiter'):
         for name, run_dir in run_dirs.items():
@@ -699,7 +785,7 @@ def main():
 
     #     config_vars_dict['outputs'] = ','.join(run_outputs)
 
-    #     # job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name)'
+    #     # job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
 
     #     config_vars_str = '\n'.join([f'{key}={value}' for key, value in config_vars_dict.items()])
 
@@ -716,7 +802,7 @@ def main():
             f.write(template_run_condor_script)
         os.chmod(script_path, 0o755)
     elif run_mode in ('local-docker', 'local-apptainer'):
-        for name, run_dir in run_dirs.items():
+        for name, run_dir in local_dirs.values():
             script_path = f'{run_dir}/run_mg_pythia_delphes.sh'
             print(f'- Preparing run script: {script_path}')
             with open(script_path, 'w') as f:
@@ -729,7 +815,7 @@ def main():
     #-----------
     if run_mode in ('local-docker', 'local-apptainer'):
 
-        for run_name, run_dir in run_dirs.items():
+        for job_id, (run_name, run_dir) in local_dirs.items():
 
             cmd = 'source /setup_mg_pythia_delphes.sh && cd /local && '
             cmd += shlex.join(['./run_mg_pythia_delphes.sh', run_name, f'run_{run_name}'])
@@ -741,7 +827,18 @@ def main():
 
             print(cmd)
             if not args.dry_run:
-                subprocess.run(cmd, check=True)
+                manifest['state'] = 'running'
+                write_manifest(output_dir, manifest)
+                try:
+                    subprocess.run(cmd, check=True)
+                except (OSError, subprocess.CalledProcessError):
+                    manifest['state'] = 'failed'
+                    manifest['failed_job_id'] = job_id
+                    write_manifest(output_dir, manifest)
+                    raise
+        if not args.dry_run:
+            manifest['state'] = 'execution_finished'
+            write_manifest(output_dir, manifest)
 
     elif run_mode in ('condor', 'jupiter'):
 
@@ -764,27 +861,14 @@ def main():
             job_replace_dict['requirements'] = ''
 
         job_replace_dict['input_file'] = 'run_$(run_name).tar.gz'
-        job_replace_dict['arguments']  = '$(run_name) $(input_file) $(outputs) $(output_name)'
+        job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
 
         jobs = ''
-        for name in run_dirs.keys():
-
-            if 'hepmc0' in run_outputs and run_njobs > 1:
-                outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
-
-                jobs += f'run_name = {name}\n'
-                jobs += f'outputs = {outputs_str},hepmc\n'
-                jobs += f'queue\n'
-
-                jobs += f'run_name = {name}\n'
-                jobs += f'outputs = {outputs_str}\n'
-                jobs += f'queue {run_njobs-1}\n'
-
-            else:
-                jobs += f'run_name = {name}\n'
-                jobs += f'outputs = {",".join(run_outputs)}\n'
-                jobs += f'queue {run_njobs}\n'
-
+        for job in planned_jobs:
+            jobs += f"run_name = {job['sample']}\n"
+            jobs += f"seed_file = {job['run_file']}\n"
+            jobs += f"outputs = {','.join(job['outputs'])}\n"
+            jobs += 'queue 1\n'
 
         job_replace_dict['jobs'] = jobs
 
