@@ -46,7 +46,7 @@ class CondorStatusTests(unittest.TestCase):
             before = (root / 'manifest.json').read_bytes()
             responses = [self.response([self.ad(0, 2)]),
                          self.response([self.ad(1, 4, ExitBySignal=False, ExitCode=0)])]
-            with patch.object(runner.subprocess, 'run', side_effect=responses) as query:
+            with patch.object(subprocess, 'run', side_effect=responses) as query:
                 result = runner.production_status(root)
             self.assertEqual([job['state'] for job in result['jobs']], ['running', 'completed'])
             self.assertEqual([job['source'] for job in result['jobs']], ['queue', 'history'])
@@ -79,7 +79,7 @@ class CondorStatusTests(unittest.TestCase):
             wrong_job['MGJobId'] = 'some_other_job'
             wrong_production = self.ad(1, 4, ExitBySignal=False, ExitCode=0)
             wrong_production['MGProductionId'] = 'b' * 32
-            with patch.object(runner.subprocess, 'run', side_effect=[self.response([wrong_job, wrong_production]), self.response([])]):
+            with patch.object(subprocess, 'run', side_effect=[self.response([wrong_job, wrong_production]), self.response([])]):
                 result = runner.production_status(root)
             self.assertEqual(result['state'], 'unknown')
             self.assertEqual(result['counts'], {'unknown': 2})
@@ -92,7 +92,7 @@ class CondorStatusTests(unittest.TestCase):
             with self.subTest(error=error), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 self.manifest(root)
-                with patch.object(runner.subprocess, 'run', side_effect=[error, self.response([])]):
+                with patch.object(subprocess, 'run', side_effect=[error, self.response([])]):
                     result = runner.production_status(root)
                 self.assertEqual(result['counts'], {'unknown': 2})
                 self.assertTrue(result['query_errors'])
@@ -101,7 +101,7 @@ class CondorStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.manifest(root, count=1)
-            with patch.object(runner.subprocess, 'run', return_value=self.response([
+            with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 5, HoldReason='Input transfer failed', HoldReasonCode=13)])) as query:
                 result = runner.production_status(root)
             query.assert_called_once()
@@ -115,7 +115,7 @@ class CondorStatusTests(unittest.TestCase):
             value['state'] = 'prepared'
             value.pop('submission')
             runner.write_manifest(root, value)
-            with patch.object(runner.subprocess, 'run') as query:
+            with patch.object(subprocess, 'run') as query:
                 result = runner.production_status(root)
                 self.assertEqual(result['state'], 'prepared')
                 value.update(mode='local-apptainer', state='execution_finished')
@@ -130,7 +130,7 @@ class CondorStatusTests(unittest.TestCase):
             value['submission'] = {'stdout': '123.0 - 123.1\n'}
             runner.write_manifest(root, value)
             before = (root / 'manifest.json').read_bytes()
-            with patch.object(runner.subprocess, 'run', return_value=self.response([
+            with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 1), self.ad(1, 2)])) as query:
                 result = runner.production_status(root)
             self.assertEqual(result['counts'], {'pending': 1, 'running': 1})
@@ -145,7 +145,7 @@ class CondorStatusTests(unittest.TestCase):
             root = Path(tmp)
             self.manifest(root, count=1)
             output = io.StringIO()
-            with patch.object(runner.subprocess, 'run', return_value=self.response([
+            with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 4, ExitBySignal=False, ExitCode=0)])), redirect_stdout(output):
                 code = runner.main(['--status', str(root), '--json'])
             self.assertEqual(code, 0)

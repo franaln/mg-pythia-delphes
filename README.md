@@ -7,20 +7,50 @@ Container images: [franaln/mg-pythia-delphes](https://hub.docker.com/r/franaln/m
 The host runner requires a POSIX host (Linux/macOS), Python 3.9+ and PyYAML. MadGraph and the other physics
 tools run inside the selected container.
 
+## Installation
+
+From a checkout, create a user-owned environment and install the package:
+
+```bash
+python3 -m venv .venv-tests
+source .venv-tests/bin/activate
+python -m pip install --upgrade pip
+python -m pip install '.[validation]'
+mgpd --version
+```
+
+The distribution is `mg-pythia-delphes`; its command and Python import are
+`mgpd`. The minimal installation (`pip install .`) needs only PyYAML. The optional
+`validation` extra adds uproot for Delphes ROOT checks. Installation does not
+install MadGraph, container engines or HTCondor: those remain in the existing
+containers/system setup. This package is not published to PyPI; install from the
+checkout or a built wheel.
+
+On JUPITER, administrators can provide a versioned shared environment instead of
+one environment per user. Users can run its `bin/mgpd` directly or add that `bin`
+to PATH. See [shared deployment](development.md#shared-jupiter-deployment) for
+administrator setup and rollback. Workers do not need this Python package;
+submitted jobs still run the prepared Bash wrapper in Apptainer.
+
+The legacy `python scripts/run_mg_pythia_delphes.py ...` command still works with
+identical arguments and historical function exports. It uses the installed
+package when available, with a source-checkout fallback. A copied standalone
+wrapper requires the package installed in its Python environment.
+
 ## Quick start
 
-From the repository root, prepare the small full-chain example:
+With the environment active, use the checkout's small full-chain example:
 
 ```bash
 cd examples/example8_smoke_full
-python3 ../../scripts/run_mg_pythia_delphes.py \
+mgpd \
   -c config.yml -o output_test --run_mode condor --dry-run
 ```
 
 Review `output_test/manifest.json` and the generated inputs, then submit them:
 
 ```bash
-python3 ../../scripts/run_mg_pythia_delphes.py --execute-prepared output_test
+mgpd --execute-prepared output_test
 ```
 
 This example requests two jobs of 100 events. Submission must run on a machine
@@ -87,13 +117,13 @@ See the [example catalog](examples/README.md) for working configurations.
 
 ```bash
 # Check configuration and required input files without writing output:
-python3 scripts/run_mg_pythia_delphes.py -c config.yml --validate-only
+mgpd -c config.yml --validate-only
 
 # Prepare a production, without running containers or submitting jobs:
-python3 scripts/run_mg_pythia_delphes.py -c config.yml -o production --dry-run
+mgpd -c config.yml -o production --dry-run
 
 # Verify and execute the saved production, without needing the original YAML:
-python3 scripts/run_mg_pythia_delphes.py --execute-prepared production
+mgpd --execute-prepared production
 ```
 
 Preparation saves the chosen seeds, cards, wrappers, submit file and checksums.
@@ -116,8 +146,8 @@ output directory** to use this command; do not regenerate already-running jobs.
 From JUPITER, using the same user/scheduler environment used for submission:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py --status production
-python3 scripts/run_mg_pythia_delphes.py --status production --json
+mgpd --status production
+mgpd --status production --json
 ```
 
 The runner saves the submitted IDs and checks the queue, then history for jobs
@@ -135,8 +165,8 @@ After jobs finish, check saved outputs without submitting jobs or contacting the
 scheduler:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py --validate-results production
-python3 scripts/run_mg_pythia_delphes.py --validate-results production --json > results.json
+mgpd --validate-results production
+mgpd --validate-results production --json > results.json
 ```
 
 The report checks requested artifacts per job and summarizes each sample's
@@ -152,7 +182,7 @@ cross section, and complete file/event closing tags. Different productions can
 choose explicit policies:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py --validate-results production \
+mgpd --validate-results production \
   --event-count nonempty --allow-nonpositive-cross-section --json
 ```
 
@@ -175,14 +205,14 @@ some files are readable. Unknown execution evidence is not inferred as success.
 First inspect recovery eligibility without changing the production:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py --plan-recovery production --json
+mgpd --plan-recovery production --json
 ```
 
 Prepare a separate retry production, review it, then execute explicitly:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py --prepare-recovery production -o retry-01
-python3 scripts/run_mg_pythia_delphes.py --execute-prepared retry-01
+mgpd --prepare-recovery production -o retry-01
+mgpd --execute-prepared retry-01
 ```
 
 Add repeated `--job-id JOB_ID` options to preparation to select a subset of the
@@ -220,7 +250,7 @@ Condor returns one `output_*.tar.gz` per job, plus scheduler stdout/stderr/logs.
 Local results are under each job's `RUN/Events/` directory. A successful command
 or submission does not itself validate the physics results.
 
-To merge returned outputs:
+From a checkout, use the existing repository helper to merge returned outputs:
 
 ```bash
 scripts/merge_mg_pythia_delphes_output.sh output_merged.tar.gz output_sample_*.tar.gz

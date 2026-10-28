@@ -56,7 +56,8 @@ Use a host Python environment with PyYAML and, for ROOT checks, uproot:
 
 ```bash
 python3 -m venv .venv-tests
-.venv-tests/bin/python -m pip install -r tests/requirements.txt
+.venv-tests/bin/python -m pip install --upgrade pip
+.venv-tests/bin/python -m pip install '.[validation]'
 ```
 
 First test MadGraph and Condor without showering or detector simulation:
@@ -162,3 +163,7 @@ production. Use `--plan-recovery`, then `--prepare-recovery` to a new directory;
 see [README.md](../README.md#recover-selected-failed-or-missing-jobs). Recovery
 is never enabled automatically by this test driver. The regression suite also
 covers the complete recovery CLI with a fake scheduler, without real jobs.
+
+For developing/testing current edits, install `-e ".[dev]"` instead of a fixed
+release. The example driver uses the package installed in its Python environment;
+see [development.md](../development.md#package-layout-and-release-checks).

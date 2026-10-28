@@ -1,0 +1,6 @@
+include development.md
+recursive-include tests *.py *.txt *.json *.dat *.mg5 *.sh
+recursive-include examples *.md *.yml *.yaml *.json *.dat *.mg5 *.sh *.sub *.tcl *.txt *.f
+include examples/example0_sub/input_test_ttbb.tar.gz
+recursive-include scripts *.py *.sh
+recursive-include dockerfiles *.Dockerfile

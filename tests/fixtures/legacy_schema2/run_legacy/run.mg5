@@ -1,0 +1,27 @@
+# run.mg5
+
+# Config options
+
+
+# Process
+generate p p > e+ e-
+
+# Output dir
+output RUN
+launch RUN
+
+# MadSpin/Pythia/Delphes
+
+shower=OFF
+
+
+# Cards
+cards/run_card.dat
+
+
+# Run Options
+set run_tag = legacy
+set nevents = 2
+
+set iseed = 101
+done

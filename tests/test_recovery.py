@@ -16,6 +16,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_mg_pythia_delphes.py
 spec = importlib.util.spec_from_file_location('recovery_runner', SCRIPT)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
+from mgpd import recovery as recovery_module
 
 
 def lhe(seed):
@@ -65,7 +66,7 @@ class RecoveryTests(unittest.TestCase):
             root = Path(tmp)
             parent = self.fixture(root, 'condor', count=3)
             before = Path(parent.output_dir, 'manifest.json').read_bytes()
-            with patch.object(runner, 'production_status', return_value=self.scheduler(['completed', 'failed', 'running'])):
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['completed', 'failed', 'running'])):
                 plan = runner.plan_recovery(parent.output_dir)
             self.assertEqual([job['state'] for job in plan['jobs']], ['preserved', 'eligible', 'blocked'])
             self.assertEqual(plan['eligible_job_ids'], ['sample_00001'])
@@ -76,24 +77,24 @@ class RecoveryTests(unittest.TestCase):
             with self.subTest(state=state), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 parent = self.fixture(root, 'condor', count=1, good_first=False)
-                with patch.object(runner, 'production_status', return_value=self.scheduler([state])):
+                with patch.object(recovery_module, 'production_status', return_value=self.scheduler([state])):
                     plan = runner.plan_recovery(parent.output_dir)
                 self.assertEqual(bool(plan['eligible_job_ids']), state in ('completed', 'failed', 'removed'))
                 if state in ('completed', 'failed', 'removed'):
                     queued = self.scheduler([state])
                     queued['jobs'][0]['source'] = 'queue'
-                    with patch.object(runner, 'production_status', return_value=queued):
+                    with patch.object(recovery_module, 'production_status', return_value=queued):
                         self.assertFalse(runner.plan_recovery(parent.output_dir)['eligible_job_ids'])
 
     def test_queries_and_ambiguous_submissions_block_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             parent = self.fixture(root, 'condor', count=1, good_first=False)
-            with patch.object(runner, 'production_status', return_value=self.scheduler(['failed'], [{'error': 'query failed'}])):
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['failed'], [{'error': 'query failed'}])):
                 self.assertFalse(runner.plan_recovery(parent.output_dir)['eligible_job_ids'])
             parent.manifest['state'] = 'submission_unknown'
             runner.write_manifest(parent.output_dir, parent.manifest)
-            with patch.object(runner, 'production_status') as query:
+            with patch.object(recovery_module, 'production_status') as query:
                 self.assertFalse(runner.plan_recovery(parent.output_dir)['eligible_job_ids'])
                 query.assert_not_called()
 
@@ -103,7 +104,7 @@ class RecoveryTests(unittest.TestCase):
             parent = self.fixture(root, 'condor', count=3)
             good_output = Path(parent.output_dir, 'output_sample_123_0.tar.gz').read_bytes()
             (root / 'run_card.dat').unlink()  # Preparation does not need original source cards.
-            with patch.object(runner, 'production_status', return_value=self.scheduler(['completed', 'failed', 'running'])):
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['completed', 'failed', 'running'])):
                 child = runner.prepare_recovery(parent.output_dir, root / 'retry')
             self.assertEqual([job['job_id'] for job in child.manifest['jobs']], ['sample_00001'])
             self.assertEqual(child.manifest['jobs'][0]['seed'], 102)
@@ -127,7 +128,7 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runner.prepare_recovery(parent.output_dir, root / 'duplicate', job_ids=['sample_00001'])
             self.assertFalse((root / 'duplicate').exists())
-            with patch.object(runner.subprocess, 'run') as launch:
+            with patch.object(subprocess, 'run') as launch:
                 runner.execute_production(child)
                 self.assertEqual(launch.call_count, 1)
                 self.assertEqual(launch.call_args.args[0][0], 'apptainer')
@@ -141,10 +142,10 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             parent = self.fixture(root, 'condor', count=1, good_first=False)
-            with patch.object(runner, 'production_status', return_value=self.scheduler(['failed'])):
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['failed'])):
                 child = runner.prepare_recovery(parent.output_dir, root / 'retry')
-            with patch.object(runner, 'production_status', return_value=self.scheduler(['running'])), \
-                 patch.object(runner.subprocess, 'run') as launch:
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['running'])), \
+                 patch.object(subprocess, 'run') as launch:
                 with self.assertRaisesRegex(ValueError, 'no longer eligible'):
                     runner.execute_production(child)
                 launch.assert_not_called()
@@ -165,7 +166,7 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             parent = self.fixture(root)
-            with patch.object(runner.shutil, 'copy2', side_effect=OSError('copy failed')):
+            with patch.object(shutil, 'copy2', side_effect=OSError('copy failed')):
                 with self.assertRaises(OSError):
                     runner.prepare_recovery(parent.output_dir, root / 'bad_retry')
             saved = runner.read_production_manifest(parent.output_dir)
@@ -175,7 +176,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(runner.plan_recovery(parent.output_dir)['eligible_job_ids'], ['sample_00001'])
             def corrupt_copy(source, target):
                 Path(target).write_bytes(b'corrupt copy')
-            with patch.object(runner.shutil, 'copy2', side_effect=corrupt_copy):
+            with patch.object(shutil, 'copy2', side_effect=corrupt_copy):
                 with self.assertRaisesRegex(ValueError, 'corrupted while copying'):
                     runner.prepare_recovery(parent.output_dir, root / 'corrupt_retry')
             self.assertFalse(Path(root, 'corrupt_retry/manifest.json').exists())
@@ -186,13 +187,13 @@ class RecoveryTests(unittest.TestCase):
             root = Path(tmp)
             parent = self.fixture(root)
             child = runner.prepare_recovery(parent.output_dir, root / 'retry')
-            with patch.object(runner.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'apptainer')):
+            with patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'apptainer')):
                 with self.assertRaises(subprocess.CalledProcessError):
                     runner.execute_production(child)
             grandchild = runner.prepare_recovery(child.output_dir, root / 'retry_again')
             self.assertEqual(grandchild.manifest['recovery']['parent_id'], child.manifest['production_id'])
             self.assertEqual(grandchild.manifest['jobs'][0]['seed'], 102)
-            with patch.object(runner.subprocess, 'run') as launch:
+            with patch.object(subprocess, 'run') as launch:
                 runner.execute_production(grandchild)
                 launch.assert_called_once()
 
@@ -230,7 +231,7 @@ class RecoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Another process'):
                     runner.prepare_recovery(parent.output_dir, root / 'retry')
             output = io.StringIO()
-            with redirect_stdout(output), patch.object(runner.subprocess, 'run') as launch:
+            with redirect_stdout(output), patch.object(subprocess, 'run') as launch:
                 self.assertEqual(runner.main(['--plan-recovery', parent.output_dir, '--json']), 0)
                 launch.assert_not_called()
             self.assertEqual(json.loads(output.getvalue())['eligible_job_ids'], ['sample_00001'])
@@ -241,7 +242,7 @@ class RecoveryTests(unittest.TestCase):
             parent = self.fixture(root, 'condor', count=1, good_first=False)
             status = self.scheduler(['failed'])
             status['identity_checks_enabled'] = False
-            with patch.object(runner, 'production_status', return_value=status):
+            with patch.object(recovery_module, 'production_status', return_value=status):
                 plan = runner.plan_recovery(parent.output_dir)
             self.assertFalse(plan['eligible_job_ids'])
             self.assertIn('identity tags', plan['jobs'][0]['reason'])

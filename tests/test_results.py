@@ -67,7 +67,7 @@ class ResultsTests(unittest.TestCase):
             self.archive(root, 0)
             self.archive(root, 1)
             before = (root / 'manifest.json').read_bytes()
-            with patch.object(runner.subprocess, 'run', side_effect=AssertionError('No scheduler calls')):
+            with patch.object(subprocess, 'run', side_effect=AssertionError('No scheduler calls')):
                 result = runner.validate_production(root)
             self.assertEqual(result['state'], 'valid')
             self.assertEqual(result['samples']['sample']['validated_lhe_events'], 4)
