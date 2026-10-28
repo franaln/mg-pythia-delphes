@@ -60,25 +60,6 @@ def check_prepared(output, entry):
     return manifest
 
 
-def parse_job_ids(stdout):
-    """Parse condor_submit -terse's job-ID ranges, preserving submission order."""
-    result = []
-    for line in stdout.splitlines():
-        match = re.fullmatch(r'\s*(\d+)\.(\d+)(?:\s*-\s*(\d+)\.(\d+))?\s*', line)
-        if not match:
-            if line.strip():
-                raise ValueError(f'Unrecognized submit output; inspect submit.log: {line}')
-            continue
-        cluster, first = int(match[1]), int(match[2])
-        last = int(match[4]) if match[4] is not None else first
-        if match[3] is not None and int(match[3]) != cluster or last < first:
-            raise ValueError('Invalid job-ID range')
-        result.extend(f'{cluster}.{proc}' for proc in range(first, last + 1))
-    if not result or len(set(result)) != len(result):
-        raise ValueError('Missing or duplicate submitted job IDs; inspect submit.log')
-    return result
-
-
 def parse_lhe_init(block):
     """Read HEPRUP records, excluding optional nested XML metadata (LHEF 3)."""
     try:
@@ -253,7 +234,8 @@ def run_example(entry, args, result):
                                cwd=directory, capture_output=True, text=True, timeout=60)
     (work / 'submit.log').write_text(submitted.stdout + '\n' + submitted.stderr)
     submitted.check_returncode()
-    ids = parse_job_ids(submitted.stdout)
+    saved_submission = json.loads((production / 'manifest.json').read_text())['submission']
+    ids = [job['scheduler_id'] for job in saved_submission['jobs']]
     result['scheduler_ids'] = ids
     # Persist IDs immediately so interrupted tests can still be inspected/removed.
     (work / 'submitted_jobs.json').write_text(json.dumps(ids, indent=2) + '\n')

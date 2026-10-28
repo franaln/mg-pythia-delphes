@@ -90,8 +90,8 @@ The driver:
 
 1. Prepares and checks inputs, then executes them through the guarded
    `--execute-prepared` CLI. Both the runner and driver enforce job-count limits.
-2. Records exact scheduler IDs immediately in `submitted_jobs.json` and saves
-   submission output in `submit.log`.
+2. Uses the runner's exact scheduler-ID mapping in the production manifest,
+   also saving `submitted_jobs.json` and submission output in `submit.log`.
 3. Waits for each test job, with one overall Condor wait deadline per example.
 4. Checks normal termination with exit code zero and returned archives.
 5. Checks requested outputs: LHE event counts and actual seed, a positive finite
@@ -140,3 +140,10 @@ mock tests do not establish that a real cluster/container run succeeds.
 
 The implementation roadmap and internal API are documented in
 [development.md](../development.md).
+
+After a Condor test, inspect the production without submitting more jobs:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py \
+  --status test-results/condor-full-01/example8_smoke_full/production --json
+```

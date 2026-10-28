@@ -191,6 +191,11 @@ class RunnerTests(unittest.TestCase):
                     launch.assert_called_once_with(['condor_submit', '-terse', '-maxjobs', '2', production.submit_file],
                                                    cwd=production.output_dir, capture_output=True, text=True, check=True)
                     self.assertEqual(result['state'], 'submitted')
+                    self.assertEqual([job['scheduler_id'] for job in result['submission']['jobs']],
+                                     ['123.0', '123.1'])
+                    self.assertEqual([job['job_id'] for job in result['submission']['jobs']],
+                                     [job['job_id'] for job in result['jobs']])
+                    self.assertTrue(result['submission']['identity_tagged'])
                 else:
                     self.assertEqual(launch.call_count, 2)
                     for invocation in launch.call_args_list:
@@ -343,6 +348,22 @@ class RunnerTests(unittest.TestCase):
                     runner.main(['--execute-prepared', 'production', *extra])
                 self.assertEqual(error.exception.code, 2)
                 launch.assert_not_called()
+
+
+    def test_unparseable_or_wrong_count_submission_keeps_raw_output_and_blocks_retry(self):
+        for output in ('warning text', '123.0 - 123.1', ''):
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as tmp:
+                production = self.prepared(Path(tmp))
+                response = subprocess.CompletedProcess([], 0, stdout=output, stderr='')
+                with patch.object(runner.subprocess, 'run', return_value=response) as launch:
+                    with self.assertRaises(ValueError):
+                        runner.execute_production(production)
+                    self.assertEqual(launch.call_count, 1)
+                saved = runner.read_production_manifest(production.output_dir)
+                self.assertEqual(saved['state'], 'submission_unknown')
+                self.assertEqual(saved['submission']['stdout'], output)
+                with self.assertRaisesRegex(ValueError, 'already been attempted'):
+                    runner.execute_production(production)
 
 
 

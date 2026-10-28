@@ -35,12 +35,6 @@ class ExampleTests(unittest.TestCase):
                 self.assertEqual(len(report['results']), len(driver.catalog()))
                 self.assertTrue(all(item['state'] == 'prepared' for item in report['results']))
 
-    def test_terse_ranges_and_invalid_submission_output(self):
-        self.assertEqual(driver.parse_job_ids('12.0 - 12.2\n13.0\n'), ['12.0', '12.1', '12.2', '13.0'])
-        for value in ('', 'unexpected output', '12.1 - 13.2', '12.2 - 12.0', '12.0\n12.0'):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                driver.parse_job_ids(value)
-
     def test_lhe_validation_detects_wrong_seeds_and_event_counts(self):
         data = b'<LesHouchesEvents>\n<header>\n1001 = iseed\n</header>\n<init>\n1 1 6500 6500 0 0 0 0 3 1\n1.25D+00 0.1 1 1\n</init>\n<event>\n</event>\n</LesHouchesEvents>\n'
         job = {'seed': 1001, 'nevents': 1}
@@ -115,6 +109,14 @@ print(f'123.0 - 123.{len(jobs)-1}')
 ''')
         (tools / 'condor_wait').write_text(f'#!{sys.executable}\nimport os, sys\nsys.exit(1 if os.environ.get("MG_TEST_FAIL_WAIT") else 0)\n')
         (tools / 'condor_rm').write_text(f'#!{sys.executable}\nimport sys\nprint(" ".join(sys.argv[1:]))\n')
+        (tools / 'condor_q').write_text(f'#!{sys.executable}\nprint("[]")\n')
+        (tools / 'condor_history').write_text(f'#!{sys.executable}\n' + """import json, os
+from pathlib import Path
+manifest = json.loads(Path(os.environ['MG_TEST_PRODUCTION'], 'manifest.json').read_text())
+print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False, ExitCode=0,
+                      MGProductionId=manifest['production_id'], MGJobId=job['job_id'])
+                  for i, job in enumerate(manifest['jobs'])]))
+""")
         for executable in tools.iterdir():
             executable.chmod(0o755)
         return dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'])
@@ -143,6 +145,15 @@ print(f'123.0 - 123.{len(jobs)-1}')
                 else:
                     self.assertEqual(report['state'], 'passed')
                     self.assertEqual([check['seed'] for check in report['checks']], [1001, 1002])
+                    production = output / 'example7_parton_only/production'
+                    before = (production / 'manifest.json').read_bytes()
+                    env['MG_TEST_PRODUCTION'] = str(production)
+                    status = subprocess.run([sys.executable, '-B', str(driver.RUNNER), '--status',
+                                             str(production), '--json'], env=env,
+                                            capture_output=True, text=True)
+                    self.assertEqual(status.returncode, 0, status.stderr)
+                    self.assertEqual(json.loads(status.stdout)['counts'], {'completed': 2})
+                    self.assertEqual((production / 'manifest.json').read_bytes(), before)
 
 
 if __name__ == '__main__':

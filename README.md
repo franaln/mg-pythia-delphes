@@ -111,6 +111,24 @@ The guarded execution command requires a newly prepared schema-2 manifest.
 Older productions remain readable, but must be prepared again in a **new
 output directory** to use this command; do not regenerate already-running jobs.
 
+## Check production status
+
+From JUPITER, using the same user/scheduler environment used for submission:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --status production
+python3 scripts/run_mg_pythia_delphes.py --status production --json
+```
+
+The runner saves the submitted IDs and checks the queue, then history for jobs
+no longer queued. It reports individual states, hold reasons and exit details.
+Missing records or exit information remain `unknown`. `completed` means the job
+exited normally with code zero; output/physics validation is separate.
+
+Status checks are read-only and do not reset duplicate protection. They return
+exit code 1 for query errors, while job failures are reported in the status data.
+For local Apptainer/Docker runs, status shows recorded execution state only.
+
 ## Seeds and outputs
 
 A positive `options.seed` starts a deterministic sequence across all jobs and
