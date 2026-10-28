@@ -138,6 +138,15 @@ failure handling, and exercises the integration-test driver against a fake
 scheduler and generated LHE archives. It never submits real jobs. Successful
 mock tests do not establish that a real cluster/container run succeeds.
 
+Output parsing and production validation are shared with the runner. The test
+report includes `validation` with job details and sample summaries. Default
+smoke policies remain strict. To inspect an existing result without another run:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py \
+  --validate-results test-results/condor-full-01/example8_smoke_full/production --json
+```
+
 The implementation roadmap and internal API are documented in
 [development.md](../development.md).
 

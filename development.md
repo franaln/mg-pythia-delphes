@@ -12,8 +12,8 @@ this file when completing a stage or changing the plan.
 | 2. Separate responsibilities | Complete | Reusable load/validate, prepare and execute functions; unchanged CLI/YAML. Preparation equivalence checked across all 36 example/backend combinations. |
 | 3. Execute saved preparations safely | Implemented; Apptainer/Condor examples reported passing | Reload saved inputs without original source files; reject changes; lock concurrent callers; persist an execution attempt before launch; block automatic duplicate/retry. |
 | 4. Track HTCondor jobs | Implemented; live status check pending | Parse returned job IDs and associate them with manifest jobs; query queue/history; distinguish pending/running/held/completed/failed/unknown after restarting the client. |
-| 5. Validate and summarize outputs | **Next** | Move the example driver's checks into reusable result functions; produce sample-level summaries and distinguish execution success from valid output. |
-| 6. Recover failed jobs | Planned | Retry only missing/failed jobs with preserved inputs/seeds and an explicit attempt history, without duplicating good outputs. |
+| 5. Validate and summarize outputs | Implemented; live validation check pending | Move the example driver's checks into reusable result functions; produce sample-level summaries and distinguish execution success from valid output. |
+| 6. Recover failed jobs | **Next** | Retry only missing/failed jobs with preserved inputs/seeds and an explicit attempt history, without duplicating good outputs. |
 | 7. Add a thin MCP interface | Planned | Wrap the same validated preparation, execution, status and result functions; no duplicated workflow implementation. |
 
 Cross-cutting work:
@@ -116,6 +116,39 @@ example, backend or subsequent change has passed on the real cluster.
   Manual two-command execution/duplicate protection was not separately confirmed.
   Real queue/history status queries for this stage remain to be tested there.
 
+### Stage 5: reusable output validation and sample summaries
+
+- Moved LHE/init parsing and artifact checks from the example driver into the
+  runner; the driver uses the same implementation and includes the production
+  report in `report.json`, avoiding duplicate reads of large outputs.
+- Added `validate_production` and `--validate-results DIRECTORY [--json]`.
+  Validation reads actual artifacts without contacting Condor or modifying the
+  execution manifest/guard. Reports include policy, per-output checks, job
+  states, execution evidence, and per-sample event totals and cross sections.
+- Replica cross sections remain separate per-job measurements; no sum or
+  combined uncertainty/estimate is invented.
+- Added explicit LHE policies for exact/nonempty/ignored event counts,
+  nonpositive finite cross sections and optional seed matching. Missing closing
+  tags, nonfinite records, corrupt gzip, and mismatches under the selected policy
+  remain failures. Policy overrides are report metadata, not manifest edits.
+- Handle missing artifacts (`missing`) and missing optional validation libraries
+  (`unavailable`) separately from invalid data. Preserve metrics from readable
+  files when another requested artifact is missing or bad; sample validated
+  totals count only valid jobs.
+- Condor outputs are opened using the recorded job mapping (with strict legacy
+  raw-output fallback), never guessed from a broad glob. Tar contents are read
+  without extracting paths; duplicate basenames are rejected. Local results use
+  saved job directories, including MadSpin's decayed directory when present.
+- Separate `outputs_state` from `execution_state`; known failed execution marks
+  the job invalid even if readable files remain. Unknown execution evidence is
+  reported as unknown, not promoted to scheduler completion.
+- HepMC streams are decompressed through EOF for CRC/truncation checks. ROOT
+  validation checks tree metadata/positive entries, not a full branch/basket
+  scan. Explicit output selections are required; `all` validation remains a gap.
+- 53 regression tests pass, including real ROOT fixtures, truncated LHE/gzip,
+  missing/corrupt artifacts, policy changes, sample summaries and fake-scheduler
+  integration. No new real simulation or JUPITER runs were performed here.
+
 ## Internal API
 
 The implementation remains in `scripts/run_mg_pythia_delphes.py` so the existing
@@ -124,7 +157,7 @@ CLI path and imports stay available. Python callers from the repository root:
 ```python
 from scripts.run_mg_pythia_delphes import (
     load_config, prepare_production, load_prepared_production,
-    execute_production, read_production_manifest, production_status,
+    execute_production, read_production_manifest, production_status, validate_production,
 )
 
 config = load_config("config.yml", run_mode="condor")
@@ -135,6 +168,7 @@ prepared = load_prepared_production("production")  # Verifies saved inputs.
 # execute_production(prepared)                     # Explicit one-time attempt.
 metadata = read_production_manifest("production") # No integrity/scheduler query.
 # snapshot = production_status("production")        # Read-only scheduler query.
+# results = validate_production("production")        # Read-only artifact checks.
 ```
 
 Relative source input paths retain historical cwd semantics during preparation.
@@ -236,3 +270,39 @@ client, and confirm that the reported IDs match the manifest and Condor. Also
 confirm that the command does not change the execution-attempt marker or allow
 another submission. No real jobs or scheduler queries were performed from the
 development environment for this stage.
+
+## Output-validation interpretation and handoff
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --validate-results production --json
+```
+
+This command returns 0 for `valid` and 1 for invalid, incomplete, missing
+metadata or unavailable required checks. It does not equate job completion with
+artifact validity, does not write status into the manifest, and does not clear
+attempts. `metadata_errors` describes unreliable legacy submission mappings;
+jobs without a reliable scheduler ID are unavailable, not guessed from files.
+
+The report's per-job `outputs_state` describes artifact checks; `execution_state`
+is normal/failed/unknown according to the saved local state or final terminal
+record in the job's Condor log. `state` is invalid for known failed execution,
+otherwise it follows artifact state. Unknown execution evidence can coexist
+with valid artifacts and remains explicit. Per-sample totals include only jobs
+whose combined state is valid; metrics from other readable files remain in the
+individual job report. Zero totals can also mean an output type wasn't requested.
+
+Default smoke policies are not universal analysis requirements. Use explicit
+CLI/API policy overrides for weighted/filtered samples, and keep the resulting
+policy in exported reports. ROOT/HepMC checks are integrity smoke checks, not
+full event-schema/payload/physics validation. No aggregate cross-section
+estimator or merged result is provided.
+
+Run validation on already completed JUPITER local-Apptainer and Condor
+productions, compare event totals and per-job cross sections to their banners,
+and confirm no additional jobs are submitted. This command can also inspect
+older manifests when artifact paths and a reliable job-ID mapping are available;
+no preparation/resubmission is required merely to validate existing results.
+
+For stage 6, recovery must use these per-job outcomes plus scheduler evidence,
+not simply resubmit every missing artifact: an active or held job can still
+produce it. Preserve inputs/seeds and make retry ownership/history explicit.

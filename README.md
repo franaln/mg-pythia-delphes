@@ -129,6 +129,47 @@ Status checks are read-only and do not reset duplicate protection. They return
 exit code 1 for query errors, while job failures are reported in the status data.
 For local Apptainer/Docker runs, status shows recorded execution state only.
 
+## Validate results and summarize samples
+
+After jobs finish, check saved outputs without submitting jobs or contacting the
+scheduler:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --validate-results production
+python3 scripts/run_mg_pythia_delphes.py --validate-results production --json > results.json
+```
+
+The report checks requested artifacts per job and summarizes each sample's
+validated event totals and per-job cross sections. Cross sections from replica
+jobs are **not added together**. Condor archives are read without extracting
+their paths; local Apptainer results are read from the saved job directories.
+Missing jobs/files yield `incomplete`, corrupt/failed outputs yield `invalid`,
+and all passing checks yield `valid`. The command returns 0 only for `valid`.
+Missing optional uproot is reported as `unavailable`, not as corrupt ROOT data.
+
+Default LHE checks require the planned event count and seed, a finite positive
+cross section, and complete file/event closing tags. Different productions can
+choose explicit policies:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --validate-results production \
+  --event-count nonempty --allow-nonpositive-cross-section --json
+```
+
+`--event-count` accepts `exact` (default), `nonempty` or `ignore`.
+`--skip-seed-check` allows LHE without the planned seed; the policy is included
+in the report. Nonfinite cross sections and structurally incomplete LHE remain
+invalid even under relaxed policies. Delphes checks require uproot and a
+nonempty `Delphes` tree; they inspect tree metadata, not every event basket.
+HepMC checks require a nonempty fully decompressible gzip stream; these do not
+validate the event physics. Select explicit output types: validation of
+`outputs: [all]` is not implemented.
+
+Results checks are read-only and do not modify the manifest, retry jobs or
+approve the physics analysis. They report execution evidence from local state
+or Condor job logs separately; known failed execution fails validation even if
+some files are readable. Unknown execution evidence is not inferred as success.
+
 ## Seeds and outputs
 
 A positive `options.seed` starts a deterministic sequence across all jobs and
