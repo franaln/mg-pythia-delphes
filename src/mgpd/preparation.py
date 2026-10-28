@@ -2,6 +2,7 @@
 import os
 import string
 import shutil
+import shlex
 import subprocess
 import re
 from pathlib import Path
@@ -278,7 +279,7 @@ def package_sample_inputs(output_dir, run_dirs, run_mode):
         print('- Running locally, no need to compress input files')
 
 
-def prepare_wrappers(output_dir, local_dirs, run_mode):
+def prepare_wrappers(output_dir, local_dirs, run_mode, outputs=None):
     """Write executable wrappers without starting containers or submitting jobs."""
     # -----------
     # Run script
@@ -294,7 +295,9 @@ def prepare_wrappers(output_dir, local_dirs, run_mode):
             script_path = f'{run_dir}/run_mg_pythia_delphes.sh'
             print(f'- Preparing run script: {script_path}')
             with open(script_path, 'w') as f:
-                f.write(template_run_local_script)
+                f.write(template_run_local_script.replace(
+                    '# MGPD_LOCAL_OUTPUTS',
+                    'outputs=' + shlex.quote(' '.join(outputs or []))))
             os.chmod(script_path, 0o755)
 
 
@@ -379,7 +382,7 @@ def _prepare_production(config, output, force=False):
                 'image_identity': 'configured reference; not a verified immutable digest',
                 'jobs': jobs, 'prepared_input_sha256': prepared_files}
     package_sample_inputs(output_dir, run_dirs, run_mode)
-    prepare_wrappers(output_dir, local_dirs, run_mode)
+    prepare_wrappers(output_dir, local_dirs, run_mode, config['run'].get('outputs', ['lhe', 'lhco', 'log']))
     submit_file = None
     if run_mode in ('condor', 'jupiter'):
         submit_file = prepare_condor_submission(config, output_dir, image, jobs, manifest['production_id'])

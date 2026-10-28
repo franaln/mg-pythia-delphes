@@ -44,6 +44,23 @@ Cross-cutting work:
 
 ## Changes implemented
 
+### Local LHCO generation fix
+
+- The first live local merge production reported missing LHCO. Inspection found
+  that ROOT-to-LHCO conversion existed only in the Condor wrapper; local wrappers
+  stopped after MadGraph/Pythia/Delphes even when LHCO was requested.
+- Local preparation now freezes the requested output list in each wrapper and
+  explicitly runs `root2lhco` when LHCO is requested. It checks converter presence,
+  exit status and nonempty output, retains the ROOT input, and prepends the MG
+  banner when available. Standard and MadSpin output directories are supported.
+- Bash regressions execute generated wrappers with fake MG/converter executables,
+  covering successful conversion, no-LHCO selection, missing converter, nonzero
+  exit, missing/empty outputs and paths containing spaces.
+- All 88 local tests pass; real container conversion remains to be retested.
+- Existing prepared productions keep their frozen scripts; prepare into a fresh
+  directory to use this fix. No original production or saved guard was reset.
+
+
 ### Live merging test preparation
 
 - Added `example11_merge_smoke`: two SM electron-pair jobs with LHE, ROOT and
