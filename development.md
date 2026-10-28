@@ -89,6 +89,23 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 
 ## Changes implemented
 
+### Live Condor lifecycle/recovery test preparation
+
+- Added `scripts/test_condor_workflow.py --execute`: isolated two-job parton-only
+  production plus a one-job recovery. Runs saved-plan CLI execution, duplicate
+  guards, read-only tagged status polling, validation, selection and ownership.
+- Temporarily withholds one test-owned output, preserves a checksum of the good
+  job, verifies child job/seed/image identity, validates recovery and restores the
+  original archive on errors/interrupts. No existing productions are accepted.
+- Reports retain scheduler IDs, status observations and command logs. No automatic
+  cancellation or unsafe fallback when status is unknown. Usage and limits are in
+  `examples/README.md`. Real JUPITER verification remains pending (SSH blocked).
+- Validation: all 94 local tests pass; no real scheduler jobs were submitted.
+- Fake-scheduler integration covers success, failed recovery submission with
+  backup restoration, query failure without recovery, duplicate guards and
+  refusal to overwrite an existing test directory.
+
+
 ### Local LHCO generation fix
 
 - The first live local merge production reported missing LHCO. Inspection found

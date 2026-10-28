@@ -215,3 +215,48 @@ It also tests LHCO-only merging through `lhco2root` and `root2lhco` separately.
 `report.json`, `merge.log`, and `merge-lhco-only.log` retain results and failures.
 Use fresh output paths for every test. A passing report is live evidence only for
 the backend/image and input production actually exercised.
+
+## Live saved-execution and recovery test on JUPITER
+
+From the repository root, in an environment with the current package installed
+and access to your normal Condor scheduler:
+
+```bash
+python scripts/test_condor_workflow.py --execute \
+  --image mg-pythia-delphes-3.5.6 \
+  --output test-results/condor-workflow-01
+```
+
+This submits **two parton-only SM jobs and one selective recovery job**, with 100
+events per job (override with `--events`, limited to 1000). It:
+
+1. Prepares the example, loads and executes its saved plan, then checks that a
+   duplicate execution is rejected without changing the manifest.
+2. Polls read-only `--status` until both jobs have tagged, successful completion
+   records in history; validates results and checks no recovery is needed.
+3. Moves one test-owned archive into `withheld/`, verifies the missing result is
+   detected, and prepares a child containing exactly that job with its original
+   seed, job configuration and image.
+4. Checks recovery ownership prevents a second delegation, executes the saved
+   child once, rejects duplicate execution, and validates the replacement output.
+5. Checks the other parent's output is unchanged, restores the withheld archive,
+   and validates the original production again.
+
+Everything lives under a **new** output directory. Existing user productions are
+never accepted as input. Parent and recovery submissions/IDs, CLI logs, scheduler
+observations and failures are retained in `report.json` and numbered logs. Status
+queries must leave manifests unchanged. Recovery preparation must not submit.
+
+The per-production wait defaults to 1800 seconds (`--timeout`). Queue delays or
+history finalization can require more time. Query errors, held/failed jobs and
+unknown states never trigger speculative recovery. The test does not cancel jobs
+on failure; inspect recorded IDs and manifests before any manual scheduler action.
+The withheld archive is restored on ordinary errors/interrupts; after a process
+kill, inspect the backup/original paths recorded in `report.json` before moving it.
+Both original and recovered outputs remain available after success: they are
+alternate attempts for the same logical job and must not both enter a merge.
+
+This deliberately uses a cheap parton-only example to isolate scheduler/recovery
+behavior. Pythia/Delphes and merging are exercised by the separate merge smoke
+test. A fake-scheduler regression tests the driver itself; real JUPITER coverage
+is established only by the report from this command.
