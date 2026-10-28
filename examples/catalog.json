@@ -110,6 +110,15 @@
       ],
       "jobs_per_sample": 2,
       "smoke": true
+    },
+    {
+      "name": "example11_merge_smoke",
+      "config": "example11_merge_smoke/config.yml",
+      "samples": [
+        "smoke_merge"
+      ],
+      "jobs_per_sample": 2,
+      "smoke": true
     }
   ],
   "manual_only": {

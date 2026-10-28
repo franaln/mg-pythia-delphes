@@ -44,6 +44,20 @@ Cross-cutting work:
 
 ## Changes implemented
 
+### Live merging test preparation
+
+- Added `example11_merge_smoke`: two SM electron-pair jobs with LHE, ROOT and
+  LHCO output, and a `scripts/test_merging.py` live integration checker.
+- The checker supports completed local/Condor productions, validates inputs,
+  checks summed event counts and a replica cross-section sanity bound, records
+  finite weight statistics and exercises LHCO-only conversion separately.
+- Reports, input snapshots and command logs are written to a fresh test directory;
+  original productions remain untouched. Commands are in `examples/README.md`.
+- Local validation: all 85 tests pass, including preparation of all 13 examples
+  for three backends and regressions for event counting/normalization/reporting.
+- SSH to JUPITER from this workspace was blocked (`Operation not permitted`);
+  no remote simulation or merge was performed. Live verification remains pending.
+
 ### Packaged output merging
 
 - Added reusable `mgpd.merge_outputs` and `mgpd merge INPUT... -o OUTPUT`.

@@ -17,10 +17,11 @@ source examples.
 | `example8_smoke_full` | Small SM sample, Pythia + Delphes + first-job HepMC | None |
 | `example9_smoke_madspin` | Small SM Z production, MadSpin decay to electrons, Pythia + Delphes | None |
 | `example10_shower_only` | Pythia without Delphes | None |
+| `example11_merge_smoke` | Two SM jobs with LHE, ROOT and LHCO for live merging checks | None |
 | `example_with_madspin` | Original loop-induced Higgs-pair production with MadSpin | Custom UFO model |
 | `example_hh_loop` | Original loop-induced Higgs-pair production | Custom UFO model |
 
-The five new SM examples request 100 events per job, two jobs per sample, one
+The SM smoke examples request 100 events per job, two jobs per sample, one
 core, and image version `3.5.6`. `example6_input_dirs` has two samples (four
 jobs total). The original physics examples retain their configurations and may
 be expensive even when the event count is reduced. In particular, the original
@@ -167,3 +168,50 @@ covers the complete recovery CLI with a fake scheduler, without real jobs.
 For developing/testing current edits, install `-e ".[dev]"` instead of a fixed
 release. The example driver uses the package installed in its Python environment;
 see [development.md](../development.md#package-layout-and-release-checks).
+
+## Live merging smoke test on JUPITER
+
+Install the current development checkout in the environment used for testing:
+
+```bash
+python -m pip install -e '.[dev]'
+```
+
+Generate two small jobs with LHE, ROOT and LHCO outputs. Run from the repository
+root; the example driver handles card paths. This actually launches simulations:
+
+```bash
+python scripts/test_examples.py --execute --mode local-apptainer \
+  --example example11_merge_smoke \
+  --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
+  --output test-results/merge-production-01
+```
+
+Then run the real container merge and inspect the report:
+
+```bash
+python scripts/test_merging.py \
+  --production test-results/merge-production-01/example11_merge_smoke/production \
+  --backend local-apptainer \
+  --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
+  --output test-results/merge-check-01
+cat test-results/merge-check-01/report.json
+```
+
+For Condor, generate with `--mode condor` and an appropriate Condor image reference
+(e.g. `--image mg-pythia-delphes-3.5.6`), then pass that completed production to
+the same merge checker. The checker itself never submits jobs. It copies selected
+artifacts into its new test directory and leaves the production untouched.
+
+The checker requires two valid jobs from one sample. It checks exact summed LHE,
+ROOT and LHCO event counts, finite event weights, and a replica normalization
+sanity check: the merged LHE cross section must remain within the input cross
+section range, allowing rounding. It records the event-weighted reference and
+input/merged weight statistics for inspection; it does not assume that raw event
+weights must add across every LHE weight convention. This is a smoke test for this
+positive unweighted SM example, not certification of arbitrary weighted samples.
+It also tests LHCO-only merging through `lhco2root` and `root2lhco` separately.
+
+`report.json`, `merge.log`, and `merge-lhco-only.log` retain results and failures.
+Use fresh output paths for every test. A passing report is live evidence only for
+the backend/image and input production actually exercised.
