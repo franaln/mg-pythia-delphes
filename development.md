@@ -1,7 +1,8 @@
 # Development plan and change log
 
-Keep user-facing usage in `README.md`, example/test instructions in
-`examples/README.md`, and architecture, progress and future work here. Update
+Keep user-facing usage in `README.md`, testing/release/deployment instructions in
+`README-dev.md`, the example catalog in `examples/README.md`, and architecture,
+progress and future work here. Update
 this file when completing a stage or changing the plan.
 
 ## Next steps
@@ -89,6 +90,17 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 
 ## Changes implemented
 
+### Documentation by audience
+
+- `README.md` contains user installation and workflows; `examples/README.md`
+  contains the configuration catalog and normal example usage.
+- `README-dev.md` centralizes editable setup, regression/integration tests,
+  JUPITER test resume, release checks and administrator deployment instructions.
+- This file retains architecture, history, coverage notes and next steps. The
+  developer guide is included in source distributions; documentation links and
+  the built source archive were checked.
+
+
 ### Empty Condor query responses and workflow-test resume
 
 - The real JUPITER test observed both jobs completed in tagged history, but the
@@ -120,7 +132,7 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
   original archive on errors/interrupts. No existing productions are accepted.
 - Reports retain scheduler IDs, status observations and command logs. No automatic
   cancellation or unsafe fallback when status is unknown. Usage and limits are in
-  `examples/README.md`. Real JUPITER verification remains pending (SSH blocked).
+  `README-dev.md`. Real JUPITER verification remains pending (SSH blocked).
 - Validation: all 94 local tests pass; no real scheduler jobs were submitted.
 - Fake-scheduler integration covers success, failed recovery submission with
   backup restoration, query failure without recovery, duplicate guards and
@@ -152,7 +164,7 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
   checks summed event counts and a replica cross-section sanity bound, records
   finite weight statistics and exercises LHCO-only conversion separately.
 - Reports, input snapshots and command logs are written to a fresh test directory;
-  original productions remain untouched. Commands are in `examples/README.md`.
+  original productions remain untouched. Commands are in `README-dev.md`.
 - Local validation: all 85 tests pass, including preparation of all 13 examples
   for three backends and regressions for event counting/normalization/reporting.
 - SSH to JUPITER from this workspace was blocked (`Operation not permitted`);
@@ -432,10 +444,8 @@ Image references are recorded, not yet verified immutable container digests.
 
 ## Validation and real test handoff
 
-```bash
-python3 -B -m unittest discover -s tests -v
-python3 scripts/test_examples.py --output test-results/preparation-01
-```
+Current regression and live-test commands are in the
+[developer guide](README-dev.md).
 
 Regression coverage includes all example/backend preparation combinations,
 mock-scheduler execution, output parsing, missing/changed input rejection,
@@ -443,7 +453,7 @@ plan edits, relocation without source files, stale callers, lock contention,
 duplicate attempts, interrupted submissions and legacy-manifest rejection.
 
 On JUPITER, repeat the small parton-only test followed by full-chain/MadSpin
-checks using the commands in `examples/README.md`. The live driver exercises
+checks using the commands in `README-dev.md`. The live driver exercises
 `--execute-prepared`, then waits for completion and checks actual artifacts.
 Also try executing the same production a second time: it must refuse before
 calling Condor. Inspect scheduler state before creating replacement productions
@@ -563,79 +573,7 @@ Recovery does not merge a production family or replace the original summary.
 Dataset assembly must choose one validated attempt per logical job, combining
 original good jobs with validated child jobs without double-counting retries.
 
-## Package layout and release checks
+## Developer instructions
 
-| Module | Responsibility |
-| --- | --- |
-| `config` | Load/validate YAML and resolve image references |
-| `models`, `templates` | Production model, seed range and generated templates |
-| `storage` | Manifests, checksums, path confinement and locks |
-| `preparation` | Render sample/job inputs, package and freeze execution files |
-| `execution` | Reload and execute guarded plans |
-| `condor` | Parse IDs and query scheduler state |
-| `results` | Inspect artifacts and summarize validated results |
-| `recovery` | Plan/prepare/recheck parent-child recovery ownership |
-| `cli` | Parse arguments and coordinate public operations |
-| `compat` | Historical script function/template exports |
-
-For development, from the checkout:
-
-```bash
-python3 -m venv .venv-dev
-source .venv-dev/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-python -B -m unittest discover -s tests -v
-python -m build
-```
-
-Editable installs require a modern pip (PEP 660); upgrade pip before installation
-on AlmaLinux environments with older bundled versions. Do not use editable
-installs for the shared production environment.
-
-`python -m build` creates an sdist and builds the wheel from that sdist. Before
-releasing, install the wheel in a fresh environment and test outside the source
-checkout. Confirm core commands work without uproot, then install the validation
-extra and run all regressions. Check `mgpd --version`, `python -m mgpd`, and a
-copy of the legacy wrapper outside the repository. Package refactoring does not
-require rebuilding existing schema-2 productions or resetting attempt guards.
-
-The example driver remains in the repository and runs with its Python
-interpreter's package version. Examples are not installed with the wheel;
-regular users supply their own YAML/cards. The legacy wrapper chooses an
-installed package over the source tree; use the intended environment explicitly
-when testing releases or current development.
-
-## Shared JUPITER deployment
-
-As an administrator, build and test a wheel, then create a **new** versioned
-venv. For example, from the tested checkout in an administrator shell:
-
-```bash
-umask 022
-python3 -m venv /opt/venvs/mgpd-0.1.0
-/opt/venvs/mgpd-0.1.0/bin/python -m pip install --upgrade pip
-/opt/venvs/mgpd-0.1.0/bin/python -m pip install \
-  'dist/mg_pythia_delphes-0.1.0-py3-none-any.whl[validation]'
-/opt/venvs/mgpd-0.1.0/bin/mgpd --version
-```
-
-Keep this environment administrator-owned, readable/executable by users and not
-writable by ordinary accounts. Validate local Apptainer and a disposable Condor
-smoke test under an ordinary user before selecting the release as default.
-
-```bash
-# Administrator: choose the validated release.
-ln -sfn /opt/venvs/mgpd-0.1.0 /opt/venvs/mgpd-current
-
-# Users: use the shared executable without activating a venv.
-export PATH="/opt/venvs/mgpd-current/bin:$PATH"
-mgpd --version
-```
-
-Do not overwrite an environment in use. Install the next release in another
-versioned directory; change `mgpd-current` only after validation. Rollback points
-it back to the previous environment. Existing processes retain their interpreter
-and imported package; saved manifests, seeds and scheduler IDs stay in users'
-production directories. Do not remove old environments while processes use them.
-No shared environment was created or modified from this development session.
+See [README-dev.md](README-dev.md) for environment setup, automated and live test
+commands, package release checks and shared JUPITER deployment.

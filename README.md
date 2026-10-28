@@ -12,8 +12,8 @@ tools run inside the selected container.
 From a checkout, create a user-owned environment and install the package:
 
 ```bash
-python3 -m venv .venv-tests
-source .venv-tests/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install '.[validation]'
 mgpd --version
@@ -28,7 +28,7 @@ checkout or a built wheel.
 
 On JUPITER, administrators can provide a versioned shared environment instead of
 one environment per user. Users can run its `bin/mgpd` directly or add that `bin`
-to PATH. See [shared deployment](development.md#shared-jupiter-deployment) for
+to PATH. See [shared deployment](README-dev.md#shared-jupiter-deployment) for
 administrator setup and rollback. Workers do not need this Python package;
 submitted jobs still run the prepared Bash wrapper in Apptainer.
 
@@ -134,7 +134,7 @@ files, but cannot reset a recorded execution attempt.
 
 A failed or ambiguous Condor submission can still have queued jobs: inspect
 `submission` and `execution_attempt` in the manifest and the scheduler before
-deciding what to do. Automatic retry/recovery is not implemented. Directly
+deciding what to do. Recovery requires explicit planning and execution as described below. Directly
 calling `condor_submit` bypasses the runner's duplicate guard.
 
 The guarded execution command requires a newly prepared schema-2 manifest.
@@ -295,11 +295,8 @@ import ./models_tmp-lepton_masses
 For custom cuts, include `user_cuts.f` with the complete input directory and
 reference it from the run card, for example `user_cuts.f = custom_fcts`.
 
-## Testing and development
+## Developer documentation
 
-See [examples/README.md](examples/README.md) for preparation checks and opt-in
-real Condor/container tests. The full-chain smoke test checks LHE, HepMC and
-Delphes outputs and requires host uproot in addition to PyYAML.
-
-The development history, implementation details and next steps live in
+Development setup, testing, releases and shared deployment are documented in
+[README-dev.md](README-dev.md). The roadmap and change history are in
 [development.md](development.md).
