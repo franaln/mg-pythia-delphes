@@ -241,7 +241,7 @@ fi
 ## HEPMC (Pythia8 output)
 if [[ "${outputs}" =~ "hepmc" ]] ; then
     output_file_hepmc=${output_name}_pythia8_events.hepmc.gz
-    mv ${output_dir}/${run_name}_pythia8_events.hepmc.gz ${output_dir}/${output_file_hepmc}
+    mv "${output_dir}/${run_name}_pythia8_events.hepmc.gz" "${output_dir}/${output_file_hepmc}" || exit 1
     all_output_files+=(${output_file_hepmc})
 fi
 
@@ -249,7 +249,7 @@ fi
 if [[ "${outputs}" =~ "lhe" ]] ; then
     output_file_lhe=${output_name}_unweighted_events.lhe.gz
 
-    mv ${output_dir}/unweighted_events.lhe.gz ${output_dir}/${output_file_lhe}
+    mv "${output_dir}/unweighted_events.lhe.gz" "${output_dir}/${output_file_lhe}" || exit 1
     all_output_files+=(${output_file_lhe})
 
     # if madspin output also save lhe before (useful or not?)
@@ -271,9 +271,12 @@ if [[ "${outputs}" =~ "lhco" ]] ; then
     output_file_lhco=${output_name}_delphes_events.lhco
     output_file_banner=${output_dir_name}_${run_name}_banner.txt
 
-    root2lhco ${output_dir}/${output_file_root} ${output_dir}/${output_file_tmp_lhco}
+    if ! root2lhco "${output_dir}/${output_file_root}" "${output_dir}/${output_file_tmp_lhco}"; then
+        echo "ERROR: root2lhco failed; preserving ROOT input and partial output" >&2
+        exit 1
+    fi
 
-    if [ ! -e ${output_dir}/${output_file_tmp_lhco} ]; then
+    if [ ! -s "${output_dir}/${output_file_tmp_lhco}" ]; then
         echo "ERROR: no lhco output file. Exiting ..."
         ls ${output_dir}
         tar -czf ${output_file} -C ${job_dir} *
@@ -281,17 +284,17 @@ if [[ "${outputs}" =~ "lhco" ]] ; then
     fi
 
     # Merge lhco and banner (copied from run_delphes3)
-    sed -e "s/^/# /g" ${output_dir}/${output_file_banner} > ${output_dir}/${output_file_lhco}
+    sed -e "s/^/# /g" "${output_dir}/${output_file_banner}" > "${output_dir}/${output_file_lhco}" || exit 1
     echo "" >> ${output_dir}/${output_file_lhco}
-    cat ${output_dir}/${output_file_tmp_lhco} >> ${output_dir}/${output_file_lhco}
+    cat "${output_dir}/${output_file_tmp_lhco}" >> "${output_dir}/${output_file_lhco}" || exit 1
 
     all_output_files+=(${output_file_lhco})
 fi
 
 if [[ "${outputs}" =~ "all" ]] ; then
-    tar -czf ${output_file} -C ${output_dir} *
+    tar -czf "${output_file}" -C "${output_dir}" . || exit 1
 else
-    tar -cvzf ${output_file} -C ${output_dir} ${all_output_files[@]}
+    tar -cvzf "${output_file}" -C "${output_dir}" "${all_output_files[@]}" || exit 1
 fi
 
 echo "Finished OK, $(date)"

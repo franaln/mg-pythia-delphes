@@ -42,6 +42,51 @@ Cross-cutting work:
 - Avoid changing physics cards, broadening scans or introducing an agent
   framework as part of infrastructure refactors.
 
+## Test coverage and remaining gaps
+
+A passing unit-test count is not evidence that each backend produces every
+requested artifact. Before the LHCO incident, all examples were prepared for all
+backends, but successful local wrapper output generation was not exercised.
+The fake scheduler wrote completed archives itself, and merge tests started from
+existing files. Both bypassed the missing local conversion.
+
+| Layer | Automated evidence | What it does not establish |
+| --- | --- | --- |
+| Preparation | All 13 catalog examples prepare for Docker, Apptainer and Condor | Physics programs execute or produce requested files |
+| Worker output contract | Real preparation and Bash; 3 worker modes × 9 output selections × normal/decayed directory layouts; checks concrete artifacts and executed seed | Real MadSpin dynamics, ROOT validity, container setup or live scheduling |
+| Worker failure contract | Missing/failed/silent/empty/partial LHCO converter across 3 modes; missing LHE/ROOT/HepMC in Condor | Every filesystem or external-tool failure |
+| Results and recovery | Real format fixtures, identity/ownership checks, fake scheduler responses | Live Condor lifecycle and production-family physics consistency |
+| Merging | Archive safety, backend command construction, checked failures and generated fixture outputs | Actual MG merge.pl/hadd/Delphes converter behavior in the image |
+| Package | Wheel/source builds and entry-point/legacy checks recorded above | A shared JUPITER installation or current container contents |
+| Live integration | Opt-in example and merger drivers save reports/logs | Passing status until the actual image/backend is run and recorded |
+
+`tests/test_output_contract.py` fakes native MG output, not completed worker
+outputs: LHCO is created only by the generated wrapper. Local modes use the real
+saved-plan executor with only the container launch replaced; Condor runs the
+prepared worker and inspects the actual produced tar archive, without a scheduler.
+Its ROOT files are placeholders deliberately restricted to artifact-contract tests.
+
+Validation: all 91 tests pass, including 54 successful worker combinations and
+18 injected failure cases. Substituting the historical local wrapper in memory
+caused 12 regression failures, confirming detection of the original LHCO bug.
+
+The new failure cases exposed Condor accepting empty/partially failed LHCO
+conversions and reporting success after missing LHE/HepMC collection; these paths
+now return nonzero. The `all` archive path now archives the output directory itself
+rather than expanding a wildcard against the worker directory.
+
+For future changes, add a behavioral regression at the layer where the failure
+occurs, execute affected worker contracts, then the full suite. For image/tool
+changes also run the live JUPITER example and merge test. Record the image/backend,
+commands and reports; keep pending live coverage explicit. Remaining extensions:
+
+- Full input-source × output × worker combinations (current worker contracts use
+  the inline-process source; other source modes have preparation coverage).
+- Multi-job `hepmc0` worker execution (first-job selection has preparation tests).
+- Real weighted/negative-weight LHE merge normalization, not just the positive SM
+  replica smoke check; full ROOT branch integrity and LHCO object preservation.
+- Live container/tool failures and Condor execution/recovery, using recorded reports.
+
 ## Changes implemented
 
 ### Local LHCO generation fix
