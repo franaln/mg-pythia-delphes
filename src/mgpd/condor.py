@@ -51,7 +51,19 @@ def query_condor_ads(command, ids, production_id=None, timeout=30):
             argv += ['-limit', str(len(batch))]
         try:
             response = subprocess.run(argv, capture_output=True, text=True, check=True, timeout=timeout)
-            records = json.loads(response.stdout)
+            # Some clients return no text rather than [] for zero matching ads.
+            # Accept only a successful, silent response; diagnostics and malformed
+            # nonempty JSON remain errors. Absence never establishes completion.
+            if not response.stdout.strip():
+                if response.stderr.strip():
+                    raise ValueError(f'Empty scheduler response with diagnostics: {response.stderr.strip()}')
+                records = []
+            else:
+                try:
+                    records = json.loads(response.stdout)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f'Invalid scheduler JSON: {exc}; '
+                                     f'stdout={response.stdout[:1000]!r}; stderr={response.stderr[:1000]!r}') from exc
             if not isinstance(records, list) or any(not isinstance(ad, dict) for ad in records):
                 raise ValueError('Expected a JSON list of ClassAds')
             selected = {}

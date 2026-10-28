@@ -89,6 +89,27 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 
 ## Changes implemented
 
+### Empty Condor query responses and workflow-test resume
+
+- The real JUPITER test observed both jobs completed in tagged history, but the
+  queue JSON parser failed and made status return nonzero. The log did not retain
+  raw queue stdout, so an empty successful response is the suspected cause.
+- Successful, silent empty/whitespace query responses now mean zero matching ads;
+  completion still requires tagged history with successful exit information.
+  Nonzero exits, diagnostics on empty responses and malformed nonempty JSON remain
+  errors. JSON failures now include bounded stdout/stderr for diagnosis.
+- Added regressions for empty queue plus completed history, empty queue/history
+  remaining unknown, and empty output with diagnostics remaining an error.
+- Added `test_condor_workflow.py --execute --resume --output EXISTING_TEST` for
+  failed tests before withholding/recovery. Verifies recorded parent identity,
+  submitted state and scheduler mapping; continues observation and recovery without
+  executing the parent again. Does not support resuming an ambiguous child attempt.
+- Validation: 97 tests pass; targeted resume tests also verify refusal to resume
+  completed tests without changing reports or submitting additional jobs.
+- The fake-scheduler regression resumes a failed query using empty queue output
+  and verifies exactly two submission calls overall (two parent jobs, one child).
+
+
 ### Live Condor lifecycle/recovery test preparation
 
 - Added `scripts/test_condor_workflow.py --execute`: isolated two-job parton-only

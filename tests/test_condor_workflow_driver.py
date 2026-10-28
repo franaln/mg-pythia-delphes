@@ -62,6 +62,18 @@ print(json.dumps(records))
             self.assertNotIn('withheld', report)
             self.assertFalse((output / 'retry').exists())
             self.assertEqual((root / 'submits.jsonl').read_text().splitlines(), ['2'])
+            # Retry the observation with the real-world empty successful queue
+            # response. Only the child may be submitted during resume.
+            (root / 'bin/condor_q').write_text('#!/bin/bash\nexit 0\n')
+            resumed = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--resume',
+                                      '--output', str(output)], env=env,
+                                     capture_output=True, text=True, timeout=60)
+            self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+            resumed_report = json.loads((output / 'report.json').read_text())
+            self.assertEqual(resumed_report['state'], 'passed')
+            self.assertTrue(resumed_report['withheld']['restored'])
+            self.assertTrue(resumed_report['previous_errors'])
+            self.assertEqual((root / 'submits.jsonl').read_text().splitlines(), ['2', '1'])
 
     def test_full_workflow_and_failure_restore_withheld_archive(self):
         for fail_child in (False, True):
@@ -87,3 +99,9 @@ print(json.dumps(records))
                                        env=env, capture_output=True, text=True)
                 self.assertEqual(again.returncode, 2)
                 self.assertEqual((output / 'report.json').read_bytes(), before)
+                if not fail_child:
+                    refused = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--resume',
+                                              '--output', str(output)], env=env, capture_output=True, text=True)
+                    self.assertEqual(refused.returncode, 2)
+                    self.assertEqual((output / 'report.json').read_bytes(), before)
+                    self.assertEqual((root / 'submits.jsonl').read_text().splitlines(), ['2', '1'])

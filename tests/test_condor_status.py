@@ -57,6 +57,38 @@ class CondorStatusTests(unittest.TestCase):
             self.assertIn('ProcId == 1', history_args[history_args.index('-constraint') + 1])
             self.assertEqual((root / 'manifest.json').read_bytes(), before)
 
+    def test_empty_successful_queue_uses_history_without_query_error(self):
+        for stdout in ('', ' \n\t'):
+            with self.subTest(stdout=stdout), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.manifest(root)
+                responses = [subprocess.CompletedProcess([], 0, stdout=stdout, stderr=''),
+                             self.response([self.ad(i, 4, ExitBySignal=False, ExitCode=0) for i in range(2)])]
+                with patch.object(subprocess, 'run', side_effect=responses):
+                    status = runner.production_status(root)
+                self.assertEqual(status['counts'], {'completed': 2})
+                self.assertEqual(status['query_errors'], [])
+                self.assertTrue(all(job['source'] == 'history' for job in status['jobs']))
+
+    def test_empty_queue_and_history_remain_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.manifest(root)
+            with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='', stderr='')):
+                status = runner.production_status(root)
+            self.assertEqual(status['counts'], {'unknown': 2})
+            self.assertEqual(status['query_errors'], [])
+
+    def test_empty_response_with_stderr_is_still_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.manifest(root)
+            with patch.object(subprocess, 'run', side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout='', stderr='scheduler warning'), self.response([])]):
+                status = runner.production_status(root)
+            self.assertTrue(status['query_errors'])
+            self.assertEqual(status['counts'], {'unknown': 2})
+
     def test_scheduler_states_require_real_exit_information(self):
         cases = [(self.ad(0, 1), 'pending'), (self.ad(0, 2), 'running'),
                  (self.ad(0, 3), 'removed'), (self.ad(0, 5), 'held'),

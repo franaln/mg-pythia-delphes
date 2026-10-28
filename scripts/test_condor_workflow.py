@@ -19,7 +19,22 @@ def digest(path):
 class WorkflowTest:
     def __init__(self, args):
         self.args = args
-        self.report = {'state': 'running', 'steps': [], 'productions': []}
+        self.report = (json.loads((args.output / 'report.json').read_text()) if args.resume
+                       else {'state': 'running', 'steps': [], 'productions': []})
+
+    def resume_parent(self):
+        parent = self.args.output / 'preparation/example7_parton_only/production'
+        records = self.report.get('productions', [])
+        if (self.report.get('state') != 'failed' or len(records) != 1
+                or records[0]['directory'] != str(parent)
+                or self.report.get('withheld') or (self.args.output / 'retry').exists()):
+            raise ValueError('Resume supports only a failed test with one submitted parent, before withholding/recovery')
+        original = json.loads((parent / 'manifest.json').read_text())
+        if (original['production_id'] != records[0]['production_id']
+                or original['state'] != 'submitted' or original.get('recoveries')
+                or original.get('submission', {}).get('jobs') != records[0]['scheduler_jobs']):
+            raise ValueError('Parent identity/submission changed; refusing to resume')
+        return original
 
     def save(self):
         (self.args.output / 'report.json').write_text(json.dumps(self.report, indent=2) + '\n')
@@ -73,15 +88,21 @@ class WorkflowTest:
 
     def run(self):
         prep = self.args.output / 'preparation'
-        log = self.args.output / 'prepare.log'
-        with log.open('w') as stream:
-            subprocess.run([sys.executable, str(REPO / 'scripts/test_examples.py'),
-                            '--mode', 'condor', '--example', 'example7_parton_only',
-                            '--events', str(self.args.events), '--image', self.args.image,
-                            '--output', str(prep)], stdout=stream, stderr=subprocess.STDOUT,
-                           check=True, timeout=120)
         parent = prep / 'example7_parton_only/production'
-        original = self.execute(parent, 'parent')
+        if self.args.resume:
+            original = self.resume_parent()
+            self.report.setdefault('previous_errors', []).append(self.report.pop('error', ''))
+            self.report['state'] = 'running'
+            self.save()
+        else:
+            log = self.args.output / 'prepare.log'
+            with log.open('w') as stream:
+                subprocess.run([sys.executable, str(REPO / 'scripts/test_examples.py'),
+                                '--mode', 'condor', '--example', 'example7_parton_only',
+                                '--events', str(self.args.events), '--image', self.args.image,
+                                '--output', str(prep)], stdout=stream, stderr=subprocess.STDOUT,
+                               check=True, timeout=120)
+            original = self.execute(parent, 'parent')
         self.wait(parent, 'parent')
         clean_plan = self.command('clean-plan', ['--plan-recovery', parent, '--json'], json_output=True)
         if clean_plan['eligible_job_ids'] or len(original['jobs']) != 2:
@@ -145,6 +166,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute', action='store_true', help='Authorize two original jobs and one recovery job')
     parser.add_argument('--output', type=Path, required=True, help='New isolated test directory')
+    parser.add_argument('--resume', action='store_true', help='Continue a failed test before withholding/recovery; never resubmit the parent')
     parser.add_argument('--image', default='mg-pythia-delphes-3.5.6')
     parser.add_argument('--events', type=int, default=100)
     parser.add_argument('--timeout', type=int, default=1800, help='Seconds waiting per production')
@@ -157,11 +179,21 @@ def main():
         if not shutil.which(tool):
             parser.error(f'{tool} is unavailable; run in the JUPITER submit environment')
     args.output = args.output.resolve()
-    if args.output.exists():
-        parser.error('Choose a new output directory')
-    args.output.mkdir(parents=True)
+    if args.resume:
+        if not (args.output / 'report.json').is_file():
+            parser.error('--resume requires an existing workflow test report')
+    else:
+        if args.output.exists():
+            parser.error('Choose a new output directory')
+        args.output.mkdir(parents=True)
     test = WorkflowTest(args)
-    test.save()
+    if args.resume:
+        try:
+            test.resume_parent()
+        except (OSError, ValueError, KeyError) as exc:
+            parser.error(str(exc))
+    else:
+        test.save()
     try:
         test.run()
     except (Exception, KeyboardInterrupt) as exc:

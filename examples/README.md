@@ -260,3 +260,17 @@ This deliberately uses a cheap parton-only example to isolate scheduler/recovery
 behavior. Pythia/Delphes and merging are exercised by the separate merge smoke
 test. A fake-scheduler regression tests the driver itself; real JUPITER coverage
 is established only by the report from this command.
+
+If this test fails during initial parent-status observation, update the package
+and resume the same test directory without resubmitting the parent:
+
+```bash
+python scripts/test_condor_workflow.py --execute --resume \
+  --output test-results/condor-workflow-01
+```
+
+Resume is limited to a failed test with one recorded submitted parent, before
+withholding or recovery preparation. It verifies the saved identity and scheduler
+mapping and preserves prior logs. Failed/ambiguous child submissions require
+inspection rather than automatic resubmission. The resumed parent keeps its
+original image, configuration and seeds.
