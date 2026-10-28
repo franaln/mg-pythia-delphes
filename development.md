@@ -19,6 +19,11 @@ this file when completing a stage or changing the plan.
 
 Cross-cutting work:
 
+- **Planned: recovery-aware merge selection.** Select exactly one validated
+  attempt per logical job across a production family. The packaged archive merge
+  interface requires users to select inputs explicitly; it cannot establish
+  sample compatibility or identify renamed duplicate attempts.
+
 - **Planned: site-aware `local` alias.** Accept `--run_mode local` in the runner
   and `--mode local` in the example driver. On configured JUPITER hosts resolve
   it to `local-apptainer`; outside JUPITER resolve it to `local-docker`. Prefer an
@@ -38,6 +43,25 @@ Cross-cutting work:
   framework as part of infrastructure refactors.
 
 ## Changes implemented
+
+### Packaged output merging
+
+- Added reusable `mgpd.merge_outputs` and `mgpd merge INPUT... -o OUTPUT`.
+  Legacy Python and shell helpers delegate to the same implementation.
+- Explicit Docker/Apptainer backend and image overrides; retained JUPITER default.
+- LHE uses MG merge.pl, ROOT uses hadd, and LHCO uses Delphes converters.
+  Fixed inverted LHCO-only conversion logic in the old Python helper.
+- Checked command return codes and output existence; private temporary workspaces,
+  safe regular-file archive extraction, duplicate name/path and partial-format
+  rejection, and no overwriting existing destinations. Inputs remain untouched.
+- Directory/archive output supports decompressed LHE and retained input files.
+  HepMC/pre-decay LHE merging and automatic recovery-family selection are deferred.
+- Validation: all 80 tests pass; wheel and source distribution build successfully,
+  and all 9 merger tests pass against the installed wheel outside the checkout.
+- Container orchestration is covered by mocked regressions; real LHE/ROOT/LHCO
+  merges with the JUPITER image still need live verification. No physics tools or
+  scheduler jobs were run during these tests.
+
 
 ### Baseline validation and provenance
 

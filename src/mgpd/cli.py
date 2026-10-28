@@ -12,7 +12,7 @@ from ._version import __version__
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description='Run MadGraph, Pythia and Delphes locally or through HTCondor')
+    parser = argparse.ArgumentParser(description='Run MadGraph, Pythia and Delphes locally or through HTCondor', epilog='Merge outputs: mgpd merge --help')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
 
     # Main required arguments
@@ -55,7 +55,11 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    parser, args = parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == 'merge':
+        from .merging import main as merge_main
+        return merge_main(arguments[1:])
+    parser, args = parse_args(arguments)
     if args.plan_recovery or args.prepare_recovery:
         policy = {'event_count': args.event_count or 'exact',
                   'require_positive_cross_section': not args.allow_nonpositive_cross_section,

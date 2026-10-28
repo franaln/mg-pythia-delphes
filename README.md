@@ -250,11 +250,36 @@ Condor returns one `output_*.tar.gz` per job, plus scheduler stdout/stderr/logs.
 Local results are under each job's `RUN/Events/` directory. A successful command
 or submission does not itself validate the physics results.
 
-From a checkout, use the existing repository helper to merge returned outputs:
+Merge explicitly selected archives from **one sample and distinct jobs** with
+an installed package (no checkout required):
 
 ```bash
-scripts/merge_mg_pythia_delphes_output.sh output_merged.tar.gz output_sample_*.tar.gz
+mgpd merge output_sample_*.tar.gz -o output_merged.tar.gz \
+  --backend local-apptainer --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif
 ```
+
+Use `--backend local-docker` outside JUPITER. If omitted, the backend defaults to
+Apptainer on hostname `jupiter` and Docker elsewhere; `--image` overrides the
+backend's default 3.5.6 image. LHE uses MadGraph's merge tool, ROOT uses `hadd`,
+and LHCO uses Delphes conversion tools inside the container. The host does not
+need ROOT or the optional Python validation dependencies for merging.
+
+An output ending in `.tar.gz` creates an archive; any other name creates a new
+directory. Existing destinations are rejected. `--extract-lhe` decompresses
+merged LHE output; `--keep-all` retains extracted inputs under `all/` in either
+output format. Command failures stop the merge without publishing output.
+HepMC and pre-decay LHE files are not merged. Inputs must have the same supported
+output formats; unsupported auxiliary files are retained only with `--keep-all`.
+
+Validate jobs before merging. Select exactly one validated attempt per logical
+job across recovery productions; automatic recovery-family selection is not yet
+implemented. The archive interface cannot establish physics-sample compatibility
+or detect renamed duplicate attempts. Do not combine samples or interpret summed
+cross sections from replicas as a physical production cross section.
+
+The Python helper `scripts/merge_mg_pythia_delphes_output.py` retains its existing
+arguments and delegates to the package. The shell helper retains its historical
+`OUTPUT INPUT...` order and delegates to the same implementation.
 
 ## Models and custom cuts
 
