@@ -50,6 +50,34 @@ class ExampleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 driver.check_lhe(io.BytesIO(gzip.compress(data)), invalid)
 
+    def test_lhe_init_accepts_optional_xml_metadata(self):
+        block = """<init version="3.0">
+<!-- Standard beam and process records -->
+1 1 6500 6500 0 0 0 0 3 2 # NPRUP=2
+1.25D+00 0.1 1 1
+2.5e+00 0.1 1 2
+<generator name="MadGraph5_aMC@NLO" version="3.5.6">
+Generation details
+</generator>
+<weightinfo name="scale">100 200 300 400</weightinfo>
+</init>"""
+        self.assertEqual(driver.parse_lhe_init(block), 3.75)
+        # Exercise the full streaming validator, including attributed init tags.
+        data = ('<LesHouchesEvents>\n<header>\n1001 = iseed\n</header>\n'
+                + block + '\n<event>\n</event>\n</LesHouchesEvents>\n')
+        result = driver.check_lhe(io.BytesIO(gzip.compress(data.encode())), {'seed': 1001, 'nevents': 1})
+        self.assertEqual(result['cross_section_pb'], 3.75)
+
+    def test_lhe_init_still_rejects_missing_or_malformed_records(self):
+        for record, message in [('', 'NPRUP=1, found 0'),
+                                ('1.0 0.1 1', 'expected 4 fields'),
+                                ('bad 0.1 1 1', 'Malformed numeric'),
+                                ('nan 0.1 1 1', 'Nonfinite'),
+                                ('1 0.1 1 1\n2 0.1 1 2', 'NPRUP=1, found 2')]:
+            block = '<init>\n1 1 6500 6500 0 0 0 0 3 1\n' + record + '\n<generator>metadata</generator>\n</init>'
+            with self.subTest(record=record), self.assertRaisesRegex(ValueError, message):
+                driver.parse_lhe_init(block)
+
     def test_live_mode_requires_explicit_example(self):
         result = subprocess.run([sys.executable, '-B', str(DRIVER), '--execute', '--output', '/unused'],
                                 capture_output=True, text=True)

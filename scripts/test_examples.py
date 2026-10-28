@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -78,8 +79,45 @@ def parse_job_ids(stdout):
     return result
 
 
+def parse_lhe_init(block):
+    """Read HEPRUP records, excluding optional nested XML metadata (LHEF 3)."""
+    try:
+        root = ET.fromstring(block)
+    except ET.ParseError as exc:
+        raise ValueError(f'Malformed LHE init block: {exc}') from exc
+    # Only direct text belongs to HEPRUP. Generator/weight descriptions inside
+    # child elements are metadata, even when their text looks numeric.
+    text = '\n'.join([root.text or ''] + [child.tail or '' for child in root])
+    rows = [line.split('#', 1)[0].strip() for line in text.splitlines()]
+    rows = [line.split() for line in rows if line]
+    if not rows or len(rows[0]) != 10:
+        raise ValueError('Malformed LHE init beam record: expected 10 fields')
+    try:
+        nprocess = int(rows[0][9])
+    except ValueError as exc:
+        raise ValueError('Malformed LHE init NPRUP: expected an integer') from exc
+    if nprocess < 1 or len(rows) != nprocess + 1:
+        raise ValueError(f'Incomplete or inconsistent LHE cross-section block: '
+                         f'NPRUP={nprocess}, found {len(rows) - 1} process records '
+                         '(optional XML metadata excluded)')
+    cross_sections = []
+    for index, row in enumerate(rows[1:], 1):
+        if len(row) != 4:
+            raise ValueError(f'Malformed LHE process record {index}: expected 4 fields')
+        try:
+            values = [float(value.replace('D', 'E').replace('d', 'e')) for value in row[:3]]
+            int(row[3])
+        except ValueError as exc:
+            raise ValueError(f'Malformed numeric LHE process record {index}') from exc
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError(f'Nonfinite values in LHE process record {index}')
+        cross_sections.append(values[0])
+    return sum(cross_sections)
+
+
 def check_lhe(stream, job):
     events, seed, init, in_init = 0, None, [], False
+    init_closed = False
     with gzip.GzipFile(fileobj=stream) as source:
         for raw in source:
             line = raw.decode('utf-8', errors='replace').strip()
@@ -87,22 +125,24 @@ def check_lhe(stream, job):
             match = re.match(r'(\d+)\s*=\s*iseed\b', line)
             if match:
                 seed = int(match[1])
-            if line == '</init>':
-                in_init = False
-            elif in_init and line and not line.startswith('#'):
-                init.append(line)
-            elif line == '<init>':
+            if re.match(r'<init(?:\s[^>]*)?>', line):
+                if init:
+                    raise ValueError('Duplicate LHE init block')
                 in_init = True
+            if in_init:
+                init.append(line)
+                if '</init>' in line:
+                    in_init = False
+                    init_closed = True
     if events != job['nevents']:
         raise ValueError(f"Expected {job['nevents']} LHE events, found {events}")
     if seed != job['seed']:
         raise ValueError(f"LHE seed {seed} differs from planned seed {job['seed']}")
     if not init:
         raise ValueError('LHE init block is missing')
-    nprocess = int(init[0].split()[-1])
-    if nprocess < 1 or len(init) != nprocess + 1:
-        raise ValueError('Incomplete LHE cross-section block')
-    cross_section = sum(float(line.split()[0].replace('D', 'E').replace('d', 'e')) for line in init[1:])
+    if not init_closed:
+        raise ValueError('LHE init block is missing its closing tag')
+    cross_section = parse_lhe_init('\n'.join(init))
     if not math.isfinite(cross_section) or cross_section <= 0:
         raise ValueError('Nonpositive/nonfinite cross section')
     return {'lhe_events': events, 'seed': seed, 'cross_section_pb': cross_section}
