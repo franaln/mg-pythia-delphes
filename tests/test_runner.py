@@ -1,5 +1,6 @@
 """Regression checks that do not require physics software or a scheduler."""
 import importlib.util
+import copy
 import os
 from pathlib import Path
 import subprocess
@@ -153,6 +154,78 @@ class RunnerTests(unittest.TestCase):
             manifest = json.loads((output / 'manifest.json').read_text())
             self.assertEqual(manifest['state'], 'failed')
             self.assertEqual(manifest['failed_job_id'], 'sample_00000')
+
+    def test_programmatic_preparation_is_nonexecuting_and_does_not_mutate_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.config(root)
+            config['run']['njobs'] = 2
+            config['options'] = {'seed': 101}
+            config['expert'] = {'ncores': 'all'}
+            original = copy.deepcopy(config)
+            cwd = Path.cwd()
+            with patch.object(runner.subprocess, 'run') as launch:
+                production = runner.prepare_production(config, root / 'production')
+                launch.assert_not_called()
+            self.assertEqual(config, original)
+            self.assertEqual(Path.cwd(), cwd)
+            self.assertEqual([job['seed'] for job in production.manifest['jobs']], [101, 102])
+            self.assertEqual(runner.read_production_manifest(production.output_dir), production.manifest)
+            self.assertEqual(production.manifest['state'], 'prepared')
+
+    def test_programmatic_execution_uses_prepared_commands_and_seeds(self):
+        for mode in ('local-docker', 'local-apptainer', 'condor', 'jupiter'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = self.config(root)
+                config['run'].update(mode=mode, njobs=2, image='mg-pythia-delphes-latest')
+                config['options'] = {'seed': 203}
+                production = runner.prepare_production(config, root / 'production')
+                frozen = {job['run_file']: (Path(production.output_dir) / job['run_file']).read_bytes()
+                          for job in production.manifest['jobs']}
+                with patch.object(runner, 'allocate_seeds', side_effect=AssertionError('must not reallocate')), \
+                     patch.object(runner.subprocess, 'run') as launch:
+                    result = runner.execute_production(production)
+                if mode in ('condor', 'jupiter'):
+                    launch.assert_called_once_with(['condor_submit', production.submit_file],
+                                                   cwd=production.output_dir, check=True)
+                else:
+                    self.assertEqual(launch.call_count, 2)
+                    for invocation in launch.call_args_list:
+                        self.assertEqual(invocation.args[0][0], mode.removeprefix('local-'))
+                    self.assertEqual(result['state'], 'execution_finished')
+                    self.assertEqual(runner.read_production_manifest(production.output_dir)['state'],
+                                     'execution_finished')
+                for path, contents in frozen.items():
+                    self.assertEqual((Path(production.output_dir) / path).read_bytes(), contents)
+
+    def test_library_errors_do_not_exit_or_replace_existing_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.config(root)
+            output = root / 'production'
+            output.mkdir()
+            marker = output / 'keep'
+            marker.write_text('preserve')
+            with self.assertRaises(FileExistsError):
+                runner.prepare_production(config, output)
+            self.assertEqual(marker.read_text(), 'preserve')
+            config['run'].update(mode='condor', image='unsupported')
+            with self.assertRaises(ValueError):
+                runner.prepare_production(config, root / 'invalid')
+            self.assertFalse((root / 'invalid').exists())
+
+    def test_load_config_applies_mode_override_without_rewriting_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self.config(root)
+            source = root / 'config.yml'
+            text = runner.yaml.safe_dump(config)
+            source.write_text(text)
+            loaded = runner.load_config(source, run_mode='condor')
+            self.assertEqual(loaded['run']['mode'], 'condor')
+            self.assertEqual(source.read_text(), text)
+
 
 
 if __name__ == '__main__':

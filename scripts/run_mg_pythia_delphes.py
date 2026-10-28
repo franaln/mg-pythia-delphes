@@ -15,6 +15,8 @@ import hashlib
 import json
 import secrets
 from datetime import datetime, timezone
+from dataclasses import dataclass
+from typing import Optional
 
 
 template_run_mg = """# run.mg5
@@ -313,9 +315,8 @@ def get_expert_options(config):
             elif opts['mode'] == 'multi':
                 config_options.append('set run_mode 2')
         if 'ncores' in opts:
-            if str(opts['ncores']).lower() == 'all':
-                opts['ncores'] = 'None'
-            config_options.append(f'set nb_core {opts["ncores"]}')
+            ncores = 'None' if str(opts['ncores']).lower() == 'all' else opts['ncores']
+            config_options.append(f'set nb_core {ncores}')
 
     return config_options
 
@@ -419,57 +420,27 @@ def validate_config(config):
     return config
 
 
-def main():
-
-    parser = argparse.ArgumentParser(description='run_mg_pythia_delphes.py')
-
-    # Main required arguments
-    parser.add_argument('-c', '--config', required=True, help='Configuration file')
-    parser.add_argument('-o', '--output', required=False, help='Output directory')
-    parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
-
-    # Run options
-    parser.add_argument('--run_mode', default=None, choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
-    parser.add_argument('--dry-run', action='store_true', help='Prepare directory and files but don\'t run or submit jobs')
-
-    parser.add_argument("--validate-only", action="store_true", help="Validate inputs without writing files or launching jobs")
-    args = parser.parse_args()
-    if not args.validate_only and not args.output:
-        parser.error("--output is required unless --validate-only is used")
+@dataclass(frozen=True)
+class PreparedProduction:
+    """In-memory preparation result; replay/resume across sessions is a later stage."""
+    output_dir: str
+    manifest: dict
+    local_dirs: dict
+    submit_file: Optional[str] = None
 
 
-    # Read configuration
-    config_file = args.config
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
-    try:
-        if args.run_mode is not None and isinstance(config, dict) and isinstance(config.get("run"), dict):
-            config["run"]["mode"] = args.run_mode
-        validate_config(config)
-    except (ValueError, TypeError) as exc:
-        parser.error(str(exc))
-    if args.validate_only:
-        print("Configuration is valid")
-        return
+def load_config(config_file, run_mode=None):
+    """Load and validate YAML. Relative inputs retain current-directory semantics."""
+    with open(config_file) as source:
+        config = yaml.safe_load(source)
+    if run_mode is not None and isinstance(config, dict) and isinstance(config.get('run'), dict):
+        config['run']['mode'] = run_mode
+    return validate_config(config)
 
 
-    # ------------
-    #  Run config
-    # ------------
-    original_config = copy.deepcopy(config)
-    config_run = config['run']
-
-    run_name = config_run['name']
-
-    if args.run_mode is not None:
-        run_mode = args.run_mode
-    elif 'mode' in config_run:
-        run_mode = config_run['mode']
-    else:
-        run_mode = 'local-docker'
-
-    print(f'> Running mg-pythia-delphes with run_mode = {run_mode}. Run name = {run_name}. Configuration = {config_file}')
-
+def resolve_container_image(config_run, run_mode):
+    """Resolve a configured image without modifying the caller's configuration."""
+    config_run = copy.deepcopy(config_run)
     available_images = [
         'mg-pythia-delphes-3.3.2',
         'mg-pythia-delphes-3.5.6',
@@ -489,9 +460,7 @@ def main():
                 config_run['image'] = config_run['image'].replace(':', '-')
 
             if config_run['image'] not in available_images:
-                print(f'Error: Image {config_run["image"]} is not available. Use one of the existint images:')
-                print('\n'.join(available_images))
-                sys.exit(1)
+                raise ValueError(f'Image {config_run["image"]} is not available; choose from {available_images}')
             else:
                 container_image = config_run["image"]
 
@@ -514,38 +483,18 @@ def main():
             else:
                 container_image_path = config_run['image']
         else:
-            print(f'Error: No default image is available.')
-            sys.exit(1)
+            raise ValueError('No default Apptainer image is available')
 
         print(f'- Running locally with apptainer using image: {container_image_path}')
 
-    run_nevents = config_run['nevents'] if 'nevents' in config_run else 10_000
-    run_njobs   = config_run['njobs'] if 'njobs' in config_run else 1
-    run_outputs = config_run['outputs'] if 'outputs' in config_run else ['lhe', 'lhco', 'log']
-    run_email   = config_run.get('email', '')
+    return container_image_path
 
 
-    # Create working directory
-    output = os.path.abspath(os.path.expanduser(args.output))
-    if output.startswith('~/') or output.startswith('/'):
-        output_dir = output
-    else:
-        output_dir = os.path.join(os.getcwd(), output)
-
-    print(f'- Using working/output dir: {output_dir}')
-    if os.path.exists(output_dir):
-        if args.force:
-            print('Output dir already exists. Removing it.')
-            shutil.rmtree(output_dir)
-            mkdir(output_dir)
-        else:
-            print('Output dir already exist. Remove it or use another one. Exit.')
-            sys.exit(1)
-    else:
-        mkdir(output_dir)
-
-
+def prepare_sample_inputs(config, output_dir):
+    """Copy sample inputs and render unseeded MG commands; never run physics tools."""
     # Inputs
+    run_name = config['run']['name']
+    run_nevents = config['run'].get('nevents', 10_000)
     run_dirs = {}
 
     #  Custom input
@@ -583,7 +532,7 @@ def main():
             if not os.path.exists(f'{run_dir}/run.mg5'):
                 raise Exception('Error in input files: run.mg5 not found in input dir')
 
-            run_mg5_str = open(f'{run_dir}/run.mg5').read()
+            run_mg5_str = Path(run_dir, 'run.mg5').read_text()
 
             options = [
                 f'set run_tag = {name}',
@@ -673,7 +622,7 @@ def main():
         print(f'- Preparing run.mg5 file')
         if 'proc' in config_cards:
             print(f'- Using proc_card from {config_cards["proc"]}')
-            process_str = open(config_cards['proc']).read()
+            process_str = Path(config_cards['proc']).read_text()
         elif 'process' in config:
             print(f'- Using process from config file')
             process_str = config['process']
@@ -712,7 +661,14 @@ def main():
 
 
 
-    # Freeze concrete seeds and exact MG commands before any execution.
+    return run_dirs
+
+
+def prepare_job_plan(config, output_dir, run_dirs, run_mode):
+    """Assign concrete seeds and write exact per-job command files."""
+    run_njobs = config['run'].get('njobs', 1)
+    run_nevents = config['run'].get('nevents', 10_000)
+    run_outputs = config['run'].get('outputs', ['lhe', 'lhco', 'log'])
     seeds = iter(allocate_seeds(config.get('options', {}).get('seed'), len(run_dirs) * run_njobs))
     planned_jobs = []
     local_dirs = {}
@@ -740,17 +696,11 @@ def main():
     if local_dirs and run_njobs > 1:
         for directory in run_dirs.values():
             shutil.rmtree(directory)
-    prepared_files = {}
-    for path in sorted(Path(output_dir).rglob('*')):
-        if path.is_file():
-            prepared_files[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
-                'state': 'prepared', 'config': original_config,
-                'image': container_image_path, 'mode': run_mode,
-                'image_identity': 'configured reference; not a verified immutable digest',
-                'jobs': planned_jobs, 'prepared_input_sha256': prepared_files}
-    write_manifest(output_dir, manifest)
+    return planned_jobs, local_dirs
 
+
+def package_sample_inputs(output_dir, run_dirs, run_mode):
+    """Package shared Condor inputs, retaining local directories in local modes."""
     # Prepare input files
     if run_mode in ('condor', 'jupiter'):
         for name, run_dir in run_dirs.items():
@@ -761,37 +711,8 @@ def main():
         print('- Running locally, no need to compress input files')
 
 
-    # # Configuration for each run dir
-    # for name, run_dir in run_dirs.items():
-
-    #     config_vars_dict = {}
-
-    #     config_vars_dict['run_name'] = name
-
-    #     if run_cluster:
-    #         config_vars_dict['input_file'] = 'run_$(run_name).tar.gz'
-    #     else:
-    #         config_vars_dict['input_file'] = 'SKIP'
-
-    #     # if 'hepmc0' in run_outputs and run_njobs > 1:
-    #     #     outputs_str = ','.join([ o for o in run_outputs if o != 'hepmc0' ])
-
-    #     #     jobs += f'outputs = {outputs_str},hepmc\n'
-    #     #             jobs += f'queue\n'
-
-    #     #             jobs += f'run_name = {name}\n'
-    #     #             jobs += f'outputs = {outputs_str}\n'
-    #     #             jobs += f'queue {run_njobs-1}\n'
-
-    #     config_vars_dict['outputs'] = ','.join(run_outputs)
-
-    #     # job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
-
-    #     config_vars_str = '\n'.join([f'{key}={value}' for key, value in config_vars_dict.items()])
-
-    #     with open(f'{run_dir}/CONFIG_VARS', 'w') as f:
-    #         f.write(config_vars_str+'\n')
-
+def prepare_wrappers(output_dir, local_dirs, run_mode):
+    """Write executable wrappers without starting containers or submitting jobs."""
     # -----------
     # Run script
     # -----------
@@ -810,83 +731,177 @@ def main():
             os.chmod(script_path, 0o755)
 
 
-    #-----------
-    # Local run
-    #-----------
-    if run_mode in ('local-docker', 'local-apptainer'):
+def prepare_condor_submission(config, output_dir, container_image_path, planned_jobs):
+    """Render the submit file; no scheduler access is performed here."""
+    config_run = config['run']
+    run_name = config_run['name']
+    run_email = config_run.get('email', '')
+    job_replace_dict = {}
 
-        for job_id, (run_name, run_dir) in local_dirs.items():
+    job_replace_dict['container_image'] = container_image_path
 
-            cmd = 'source /setup_mg_pythia_delphes.sh && cd /local && '
-            cmd += shlex.join(['./run_mg_pythia_delphes.sh', run_name, f'run_{run_name}'])
-
-            if run_mode == 'local-docker':
-                cmd = ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', container_image_path, cmd]
-            elif run_mode == 'local-apptainer':
-                cmd = ['apptainer', 'exec', '--bind', f'{run_dir}:/local', container_image_path, '/bin/bash', '-l', '-c', cmd]
-
-            print(cmd)
-            if not args.dry_run:
-                manifest['state'] = 'running'
-                write_manifest(output_dir, manifest)
-                try:
-                    subprocess.run(cmd, check=True)
-                except (OSError, subprocess.CalledProcessError):
-                    manifest['state'] = 'failed'
-                    manifest['failed_job_id'] = job_id
-                    write_manifest(output_dir, manifest)
-                    raise
-        if not args.dry_run:
-            manifest['state'] = 'execution_finished'
-            write_manifest(output_dir, manifest)
-
-    elif run_mode in ('condor', 'jupiter'):
-
-        # Job script
-        job_replace_dict = {}
-
-        job_replace_dict['container_image'] = container_image_path
-
-        if run_email:
-            job_replace_dict['notifications'] = f"notification = always\nnotify_user = {run_email}"
-        else:
-            job_replace_dict['notifications'] = ''
+    if run_email:
+        job_replace_dict['notifications'] = f"notification = always\nnotify_user = {run_email}"
+    else:
+        job_replace_dict['notifications'] = ''
 
 
-        # job requirements
-        if 'requirements' in config_run:
-            requirements = config_run['requirements']
-            job_replace_dict['requirements'] = f'requirements = {requirements}'
-        else:
-            job_replace_dict['requirements'] = ''
+    # job requirements
+    if 'requirements' in config_run:
+        requirements = config_run['requirements']
+        job_replace_dict['requirements'] = f'requirements = {requirements}'
+    else:
+        job_replace_dict['requirements'] = ''
 
-        job_replace_dict['input_file'] = 'run_$(run_name).tar.gz'
-        job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
+    job_replace_dict['input_file'] = 'run_$(run_name).tar.gz'
+    job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
 
-        jobs = ''
-        for job in planned_jobs:
-            jobs += f"run_name = {job['sample']}\n"
-            jobs += f"seed_file = {job['run_file']}\n"
-            jobs += f"outputs = {','.join(job['outputs'])}\n"
-            jobs += 'queue 1\n'
+    jobs = ''
+    for job in planned_jobs:
+        jobs += f"run_name = {job['sample']}\n"
+        jobs += f"seed_file = {job['run_file']}\n"
+        jobs += f"outputs = {','.join(job['outputs'])}\n"
+        jobs += 'queue 1\n'
 
-        job_replace_dict['jobs'] = jobs
+    job_replace_dict['jobs'] = jobs
 
-        # Save job.sub file
-        job_file = f'job_{run_name}.sub'
+    # Save job.sub file
+    job_file = f'job_{run_name}.sub'
 
-        template = string.Template(template_job_desc)
-        job_desc = template.substitute(job_replace_dict)
+    template = string.Template(template_job_desc)
+    job_desc = template.substitute(job_replace_dict)
 
-        print(f'- Saving job submission description in {output_dir}/{job_file}')
-        with open(f'{output_dir}/{job_file}', 'w') as f:
-            f.write(job_desc)
+    print(f'- Saving job submission description in {output_dir}/{job_file}')
+    with open(f'{output_dir}/{job_file}', 'w') as f:
+        f.write(job_desc)
 
-        if not args.dry_run:
-            # not using htcondor python api because it does nto support multiple queue in the same job?
-            subprocess.run(['condor_submit', job_file], cwd=output_dir, check=True)
+    return job_file
 
+
+def prepare_production(config, output, force=False):
+    """Prepare files and return an execution plan, without launching work.
+
+    Does not mutate config or change the process working directory. Relative
+    inputs are resolved from the caller's cwd, matching the historical CLI.
+    """
+    validate_config(config)
+    original_config = copy.deepcopy(config)
+    config = copy.deepcopy(config)
+    run_mode = config['run'].get('mode', 'local-docker')
+    image = resolve_container_image(config['run'], run_mode)
+    output_dir = os.path.abspath(os.path.expanduser(output))
+    print(f'- Using working/output dir: {output_dir}')
+    if os.path.exists(output_dir):
+        if not force:
+            raise FileExistsError(f'Output directory already exists: {output_dir}')
+        print('Output dir already exists. Removing it.')
+        shutil.rmtree(output_dir)
+    mkdir(output_dir)
+    run_dirs = prepare_sample_inputs(config, output_dir)
+    jobs, local_dirs = prepare_job_plan(config, output_dir, run_dirs, run_mode)
+    prepared_files = {}
+    for path in sorted(Path(output_dir).rglob('*')):
+        if path.is_file():
+            prepared_files[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
+                'state': 'prepared', 'config': original_config,
+                'image': image, 'mode': run_mode,
+                'image_identity': 'configured reference; not a verified immutable digest',
+                'jobs': jobs, 'prepared_input_sha256': prepared_files}
+    write_manifest(output_dir, manifest)
+    package_sample_inputs(output_dir, run_dirs, run_mode)
+    prepare_wrappers(output_dir, local_dirs, run_mode)
+    submit_file = None
+    if run_mode in ('condor', 'jupiter'):
+        submit_file = prepare_condor_submission(config, output_dir, image, jobs)
+    return PreparedProduction(output_dir, manifest, local_dirs, submit_file)
+
+
+def build_local_command(run_mode, image, sample, run_dir):
+    """Return argv for the same container command used by the CLI."""
+    inner = 'source /setup_mg_pythia_delphes.sh && cd /local && '
+    inner += shlex.join(['./run_mg_pythia_delphes.sh', sample, f'run_{sample}'])
+    if run_mode == 'local-docker':
+        return ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', image, inner]
+    if run_mode == 'local-apptainer':
+        return ['apptainer', 'exec', '--bind', f'{run_dir}:/local', image, '/bin/bash', '-l', '-c', inner]
+    raise ValueError(f'Not a local execution mode: {run_mode}')
+
+
+def execute_production(production):
+    """Execute an in-memory plan; never rebuild its inputs or reassign seeds.
+
+    This is an internal building block, not yet a guarded resubmission API.
+    Condor tracking and duplicate-submission protection remain separate stages.
+    """
+    manifest = production.manifest
+    mode = manifest['mode']
+    if mode in ('condor', 'jupiter'):
+        subprocess.run(['condor_submit', production.submit_file], cwd=production.output_dir, check=True)
+        return manifest
+    for job_id, (sample, run_dir) in production.local_dirs.items():
+        command = build_local_command(mode, manifest['image'], sample, run_dir)
+        print(command)
+        manifest['state'] = 'running'
+        write_manifest(production.output_dir, manifest)
+        try:
+            subprocess.run(command, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            manifest['state'] = 'failed'
+            manifest['failed_job_id'] = job_id
+            write_manifest(production.output_dir, manifest)
+            raise
+    manifest['state'] = 'execution_finished'
+    write_manifest(production.output_dir, manifest)
+    return manifest
+
+
+def read_production_manifest(output_dir):
+    """Read recorded metadata only; does not query Condor or validate outputs."""
+    with open(Path(output_dir) / 'manifest.json') as source:
+        return json.load(source)
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description='run_mg_pythia_delphes.py')
+
+    # Main required arguments
+    parser.add_argument('-c', '--config', required=True, help='Configuration file')
+    parser.add_argument('-o', '--output', required=False, help='Output directory')
+    parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
+
+    # Run options
+    parser.add_argument('--run_mode', default=None, choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
+    parser.add_argument('--dry-run', action='store_true', help='Prepare directory and files but don\'t run or submit jobs')
+
+    parser.add_argument("--validate-only", action="store_true", help="Validate inputs without writing files or launching jobs")
+    args = parser.parse_args(argv)
+    if not args.validate_only and not args.output:
+        parser.error("--output is required unless --validate-only is used")
+
+
+    return parser, args
+
+
+def main(argv=None):
+    parser, args = parse_args(argv)
+    try:
+        config = load_config(args.config, args.run_mode)
+    except (ValueError, TypeError) as exc:
+        parser.error(str(exc))
+    if args.validate_only:
+        print('Configuration is valid')
+        return
+    print(f'> Running mg-pythia-delphes with run_mode = {config["run"].get("mode", "local-docker")}. '
+          f'Run name = {config["run"]["name"]}. Configuration = {args.config}')
+    try:
+        production = prepare_production(config, args.output, force=args.force)
+    except (ValueError, FileExistsError) as exc:
+        print(f'Error: {exc}', file=sys.stderr)
+        return 1
+    if not args.dry_run:
+        execute_production(production)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

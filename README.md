@@ -271,3 +271,56 @@ python3 scripts/test_examples.py --output test-results/preparation-01
 python3 scripts/test_examples.py --execute --mode condor \
   --example example8_smoke_full --output test-results/condor-full-01
 ```
+
+## Reusable runner functions
+
+The existing CLI and YAML format remain supported. The script also exposes
+functions for other Python callers, with the same current-working-directory
+rules for relative input paths:
+
+| Function | Responsibility |
+| --- | --- |
+| `load_config(config_file, run_mode=None)` | Load YAML, optionally override the mode, and validate inputs |
+| `validate_config(config)` | Validate an existing configuration mapping without writing files |
+| `prepare_production(config, output, force=False)` | Copy/render/package inputs and return a `PreparedProduction`, without launching work |
+| `build_local_command(mode, image, sample, run_dir)` | Construct container argv without executing it |
+| `execute_production(production)` | Run the prepared local jobs or submit the prepared Condor file |
+| `read_production_manifest(output_dir)` | Read recorded metadata without contacting the scheduler |
+
+`main(argv=None)` only handles CLI arguments and coordinates loading,
+preparation and execution. Smaller preparation helpers resolve images, render
+sample inputs, allocate seeds, package files and render execution wrappers.
+
+For a `config.yml` whose relative paths resolve from the current directory,
+Python callers running from the repository root can use:
+
+```python
+from scripts.run_mg_pythia_delphes import (
+    load_config,
+    prepare_production,
+    execute_production,
+    read_production_manifest,
+)
+
+config = load_config("config.yml", run_mode="condor")
+production = prepare_production(config, "output_run")
+print(production.manifest["jobs"])
+
+# Explicit execution, only when ready to submit:
+# execute_production(production)
+
+metadata = read_production_manifest("output_run")
+```
+
+Preparation does not mutate the caller's configuration or change the process
+working directory. It still writes files and honors the destructive `force`
+option, just as the CLI does. Library helpers raise exceptions rather than
+exiting the Python process.
+
+`PreparedProduction` holds the output directory, mutable manifest, local job
+directories and optional submit-file name. It is currently an **in-memory**
+result, not a persisted replay/resume API. Execution does not rebuild inputs or
+choose new seeds, but it does not yet check for input edits or prevent duplicate
+submissions. Reading a manifest does not establish current Condor status or
+validate scientific results. Guarded submission and scheduler tracking are
+separate development stages.
