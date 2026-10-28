@@ -302,30 +302,42 @@ when testing releases or current development.
 
 ## Shared JUPITER deployment
 
-As an administrator, build and test a wheel, then create a **new** versioned
-venv. For example, from the tested checkout in an administrator shell:
+Run the deployment helper as the account that owns the shared installation.
+By default it builds the **current checkout**, installs its version with the
+`validation` extra into `/opt/venvs/mgpd-VERSION`, checks dependencies/imports and
+`mgpd --version`, then atomically selects it through `mgpd-current`:
 
 ```bash
-umask 022
-python3 -m venv /opt/venvs/mgpd-0.1.0
-/opt/venvs/mgpd-0.1.0/bin/python -m pip install --upgrade pip
-/opt/venvs/mgpd-0.1.0/bin/python -m pip install \
-  'dist/mg_pythia_delphes-0.1.0-py3-none-any.whl[validation]'
-/opt/venvs/mgpd-0.1.0/bin/mgpd --version
+python scripts/deploy_shared.py --prefix /opt/venvs --bin-dir /opt/bin
 ```
 
-Keep this environment administrator-owned, readable/executable by users and not
-writable by ordinary accounts. Validate local Apptainer and a disposable Condor
-smoke test under an ordinary user before selecting the release as default.
+The caller's Python needs `build` (included in the development extra). This does
+not fetch Git changes or publish to PyPI. Update/review the checkout first. To
+install a wheel already tested on JUPITER instead:
 
 ```bash
-# Administrator: choose the validated release.
-ln -sfn /opt/venvs/mgpd-0.1.0 /opt/venvs/mgpd-current
-
-# Users: use the shared executable without activating a venv.
-export PATH="/opt/venvs/mgpd-current/bin:$PATH"
-mgpd --version
+python scripts/deploy_shared.py \
+  --wheel dist/mg_pythia_delphes-0.1.0-py3-none-any.whl \
+  --prefix /opt/venvs --bin-dir /opt/bin
 ```
+
+`--bin-dir` is optional and for the first installation only: it creates an `mgpd`
+wrapper pointing through `mgpd-current`. Users need `/opt/bin` on `PATH`; they
+can then run `mgpd` without activating the shared venv or changing their Python.
+The helper refuses to overwrite an existing wrapper. On upgrades omit
+`--bin-dir`; the existing wrapper follows the updated `mgpd-current` link.
+
+An existing `mgpd-VERSION` is never reused or overwritten: increment the package
+version before deploying another release. Installation/check failures leave the
+current link unchanged and retain the new environment for diagnosis. The helper
+prints the previous target for rollback. An alternate root such as a shared NFS
+directory is supported via `--prefix`; use `--python /path/to/python3` to select
+the interpreter. Python must support venv creation and package installation.
+
+Keep environments administrator-owned, readable/executable by users and not
+writable by ordinary accounts. Test the wheel with the documented local Apptainer
+and Condor smoke tests before deployment; the helper's import/CLI checks do not
+run physics simulations or submit jobs.
 
 Do not overwrite an environment in use. Install the next release in another
 versioned directory; change `mgpd-current` only after validation. Rollback points

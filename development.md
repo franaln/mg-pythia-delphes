@@ -90,6 +90,19 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 
 ## Changes implemented
 
+### Shared deployment helper
+
+- Added `scripts/deploy_shared.py`: build the current checkout or install a tested
+  wheel with validation dependencies into a new versioned virtual environment.
+- Checks dependencies, imports and CLI version before atomically switching
+  `mgpd-current`. Existing version directories are rejected; failures retain the
+  environment for diagnosis without changing the current link.
+- Optional first-install command wrapper exposes only `mgpd` on the shared PATH.
+- Verified with a real wheel installed under a temporary root: command works
+  without activation, an existing version is rejected, and a failed installation
+  preserves the prior current link. No shared JUPITER installation was changed.
+
+
 ### Documentation by audience
 
 - `README.md` contains user installation and workflows; `examples/README.md`
