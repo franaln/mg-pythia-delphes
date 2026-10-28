@@ -156,3 +156,9 @@ After a Condor test, inspect the production without submitting more jobs:
 python3 scripts/run_mg_pythia_delphes.py \
   --status test-results/condor-full-01/example8_smoke_full/production --json
 ```
+
+Selective recovery can be tested separately on a disposable completed smoke
+production. Use `--plan-recovery`, then `--prepare-recovery` to a new directory;
+see [README.md](../README.md#recover-selected-failed-or-missing-jobs). Recovery
+is never enabled automatically by this test driver. The regression suite also
+covers the complete recovery CLI with a fake scheduler, without real jobs.

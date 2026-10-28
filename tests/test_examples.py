@@ -155,6 +155,45 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
                     self.assertEqual(json.loads(status.stdout)['counts'], {'completed': 2})
                     self.assertEqual((production / 'manifest.json').read_bytes(), before)
 
+    def test_recovery_cli_workflow_with_fake_scheduler(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self.fake_condor(root)
+            output = root / 'results'
+            result = subprocess.run([sys.executable, '-B', str(DRIVER), '--execute',
+                                     '--example', 'example7_parton_only', '--output', str(output),
+                                     '--timeout', '10'], env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            parent = output / 'example7_parton_only/production'
+            env['MG_TEST_PRODUCTION'] = str(parent)
+            manifest = json.loads((parent / 'manifest.json').read_text())
+            first, good = manifest['jobs']
+            (parent / f"output_{first['sample']}_123_0.tar.gz").unlink()
+            good_path = parent / f"output_{good['sample']}_123_1.tar.gz"
+            good_bytes = good_path.read_bytes()
+            command = [sys.executable, '-B', str(driver.RUNNER)]
+            plan = subprocess.run(command + ['--plan-recovery', str(parent), '--json'],
+                                  env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(plan.returncode, 0, plan.stderr)
+            self.assertEqual(json.loads(plan.stdout)['eligible_job_ids'], [first['job_id']])
+            child = root / 'retry'
+            preparation = subprocess.run(command + ['--prepare-recovery', str(parent), '-o', str(child)],
+                                         env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(preparation.returncode, 0, preparation.stdout + preparation.stderr)
+            child_manifest = json.loads((child / 'manifest.json').read_text())
+            self.assertEqual(len(child_manifest['jobs']), 1)
+            self.assertEqual(child_manifest['jobs'][0]['seed'], first['seed'])
+            self.assertNotIn('submission', child_manifest)
+            execution = subprocess.run(command + ['--execute-prepared', str(child)],
+                                       env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(execution.returncode, 0, execution.stdout + execution.stderr)
+            validation = subprocess.run(command + ['--validate-results', str(child), '--json'],
+                                        env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(validation.returncode, 0, validation.stdout + validation.stderr)
+            self.assertEqual(json.loads(validation.stdout)['state'], 'valid')
+            self.assertEqual(good_path.read_bytes(), good_bytes)
+
+
 
 if __name__ == '__main__':
     unittest.main()

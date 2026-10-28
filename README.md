@@ -170,6 +170,43 @@ approve the physics analysis. They report execution evidence from local state
 or Condor job logs separately; known failed execution fails validation even if
 some files are readable. Unknown execution evidence is not inferred as success.
 
+## Recover selected failed or missing jobs
+
+First inspect recovery eligibility without changing the production:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --plan-recovery production --json
+```
+
+Prepare a separate retry production, review it, then execute explicitly:
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --prepare-recovery production -o retry-01
+python3 scripts/run_mg_pythia_delphes.py --execute-prepared retry-01
+```
+
+Add repeated `--job-id JOB_ID` options to preparation to select a subset of the
+eligible manifest job IDs. By default it selects all eligible jobs. Validation
+policy flags work for both planning and preparation; use the same flags for both.
+
+Recovery preserves exact inputs, seeds and image references and leaves original
+outputs untouched. It records a parent/child history and reserves selected jobs
+against duplicate retries. Keep the child at its registered path and retain its
+parent: execution rechecks ownership and eligibility before launching.
+
+Valid results are preserved. Condor retries require terminal, identity-tagged
+scheduler history evidence (wait for jobs to leave the queue); active, held, unknown, untagged legacy jobs and query errors
+are blocked. Local retries require a recorded stopped production. Missing
+validation dependencies and unsupported checks are not reasons to regenerate.
+For an ambiguous submission, inspect the scheduler first; no override guesses
+that retrying is safe. Recovery repeats frozen inputs; changed cards/code need
+a new production instead.
+
+If a retry fails, plan recovery from **that child directory**, not from the
+original again. No original jobs are cancelled or released by these commands.
+Retry summaries cover child jobs only; use one validated attempt per logical
+job when combining datasets.
+
 ## Seeds and outputs
 
 A positive `options.seed` starts a deterministic sequence across all jobs and

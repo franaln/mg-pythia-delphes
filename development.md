@@ -13,8 +13,8 @@ this file when completing a stage or changing the plan.
 | 3. Execute saved preparations safely | Implemented; Apptainer/Condor examples reported passing | Reload saved inputs without original source files; reject changes; lock concurrent callers; persist an execution attempt before launch; block automatic duplicate/retry. |
 | 4. Track HTCondor jobs | Implemented; live status check pending | Parse returned job IDs and associate them with manifest jobs; query queue/history; distinguish pending/running/held/completed/failed/unknown after restarting the client. |
 | 5. Validate and summarize outputs | Implemented; live validation check pending | Move the example driver's checks into reusable result functions; produce sample-level summaries and distinguish execution success from valid output. |
-| 6. Recover failed jobs | **Next** | Retry only missing/failed jobs with preserved inputs/seeds and an explicit attempt history, without duplicating good outputs. |
-| 7. Add a thin MCP interface | Planned | Wrap the same validated preparation, execution, status and result functions; no duplicated workflow implementation. |
+| 6. Recover failed jobs | Implemented; live recovery test pending | Retry only missing/failed jobs with preserved inputs/seeds and an explicit attempt history, without duplicating good outputs. |
+| 7. Add a thin MCP interface | **Next** | Wrap the same validated preparation, execution, status and result functions; no duplicated workflow implementation. |
 
 Cross-cutting work:
 
@@ -149,6 +149,45 @@ example, backend or subsequent change has passed on the real cluster.
   missing/corrupt artifacts, policy changes, sample summaries and fake-scheduler
   integration. No new real simulation or JUPITER runs were performed here.
 
+### Stage 6: selective recovery with parent/child ownership
+
+- Added read-only `plan_recovery` / `--plan-recovery DIRECTORY [--json]`.
+  Combine reusable output checks with terminal scheduler evidence; never infer
+  that a missing artifact means its job stopped. Valid jobs are preserved.
+- Added `prepare_recovery` / `--prepare-recovery DIRECTORY -o NEW_DIRECTORY`,
+  optionally selecting repeated `--job-id` values. Preparation does not execute.
+  It clones frozen inputs, wrappers, seeds and image references for only eligible
+  jobs, rendering a new Condor submit file with the child's production identity.
+- Condor recovery requires identity-tagged terminal history evidence and successful
+  queue/history queries. Active/held/unknown jobs, ambiguous submissions and
+  untagged legacy jobs remain blocked. Terminal jobs still in the queue must
+  reach history before retry, avoiding finalization windows. Local parent state
+  must be stopped.
+  Missing validation dependencies or unsupported output checks block resimulation.
+- Use the same explicit validation policy flags for planning and preparation;
+  record the policy and selected scheduler/output evidence in the child and
+  parent history. Inputs and source config are not regenerated.
+- Reserve selected jobs under the parent lock before finalizing the child.
+  Parent `recoveries` stores child ID/path, jobs and preparation state; execution
+  state lives in the child's ordinary manifest. Preparing a second sibling for
+  an owned job is rejected. Failed preparation without a child manifest releases
+  that reservation but keeps its history; an ambiguous/finalized child keeps it.
+- Child execution rechecks parent identity/input-plan checksum, registered path,
+  ownership and eligibility before recording an execution attempt. It blocks if
+  original jobs become active, results become valid, scheduler queries fail, or
+  a copied child is used at an unregistered path. `--force` cannot erase recovery
+  ownership. Plain productions retain their existing portability semantics.
+- Verify copied file hashes against the parent snapshot before finalizing a
+  child, not only against newly computed child checksums.
+- Further retries form a chain from the failed child. No successful outputs are
+  copied/overwritten and no original jobs are cancelled, released or reset.
+- Extend immutable plan checksums with recovery metadata only when present;
+  existing schema-2 plans still verify with their original digest algorithm.
+- 66 tests pass locally, including a full fake-scheduler CLI flow from missing
+  output through planning, child preparation, explicit execution and result
+  validation. Selection, active-job rechecks, copying failures, duplicate
+  ownership and repeated recovery chains are covered. No real jobs were sent.
+
 ## Internal API
 
 The implementation remains in `scripts/run_mg_pythia_delphes.py` so the existing
@@ -158,6 +197,7 @@ CLI path and imports stay available. Python callers from the repository root:
 from scripts.run_mg_pythia_delphes import (
     load_config, prepare_production, load_prepared_production,
     execute_production, read_production_manifest, production_status, validate_production,
+    plan_recovery, prepare_recovery,
 )
 
 config = load_config("config.yml", run_mode="condor")
@@ -306,3 +346,49 @@ no preparation/resubmission is required merely to validate existing results.
 For stage 6, recovery must use these per-job outcomes plus scheduler evidence,
 not simply resubmit every missing artifact: an active or held job can still
 produce it. Preserve inputs/seeds and make retry ownership/history explicit.
+
+## Recovery semantics and real-test handoff
+
+```bash
+python3 scripts/run_mg_pythia_delphes.py --plan-recovery production --json
+python3 scripts/run_mg_pythia_delphes.py --prepare-recovery production -o retry-01
+# Review retry-01/manifest.json before the explicit launch:
+python3 scripts/run_mg_pythia_delphes.py --execute-prepared retry-01
+```
+
+Plans are read-only snapshots. Preparation recomputes eligibility inside the
+parent's lock, so use the same policy flags and inspect the saved selection.
+Only original execution-input snapshots are copied, not generated outputs or
+source paths referenced by the old YAML. Local directories retain original job
+IDs and seeded MG files. Condor children share only the selected samples' input
+archives and selected jobs' seeded commands. The config records original
+settings; `jobs` is authoritative for the actual selected job count.
+
+Recovery lineage is immutable child metadata; parent `recoveries` is mutable
+allocation/history metadata excluded from the original plan checksum. The
+parent's execution marker and outputs stay intact. Child execution requires
+access to the registered parent and the child's registered path. Moving/copying
+recovery directories is not supported automatically. To retry a failed child,
+plan from that child; its original parent's reservation stays in place.
+
+Preparation failures before a child manifest exists release the job reservation
+but retain the failure record and partial output directory. Use a new output
+name for another attempt. Once a child may be executable, its reservation stays
+blocked even if recording the final parent update fails. There is no force-reset
+or automatic owner reassignment for deleted/ambiguous child directories; audit
+and reconcile those cases before manual recovery. This is not a distributed
+exactly-once transaction and does not control manual scheduler actions.
+
+For the first real test, use a disposable small production with one known failed
+job or deliberately withheld test output after confirmed completion. Plan first:
+valid jobs must be preserved; active/held/unknown jobs must be blocked. Prepare a
+child and compare its seeds/cards and selected queue count with the parent,
+then explicitly execute and validate it. A second preparation of the same job
+from the original parent must fail; a second execution of the child must also
+fail. Check the original good artifacts remain unchanged. Do not remove real
+analysis outputs just to exercise this test. Real recovery has not been tested
+on JUPITER from this development session.
+
+Recovery does not merge a production family or replace the original summary.
+Dataset assembly must choose one validated attempt per logical job, combining
+original good jobs with validated child jobs without double-counting retries.
