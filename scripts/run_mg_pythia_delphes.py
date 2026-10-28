@@ -17,6 +17,9 @@ import secrets
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Optional
+from contextlib import contextmanager
+import fcntl
+import uuid
 
 
 template_run_mg = """# run.mg5
@@ -422,7 +425,7 @@ def validate_config(config):
 
 @dataclass(frozen=True)
 class PreparedProduction:
-    """In-memory preparation result; replay/resume across sessions is a later stage."""
+    """Resolved execution plan loaded from a saved production."""
     output_dir: str
     manifest: dict
     local_dirs: dict
@@ -778,7 +781,7 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
     return job_file
 
 
-def prepare_production(config, output, force=False):
+def _prepare_production(config, output, force=False):
     """Prepare files and return an execution plan, without launching work.
 
     Does not mutate config or change the process working directory. Relative
@@ -796,24 +799,30 @@ def prepare_production(config, output, force=False):
             raise FileExistsError(f'Output directory already exists: {output_dir}')
         print('Output dir already exists. Removing it.')
         shutil.rmtree(output_dir)
-    mkdir(output_dir)
+    os.mkdir(output_dir)
     run_dirs = prepare_sample_inputs(config, output_dir)
     jobs, local_dirs = prepare_job_plan(config, output_dir, run_dirs, run_mode)
     prepared_files = {}
     for path in sorted(Path(output_dir).rglob('*')):
         if path.is_file():
             prepared_files[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
+    manifest = {'schema_version': 2, 'production_id': uuid.uuid4().hex, 'created_at': datetime.now(timezone.utc).isoformat(),
                 'state': 'prepared', 'config': original_config,
                 'image': image, 'mode': run_mode,
                 'image_identity': 'configured reference; not a verified immutable digest',
                 'jobs': jobs, 'prepared_input_sha256': prepared_files}
-    write_manifest(output_dir, manifest)
     package_sample_inputs(output_dir, run_dirs, run_mode)
     prepare_wrappers(output_dir, local_dirs, run_mode)
     submit_file = None
     if run_mode in ('condor', 'jupiter'):
         submit_file = prepare_condor_submission(config, output_dir, image, jobs)
+    manifest['execution'] = {'submit_file': submit_file}
+    manifest['execution_input_sha256'] = {
+        str(path.relative_to(output_dir)): file_sha256(path)
+        for path in sorted(Path(output_dir).rglob('*')) if path.is_file()
+    }
+    manifest['plan_sha256'] = plan_sha256(manifest)
+    write_manifest(output_dir, manifest)
     return PreparedProduction(output_dir, manifest, local_dirs, submit_file)
 
 
@@ -828,32 +837,148 @@ def build_local_command(run_mode, image, sample, run_dir):
     raise ValueError(f'Not a local execution mode: {run_mode}')
 
 
-def execute_production(production):
-    """Execute an in-memory plan; never rebuild its inputs or reassign seeds.
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
-    This is an internal building block, not yet a guarded resubmission API.
-    Condor tracking and duplicate-submission protection remain separate stages.
-    """
-    manifest = production.manifest
-    mode = manifest['mode']
-    if mode in ('condor', 'jupiter'):
-        subprocess.run(['condor_submit', production.submit_file], cwd=production.output_dir, check=True)
-        return manifest
-    for job_id, (sample, run_dir) in production.local_dirs.items():
-        command = build_local_command(mode, manifest['image'], sample, run_dir)
-        print(command)
-        manifest['state'] = 'running'
-        write_manifest(production.output_dir, manifest)
+
+def plan_sha256(manifest):
+    """Checksum of immutable plan metadata, excluding execution state/history."""
+    keys = ('schema_version', 'production_id', 'config', 'mode', 'image', 'jobs',
+            'prepared_input_sha256', 'execution', 'execution_input_sha256')
+    try:
+        data = {key: manifest[key] for key in keys}
+    except KeyError as exc:
+        raise ValueError(f'Missing production metadata: {exc}') from exc
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def production_path(output_dir, relative):
+    """Resolve saved relative paths inside this production, including symlinks."""
+    root = Path(output_dir).resolve()
+    if not isinstance(relative, str) or Path(relative).is_absolute():
+        raise ValueError(f'Invalid saved input path: {relative}')
+    path = root / relative
+    if not path.resolve().is_relative_to(root):
+        raise ValueError(f'Saved input path escapes production: {relative}')
+    return path
+
+
+@contextmanager
+def execution_lock(output_dir):
+    """Nonblocking advisory lock shared by cooperating runner processes."""
+    with open(Path(output_dir) / '.execution.lock', 'a') as lock:
         try:
-            subprocess.run(command, check=True)
-        except (OSError, subprocess.CalledProcessError):
-            manifest['state'] = 'failed'
-            manifest['failed_job_id'] = job_id
-            write_manifest(production.output_dir, manifest)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError('Another process is using this production') from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def prepare_production(config, output, force=False):
+    """Prepare a new plan; --force cannot erase an execution attempt."""
+    output_dir = Path(output).expanduser().resolve()
+    if output_dir.exists() and force:
+        with execution_lock(output_dir):
+            manifest_path = output_dir / 'manifest.json'
+            if manifest_path.exists():
+                saved = read_production_manifest(output_dir)
+                if saved.get('execution_attempt') or saved.get('state') != 'prepared':
+                    raise ValueError('Cannot overwrite an attempted production; use a new output directory')
+            return _prepare_production(config, str(output_dir), force=True)
+    return _prepare_production(config, str(output_dir), force=force)
+
+
+def load_prepared_production(output_dir):
+    """Load and verify a saved plan without its original YAML/cards or cwd."""
+    output_dir = str(Path(output_dir).expanduser().resolve())
+    manifest = read_production_manifest(output_dir)
+    if manifest.get('schema_version') != 2:
+        raise ValueError('This manifest cannot be executed safely; prepare a new production with the current runner')
+    if manifest.get('plan_sha256') != plan_sha256(manifest):
+        raise ValueError('Production plan metadata changed; prepare a new production')
+    hashes = manifest['execution_input_sha256']
+    if not isinstance(hashes, dict) or not hashes:
+        raise ValueError('Production has no execution-input checksums')
+    for relative, digest in hashes.items():
+        path = production_path(output_dir, relative)
+        if not path.is_file() or file_sha256(path) != digest:
+            raise ValueError(f'Prepared input missing or changed: {relative}')
+    mode = manifest['mode']
+    local_dirs = {}
+    submit_file = manifest['execution']['submit_file']
+    if mode in ('condor', 'jupiter'):
+        production_path(output_dir, submit_file)
+        if submit_file not in hashes or 'run_mg_pythia_delphes.sh' not in hashes:
+            raise ValueError('Missing submit-file/wrapper integrity record')
+    elif mode in ('local-docker', 'local-apptainer'):
+        for job in manifest['jobs']:
+            run_file = production_path(output_dir, job['run_file'])
+            wrapper = str(Path(job['run_file']).parent / 'run_mg_pythia_delphes.sh')
+            if job['run_file'] not in hashes or wrapper not in hashes:
+                raise ValueError('Missing job-input/wrapper integrity record')
+            local_dirs[job['job_id']] = (job['sample'], str(run_file.parent))
+    else:
+        raise ValueError(f'Unsupported saved execution mode: {mode}')
+    return PreparedProduction(output_dir, manifest, local_dirs, submit_file)
+
+
+def execute_production(production):
+    """Verify and execute a saved production once, with a durable attempt marker.
+
+    Failed/ambiguous attempts are not retried automatically. Scheduler tracking
+    and selective recovery remain separate development stages.
+    """
+    with execution_lock(production.output_dir):
+        current = load_prepared_production(production.output_dir)
+        manifest = current.manifest
+        if production.manifest.get('plan_sha256') != manifest['plan_sha256']:
+            raise ValueError('Production was replaced after it was loaded')
+        if manifest.get('execution_attempt') or manifest.get('state') != 'prepared':
+            raise ValueError('Production has already been attempted; inspect its state before creating a new production')
+        mode = manifest['mode']
+        manifest['execution_attempt'] = {'started_at': datetime.now(timezone.utc).isoformat()}
+        manifest['state'] = 'submitting' if mode in ('condor', 'jupiter') else 'running'
+        write_manifest(current.output_dir, manifest)
+        try:
+            if mode in ('condor', 'jupiter'):
+                submitted = subprocess.run(['condor_submit', '-terse', '-maxjobs', str(len(manifest['jobs'])),
+                                            current.submit_file], cwd=current.output_dir,
+                                           capture_output=True, text=True, check=True)
+                manifest['submission'] = {'stdout': submitted.stdout, 'stderr': submitted.stderr}
+                manifest['state'] = 'submitted'
+                if submitted.stdout:
+                    print(submitted.stdout, end='')
+                if submitted.stderr:
+                    print(submitted.stderr, end='', file=sys.stderr)
+            else:
+                for job_id, (sample, run_dir) in current.local_dirs.items():
+                    manifest['execution_attempt']['current_job_id'] = job_id
+                    write_manifest(current.output_dir, manifest)
+                    command = build_local_command(mode, manifest['image'], sample, run_dir)
+                    print(command)
+                    subprocess.run(command, check=True)
+                manifest['state'] = 'execution_finished'
+        except BaseException as exc:
+            manifest['state'] = 'submission_unknown' if mode in ('condor', 'jupiter') else 'failed'
+            manifest['execution_attempt']['error'] = f'{type(exc).__name__}: {exc}'
+            if isinstance(exc, subprocess.CalledProcessError) and mode in ('condor', 'jupiter'):
+                manifest['submission'] = {'stdout': exc.stdout, 'stderr': exc.stderr}
+            if mode not in ('condor', 'jupiter'):
+                manifest['failed_job_id'] = manifest['execution_attempt'].get('current_job_id')
+            write_manifest(current.output_dir, manifest)
             raise
-    manifest['state'] = 'execution_finished'
-    write_manifest(production.output_dir, manifest)
-    return manifest
+        manifest['execution_attempt']['finished_at'] = datetime.now(timezone.utc).isoformat()
+        write_manifest(current.output_dir, manifest)
+        production.manifest.clear()
+        production.manifest.update(manifest)
+        return manifest
 
 
 def read_production_manifest(output_dir):
@@ -866,7 +991,9 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='run_mg_pythia_delphes.py')
 
     # Main required arguments
-    parser.add_argument('-c', '--config', required=True, help='Configuration file')
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('-c', '--config', help='Configuration file')
+    source.add_argument('--execute-prepared', metavar='DIRECTORY', help='Verify and execute an existing production once')
     parser.add_argument('-o', '--output', required=False, help='Output directory')
     parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
@@ -876,7 +1003,9 @@ def parse_args(argv=None):
 
     parser.add_argument("--validate-only", action="store_true", help="Validate inputs without writing files or launching jobs")
     args = parser.parse_args(argv)
-    if not args.validate_only and not args.output:
+    if args.execute_prepared and (args.output or args.force or args.dry_run or args.validate_only or args.run_mode):
+        parser.error("--execute-prepared cannot be combined with configuration/preparation options")
+    if not args.execute_prepared and not args.validate_only and not args.output:
         parser.error("--output is required unless --validate-only is used")
 
 
@@ -885,6 +1014,13 @@ def parse_args(argv=None):
 
 def main(argv=None):
     parser, args = parse_args(argv)
+    if args.execute_prepared:
+        try:
+            execute_production(load_prepared_production(args.execute_prepared))
+        except (ValueError, FileNotFoundError) as exc:
+            print(f'Error: {exc}', file=sys.stderr)
+            return 1
+        return
     try:
         config = load_config(args.config, args.run_mode)
     except (ValueError, TypeError) as exc:

@@ -236,15 +236,10 @@ def run_example(entry, args, result):
     if len(manifest['jobs']) > args.max_jobs:
         raise ValueError('Job count exceeds --max-jobs; nothing submitted')
     if args.mode != 'condor':
-        # Run the already prepared commands without rebuilding or changing seeds.
+        run_command([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+                    directory, work / 'execute.log', args.timeout)
         for job in manifest['jobs']:
             run_dir = (production / job['run_file']).parent
-            inner = f'source /setup_mg_pythia_delphes.sh && cd /local && ./run_mg_pythia_delphes.sh {job["sample"]} unused'
-            if args.mode == 'local-docker':
-                command = ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', image, inner]
-            else:
-                command = ['apptainer', 'exec', '--bind', f'{run_dir}:/local', image, '/bin/bash', '-l', '-c', inner]
-            run_command(command, directory, work / f"{job['job_id']}.log", args.timeout)
             events = run_dir / 'RUN/Events'
             events = events / ('run_01_decayed_1' if (events / 'run_01_decayed_1').is_dir() else 'run_01')
             files = {'local_' + path.name: lambda path=path: path.open('rb')
@@ -254,9 +249,8 @@ def run_example(entry, args, result):
             result.setdefault('checks', []).append(inspect_outputs(files, selected))
         result['state'] = 'passed'
         return
-    submission = next(production.glob('*.sub'))
-    submitted = subprocess.run(['condor_submit', '-terse', '-maxjobs', str(args.max_jobs), submission.name],
-                               cwd=production, capture_output=True, text=True, timeout=60)
+    submitted = subprocess.run([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+                               cwd=directory, capture_output=True, text=True, timeout=60)
     (work / 'submit.log').write_text(submitted.stdout + '\n' + submitted.stderr)
     submitted.check_returncode()
     ids = parse_job_ids(submitted.stdout)

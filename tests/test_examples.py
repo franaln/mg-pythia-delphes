@@ -134,6 +134,9 @@ print(f'123.0 - 123.{len(jobs)-1}')
                 self.assertEqual(result.returncode, int(fail), result.stdout + result.stderr)
                 report = json.loads((output / 'report.json').read_text())['results'][0]
                 self.assertEqual(report['scheduler_ids'], ['123.0', '123.1'])
+                manifest = json.loads((output / 'example7_parton_only/production/manifest.json').read_text())
+                self.assertEqual(manifest['state'], 'submitted')
+                self.assertIn('execution_attempt', manifest)
                 if fail:
                     self.assertEqual(report['state'], 'failed')
                     self.assertEqual(report['cleanup']['stdout'].strip(), '123.0 123.1')

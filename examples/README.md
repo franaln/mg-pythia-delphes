@@ -88,7 +88,8 @@ and may require a higher limit and timeout.
 
 The driver:
 
-1. Prepares and checks inputs before submitting the prepared `.sub` file.
+1. Prepares and checks inputs, then executes them through the guarded
+   `--execute-prepared` CLI. Both the runner and driver enforce job-count limits.
 2. Records exact scheduler IDs immediately in `submitted_jobs.json` and saves
    submission output in `submit.log`.
 3. Waits for each test job, with one overall Condor wait deadline per example.
@@ -121,8 +122,8 @@ For example:
 For local Docker the test driver translates catalogued image names to
 `franaln/mg-pythia-delphes:<version>`; for Apptainer it uses `/opt/images/*.sif`.
 `--image` can override the Docker reference or Apptainer path. Local jobs run
-sequentially, with `--timeout` applied to each job. Local mode validates the
-outputs that the runner creates; it does not synthesize Condor log archives or
+sequentially, with `--timeout` applied to the whole local example. Local mode
+validates the outputs that the runner creates; it does not synthesize Condor log archives or
 convert ROOT to LHCO. Existing LHCO-requesting examples can therefore expose a
 local-output feature gap. Prefer the new SM examples for initial local tests.
 
@@ -136,3 +137,6 @@ This runs all YAML examples through preparation for all three backends, tests
 failure handling, and exercises the integration-test driver against a fake
 scheduler and generated LHE archives. It never submits real jobs. Successful
 mock tests do not establish that a real cluster/container run succeeds.
+
+The implementation roadmap and internal API are documented in
+[development.md](../development.md).
