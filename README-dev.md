@@ -44,6 +44,27 @@ per-example logs, a test configuration and the prepared production. Catalogued
 examples live in `examples/catalog.json`; the regression suite checks that every YAML
 example is registered, so newly added examples cannot silently escape testing.
 
+## Site configuration for the local alias
+
+The runner accepts `--run_mode local` and YAML `run.mode: local`; the example
+driver accepts `--mode local`. The driver resolves the alias before executable
+checks, image-name translation and execution, and records both requested and
+resolved modes in its report. For example:
+
+```bash
+MGPD_SITE=jupiter python scripts/test_examples.py --mode local \
+  --example example8_smoke_full --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
+  --output test-results/preparation-local-01
+```
+
+This prepares only; add `--execute` to run the explicitly selected example.
+Administrators can export `MGPD_SITE=jupiter` in the shared shell/module setup
+for submit/worker hosts; `MGPD_SITE=default` selects Docker, and unset/`auto`
+uses hostname detection. `MGPD_JUPITER_HOSTS=node1,node2,leda.example.org` adds
+host aliases to the built-in short hostname `jupiter`. Matching is case-insensitive
+against the full or short hostname, without prefix guessing. These settings apply
+only to the `local` alias, never to explicit modes or saved execution plans.
+
 ## Real integration tests on JUPITER
 
 Use the development environment above. ROOT checks require the included uproot dependency.

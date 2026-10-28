@@ -144,7 +144,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--example', action='append', help='Catalog name; repeat to select several')
-    parser.add_argument('--mode', choices=['condor', 'local-docker', 'local-apptainer'], default='condor')
+    parser.add_argument('--mode', choices=['condor', 'local', 'local-docker', 'local-apptainer'], default='condor')
     parser.add_argument('--output', type=Path, help='New directory for reports, logs and productions')
     parser.add_argument('--execute', action='store_true', help='Actually run/submit the explicitly selected examples')
     parser.add_argument('--image', help='Override container image (Condor accepts runner-supported image names)')
@@ -169,6 +169,12 @@ def main():
         if unknown:
             parser.error(f'Unknown examples: {sorted(unknown)}')
         entries = [entry for entry in entries if entry['name'] in args.example]
+    requested_mode = args.mode
+    try:
+        from mgpd.config import resolve_run_mode
+        args.mode = resolve_run_mode(args.mode)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.execute:
         required = ['condor_submit', 'condor_wait'] if args.mode == 'condor' else [args.mode.removeprefix('local-')]
         if args.remove_on_failure and args.mode == 'condor':
@@ -185,7 +191,7 @@ def main():
     if args.output.exists():
         parser.error('--output must be a new directory; existing results are never overwritten')
     args.output.mkdir(parents=True)
-    report = {'mode': args.mode, 'execute': args.execute, 'results': []}
+    report = {'mode': args.mode, 'requested_mode': requested_mode, 'execute': args.execute, 'results': []}
     try:
         for entry in entries:
             result = {'example': entry['name']}

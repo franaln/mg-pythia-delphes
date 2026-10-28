@@ -25,15 +25,9 @@ Cross-cutting work:
   interface requires users to select inputs explicitly; it cannot establish
   sample compatibility or identify renamed duplicate attempts.
 
-- **Planned: site-aware `local` alias.** Accept `--run_mode local` in the runner
-  and `--mode local` in the example driver. On configured JUPITER hosts resolve
-  it to `local-apptainer`; outside JUPITER resolve it to `local-docker`. Prefer an
-  explicit site setting / configured hostname aliases over guessing from the
-  presence of container executables (JUPITER has Podman, not Docker). Explicit
-  concrete modes must always win. Resolve only during preparation and persist
-  the concrete mode; never reinterpret `--execute-prepared` based on the host.
-  Preserve the existing `jupiter` mode as a Condor alias. Add tests for JUPITER,
-  other hosts, overrides and saved-plan portability before implementing this.
+- **Implemented: site-aware `local` alias.** Runner/YAML and example driver
+  resolve through explicit site settings or configured hostnames, preserving
+  concrete choices and freezing the resolved backend in saved production plans.
 
 - Add YAML CPU/memory/disk requests and check consistency with MG core counts.
 - Record runner revision and verified container identity when available.
@@ -89,6 +83,23 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 - Live container/tool failures and Condor execution/recovery, using recorded reports.
 
 ## Changes implemented
+
+### Site-aware local alias
+
+- Added `local` to runner CLI/YAML and example-driver choices. Shared resolution
+  selects Apptainer on `jupiter` hosts and Docker elsewhere; `MGPD_SITE` and
+  `MGPD_JUPITER_HOSTS` configure site-wide selection without engine detection.
+- Explicit concrete modes bypass site settings. Preparation resolves only the
+  alias in a copied config and freezes the concrete manifest mode; source config
+  retains the requested alias. Saved execution/recovery do not resolve it again.
+- Example driver resolves before image translation, prerequisite checks and
+  backend dispatch, recording requested/resolved modes in its report.
+- All 101 local tests pass; no real containers or scheduler jobs were launched.
+- Regressions cover host/site overrides, explicit modes, YAML/programmatic/CLI
+  preparation, unchanged caller config, example-driver dispatch and saved-plan
+  execution after site settings change. The existing `jupiter` Condor alias and
+  default Docker mode are unchanged.
+
 
 ### Shared deployment helper
 

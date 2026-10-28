@@ -1,10 +1,28 @@
 """YAML loading, validation and container-reference resolution."""
 import os
+import socket
 import yaml
 import re
 from pathlib import Path
 import copy
 from .models import MAX_SEED
+
+
+def resolve_run_mode(mode):
+    """Resolve only the local alias; explicit backends ignore site settings."""
+    if mode != 'local':
+        return mode
+    site = os.environ.get('MGPD_SITE', 'auto').strip().lower()
+    if site not in ('auto', 'jupiter', 'default'):
+        raise ValueError('MGPD_SITE must be auto, jupiter or default')
+    if site != 'auto':
+        return 'local-apptainer' if site == 'jupiter' else 'local-docker'
+    hostname = socket.gethostname().lower().rstrip('.')
+    aliases = {'jupiter'} | {value.strip().lower().rstrip('.')
+                            for value in os.environ.get('MGPD_JUPITER_HOSTS', '').split(',')
+                            if value.strip()}
+    return ('local-apptainer' if hostname in aliases or hostname.split('.')[0] in aliases
+            else 'local-docker')
 
 
 def get_config_options(config):
@@ -62,7 +80,7 @@ def validate_config(config):
         value = run.get(key, 10000 if key == 'nevents' else 1)
         if type(value) is not int or value <= 0:
             raise ValueError(f'run.{key} must be a positive integer')
-    modes = ('local-docker', 'local-apptainer', 'condor', 'jupiter')
+    modes = ('local', 'local-docker', 'local-apptainer', 'condor', 'jupiter')
     if run.get('mode', 'local-docker') not in modes:
         raise ValueError(f'run.mode must be one of {modes}')
     outputs = run.get('outputs', ['lhe', 'lhco', 'log'])

@@ -25,7 +25,7 @@ from .storage import (
     read_production_manifest,
     write_manifest,
 )
-from .config import get_config_options, get_expert_options, resolve_container_image, validate_config
+from .config import get_config_options, get_expert_options, resolve_container_image, validate_config, resolve_run_mode
 
 
 def mkdir(path):
@@ -360,7 +360,8 @@ def _prepare_production(config, output, force=False):
     validate_config(config)
     original_config = copy.deepcopy(config)
     config = copy.deepcopy(config)
-    run_mode = config['run'].get('mode', 'local-docker')
+    run_mode = resolve_run_mode(config['run'].get('mode', 'local-docker'))
+    config['run']['mode'] = run_mode
     image = resolve_container_image(config['run'], run_mode)
     output_dir = os.path.abspath(os.path.expanduser(output))
     print(f'- Using working/output dir: {output_dir}')

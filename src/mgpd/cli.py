@@ -32,7 +32,7 @@ def parse_args(argv=None):
     parser.add_argument('-f', '--force', help='Force overwrite of output files', action='store_true')
 
     # Run options
-    parser.add_argument('--run_mode', default=None, choices=['local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
+    parser.add_argument('--run_mode', default=None, choices=['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter'], help='Run mode')
     parser.add_argument('--dry-run', action='store_true', help='Prepare directory and files but don\'t run or submit jobs')
 
     parser.add_argument("--validate-only", action="store_true", help="Validate inputs without writing files or launching jobs")
