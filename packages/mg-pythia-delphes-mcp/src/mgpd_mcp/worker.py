@@ -9,7 +9,7 @@ import yaml
 from .paths import PathError, Workspace
 
 WRITE_OPERATIONS = {'prepare_production', 'prepare_recovery'}
-OPERATIONS = WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
+OPERATIONS = {'execute_production', 'operation_status'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
 
 
 def error(code, message):
@@ -40,6 +40,18 @@ def dispatch(request):
         raise ValueError('Unsupported operation')
     if operation in WRITE_OPERATIONS and not request.get('allow_prepare', False):
         return error('PREPARATION_DISABLED', 'Server preparation capability is disabled')
+    if operation in ('execute_production', 'operation_status'):
+        from . import operations
+        if operation == 'execute_production':
+            if not request.get('allow_execute', False):
+                return error('EXECUTION_DISABLED', 'Server execution capability is disabled')
+            data = operations.start(workspace, request['path'], request['plan_sha256'])
+        else:
+            offset, count = request.get('log_offset', 0), request.get('log_limit', 4000)
+            if type(offset) is not int or offset < 0 or type(count) is not int or not 1 <= count <= 16000:
+                raise ValueError('Invalid log pagination')
+            data = operations.status(workspace, request['path'], request['operation_id'], offset, count)
+        return {'schema_version': 1, 'ok': True, 'data': data}
     limit = request.get('limit', 100)
     if type(limit) is not int or not 1 <= limit <= 1000:
         raise ValueError('limit must be between 1 and 1000')

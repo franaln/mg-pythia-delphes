@@ -3,7 +3,8 @@
 Separate, optional MCP adapter for `mg-pythia-delphes`. By default it is
 **read-only**: inspect existing work, validate configurations/results, observe
 Condor and plan recovery. An explicit startup option also enables preparation
-of productions/recoveries. No tool executes, submits or merges jobs.
+of productions/recoveries. A separate option enables submission of prepared
+Condor productions. Local execution and merging are not exposed.
 The core CLI remains independent and supports Python 3.9; this adapter requires
 Python 3.11+ and uses the official MCP Python SDK 2.x.
 
@@ -21,7 +22,7 @@ mgpd-mcp --version
 
 This installs both distributions into the MCP environment. It does not alter the
 shared `mgpd-current` installation. The declared core compatibility range is
-`>=0.1.1,<0.2`; the adapter's development version is `0.2.0a2`.
+`>=0.1.1,<0.2`; the adapter's development version is `0.2.0a3`.
 
 ## Connect a stdio client
 
@@ -62,6 +63,8 @@ HTTP listener, shared daemon, root account or model-provider API key is required
 | `plan_recovery` | Explain eligibility; never prepare/execute recovery |
 | `prepare_production` | Opt-in: freeze existing YAML into a new production |
 | `prepare_recovery` | Opt-in: reserve and clone explicitly selected eligible jobs |
+| `execute_production` | Opt-in: submit a reviewed prepared Condor plan once |
+| `operation_status` | Inspect a persistent submission operation and paginated logs |
 
 `mgpd://capabilities` reports adapter/core versions, workspace, timeout and tools.
 Paths are relative to the configured workspace; absolute paths inside it are
@@ -86,14 +89,14 @@ Responses contain structured data plus matching text JSON:
   invalid configuration or missing paths produce tool errors.
 - Errors include `PATH_OUTSIDE_WORKSPACE`, `NOT_FOUND`, `VALIDATION_ERROR`,
   `QUERY_FAILED`, `TOOL_TIMEOUT`, `WORKER_FAILED`, `OUTPUT_EXISTS` and
-  `PREPARATION_UNKNOWN`.
+  `PREPARATION_UNKNOWN` and `EXECUTION_UNKNOWN`.
 
 Job listings are bounded by `limit` (1..1000, default 100), with totals and
 truncation flags. This bounds the response, not the underlying validation work.
 `--timeout` defaults to 120 seconds; timeout/disconnection kills read-only worker
 processes and their query subprocesses, never submits work or resets a manifest.
-Large datasets may need a longer timeout. Durable asynchronous operations are a
-later milestone.
+Large datasets may need a longer timeout. The detached Condor submission worker
+has its own lifetime and is not killed by the request timeout.
 
 Tool execution uses one isolated core worker per request with a fixed cwd; it
 does not change the MCP server's cwd. Diagnostics go to stderr, never protocol
@@ -142,7 +145,7 @@ the worker may have written files or reserved recovery jobs before interruption.
 Inspect the requested output and parent manifest; core locks/ownership and the
 no-overwrite rule still apply. There is no automatic rollback or reservation reset.
 For large inputs, increase `--timeout` and the client tool timeout before starting; durable asynchronous
-preparation and execution are not implemented yet.
+preparation is not implemented; Condor submission uses the separate operation mechanism below.
 
 ### Desktop connection through SSH (tested on JUPITER)
 
@@ -166,6 +169,59 @@ the Mac; do not add `experimental_environment="remote"` to this entry. The
 read-only version of this SSH connection was verified by the user. Restart the
 connection/new chat to discover newly enabled preparation tools. The new write
 operations still need a JUPITER pilot with disposable outputs.
+
+## Enable Condor submission (alpha 3)
+
+After validating preparation, add `--allow-execute` to the existing SSH server
+arguments and reconnect. This capability is independent of `--allow-prepare`.
+Run the server as your normal account; it submits with that account's Condor
+credentials and environment. Core remains version 0.1.1.
+
+First inspect the production and review jobs, seeds, image and output location.
+Then authorize submission and call:
+
+```json
+{
+  "path": "mcp-prepare-01",
+  "plan_sha256": "<exact checksum returned by inspect_production>"
+}
+```
+
+`execute_production` returns `operation_id`, path, checksum, state and log path.
+Poll `operation_status(path, operation_id)`; `log_offset` and `log_limit` page
+through at most 16000 bytes per call using the returned `log_next_offset`.
+A `submitted` operation means Condor accepted the submission, not that physics
+jobs completed. Follow with `production_status` and `validate_results`.
+
+Each production has one `.mgpd-mcp-operation/` reservation with atomic metadata,
+a worker lock and submission log. The detached worker inherits the user's
+Python environment and survives MCP/SSH disconnects; no daemon is installed.
+Repeated execution requests return the same operation, and the core independently
+locks the production and records an attempt before invoking Condor. A changed
+checksum, local backend or previously attempted production without an MCP
+operation is rejected. Recovery productions use the same core ownership checks.
+
+An interrupted worker, unparseable submission response, failed submission or
+failed worker launch produces `unknown`. A queued worker may briefly appear
+unknown while starting. Inspect the operation, production manifest and Condor
+queue/history; never interpret unknown as permission to resubmit. If the initial
+call loses its response, calling `execute_production` with the same path/checksum
+retrieves the existing reservation; it does not launch another worker. A partial
+reservation without metadata requires manual inspection and also blocks launch.
+There is no automatic retry, reservation reset or cancellation tool. Host reboot,
+logout policies that terminate user processes, and administrator intervention
+can interrupt a worker; the durable attempt guard still prevents resubmission.
+
+### JUPITER pilot
+
+1. Reinstall the adapter in `.venv-mcp`, enable `--allow-execute`, reconnect.
+2. Inspect the previously prepared two-job parton example (or prepare a new one).
+3. Review its summary, authorize submission, then invoke `execute_production`.
+4. Record the operation ID, disconnect/reconnect and poll `operation_status`.
+5. Repeat the same execution request: verify the operation ID is unchanged.
+6. Use `production_status` to observe the two scheduler IDs through completion.
+7. Run `validate_results`; both jobs must pass. Preserve the operation log and
+   manifests as pilot evidence. No real JUPITER submission was run by local tests.
 
 ## Development tests
 

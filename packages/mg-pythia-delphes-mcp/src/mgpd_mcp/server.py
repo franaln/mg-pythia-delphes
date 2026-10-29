@@ -20,17 +20,17 @@ Limit = Annotated[int, Field(ge=1, le=1000)]
 Policy = Literal['exact', 'nonempty', 'ignore']
 
 
-def create_server(workspace, timeout=120, allow_prepare=False):
+def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=False):
     root = Workspace(workspace).root
     server = MCPServer('mg-pythia-delphes', version=__version__,
                        instructions='Workflow inspection and optional preparation tools. Paths are relative to the workspace. '
-                       'Preparation only freezes plans; no tool executes or submits jobs or merges outputs. '
+                       'Execution is separately opt-in and supports prepared Condor plans only. '
                        'Review returned identity, checksum and jobs. Scheduler completion and valid outputs are separate.')
     annotations = ToolAnnotations(read_only_hint=True, destructive_hint=False,
                                   idempotent_hint=True, open_world_hint=False)
 
     async def call(operation, **parameters):
-        request = {'workspace': str(root), 'operation': operation, 'allow_prepare': allow_prepare, **parameters}
+        request = {'workspace': str(root), 'operation': operation, 'allow_prepare': allow_prepare, 'allow_execute': allow_execute, **parameters}
         process = await asyncio.create_subprocess_exec(
             sys.executable, '-m', 'mgpd_mcp.worker', cwd=root,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -54,11 +54,16 @@ def create_server(workspace, timeout=120, allow_prepare=False):
             await process.communicate()
             if isinstance(exc, asyncio.CancelledError):
                 raise
-            if operation in WRITE_OPERATIONS:
+            if operation == 'execute_production':
+                payload = error('EXECUTION_UNKNOWN', 'Submission operation may have started; inspect operation_status and production_status. Do not resubmit.')
+                payload['path'] = parameters.get('path')
+            elif operation in WRITE_OPERATIONS:
                 payload = error('PREPARATION_UNKNOWN', 'Preparation timed out; inspect the output and parent manifest before retrying. No jobs were submitted.')
                 payload['output'] = parameters.get('output')
             else:
                 payload = error('TOOL_TIMEOUT', 'Read-only operation exceeded its time limit; no jobs were submitted')
+        if operation == 'execute_production' and payload.get('error', {}).get('code') == 'WORKER_FAILED':
+            payload = error('EXECUTION_UNKNOWN', 'Submission outcome is unknown; inspect operation_status and production_status. Do not resubmit.')
         if operation in WRITE_OPERATIONS and payload.get('error', {}).get('code') == 'WORKER_FAILED':
             payload = error('PREPARATION_UNKNOWN', 'Worker outcome is unknown; inspect the output and parent manifest before retrying. No jobs were submitted.')
             payload['output'] = parameters.get('output')
@@ -69,9 +74,9 @@ def create_server(workspace, timeout=120, allow_prepare=False):
     def capabilities() -> str:
         return json.dumps({'adapter_version': __version__, 'core_version': mgpd.__version__,
                            'schema_version': 1, 'workspace': str(root), 'transport': 'stdio',
-                           'read_only': not allow_prepare, 'preparation_enabled': allow_prepare, 'timeout_seconds': timeout,
+                           'read_only': not (allow_prepare or allow_execute), 'preparation_enabled': allow_prepare, 'execution_enabled': allow_execute, 'timeout_seconds': timeout,
                            'tools': ['validate_config', 'inspect_production', 'production_status',
-                                     'validate_results', 'plan_recovery'] + (['prepare_production', 'prepare_recovery'] if allow_prepare else [])})
+                                     'validate_results', 'plan_recovery', 'operation_status'] + (['prepare_production', 'prepare_recovery'] if allow_prepare else []) + (['execute_production'] if allow_execute else [])})
 
     @server.tool(annotations=annotations, structured_output=False)
     async def validate_config(path: str, base_directory: str = '.') -> CallToolResult:
@@ -105,6 +110,23 @@ def create_server(workspace, timeout=120, allow_prepare=False):
         return await call('plan_recovery', path=path, event_count=event_count,
                           require_positive_cross_section=require_positive_cross_section,
                           check_seed=check_seed, limit=limit)
+    @server.tool(annotations=annotations, structured_output=False)
+    async def operation_status(path: str, operation_id: str,
+                               log_offset: Annotated[int, Field(ge=0)] = 0,
+                               log_limit: Annotated[int, Field(ge=1, le=16000)] = 4000) -> CallToolResult:
+        """Inspect a persistent submission operation and a bounded log page. Submitted is not physics completion. Never retries."""
+        return await call('operation_status', path=path, operation_id=operation_id,
+                          log_offset=log_offset, log_limit=log_limit)
+
+    if allow_execute:
+        execution = ToolAnnotations(read_only_hint=False, destructive_hint=False,
+                                    idempotent_hint=True, open_world_hint=True)
+
+        @server.tool(annotations=execution, structured_output=False)
+        async def execute_production(path: str, plan_sha256: str) -> CallToolResult:
+            """Submit a reviewed prepared Condor plan once. Requires its exact checksum. Present jobs/seeds/image for user approval before calling. Returns a durable operation ID; poll operation_status and production_status. Never retry unknown submissions or treat submission as completion."""
+            return await call('execute_production', path=path, plan_sha256=plan_sha256)
+
     if allow_prepare:
         preparation = ToolAnnotations(read_only_hint=False, destructive_hint=False,
                                       idempotent_hint=False, open_world_hint=False)
@@ -129,16 +151,17 @@ def create_server(workspace, timeout=120, allow_prepare=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); preparation is opt-in')
+    parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); preparation and Condor submission are separately opt-in')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--workspace', type=Path, required=True, help='Existing root for all tool-managed paths')
+    parser.add_argument('--allow-execute', action='store_true', help='Enable one-shot prepared Condor submission; jobs run as the SSH user')
     parser.add_argument('--allow-prepare', action='store_true', help='Enable preparation tools; never enables execution')
     parser.add_argument('--timeout', type=float, default=120, help='Maximum seconds per operation; interrupted preparation may leave partial files')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
     try:
-        server = create_server(args.workspace, timeout=args.timeout, allow_prepare=args.allow_prepare)
+        server = create_server(args.workspace, timeout=args.timeout, allow_prepare=args.allow_prepare, allow_execute=args.allow_execute)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     server.run(transport='stdio')

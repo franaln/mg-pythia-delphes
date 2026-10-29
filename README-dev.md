@@ -424,10 +424,11 @@ python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
 Install both wheels into a clean MCP environment and repeat the adapter tests
 outside the checkout, ensuring subprocess workers import the installed wheels.
 The local `development.md` is explicitly excluded from source distributions.
-The adapter implements read tools and opt-in production/recovery preparation.
-Execution, asynchronous operations and merging tools are subsequent milestones.
-The user has verified the read-only server on JUPITER through the desktop SSH
-connection; preparation now needs a pilot using disposable output directories.
+The adapter implements read tools, opt-in production/recovery preparation and
+separately enabled detached Condor submission operations. Local execution and
+merging tools are not exposed. The user has verified read-only tools and
+preparation on JUPITER through the desktop SSH connection, including no-overwrite
+behavior. Condor execution now needs the pilot described in the adapter guide.
 
 First-slice validation: the 113 core regressions pass on Python 3.9 without MCP.
 Real stdio tests pass on Python 3.12 with SDK 2.3.0, including installed core and
@@ -449,3 +450,15 @@ Alpha 2 validation: 15 MCP stdio tests pass, including the installed wheel outsi
 the checkout, and all 113 independent core tests pass on Python 3.9. Wheel and
 source builds succeed. No real physics engines, scheduler submissions or shared
 JUPITER installations were used in this development session.
+
+
+Alpha 3 adds opt-in Condor execution (`--allow-execute`) and read-only
+`operation_status`. Tests use real MCP stdio and detached Python workers with
+fake scheduler executables: disconnect/reconnect, repeated and concurrent calls,
+checksum/path/backend checks, failed submissions and killed workers. Run the
+adapter suite above before the JUPITER pilot documented in the adapter README.
+Core stays 0.1.1. Local execution and MCP merging remain unavailable.
+
+Alpha 3 validation: all 23 adapter tests pass against source and the installed
+wheel outside the checkout. Tests use fake Condor commands; live JUPITER
+submission remains to be validated. No core runtime code changed.
