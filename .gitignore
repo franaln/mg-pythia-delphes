@@ -7,3 +7,4 @@ dist/
 *.egg-info/
 .venv-dev/
 development.md
+.venv-mcp/

@@ -2,8 +2,7 @@
 
 For users, see [README.md](README.md) and the [example catalog](examples/README.md).
 This guide contains development setup, automated and live tests, release checks,
-and shared deployment. Architecture, decisions, change history and next steps
-remain in [development.md](development.md).
+and shared deployment. The implementation roadmap is maintained locally.
 
 ## Development environment
 
@@ -156,8 +155,8 @@ python3 scripts/run_mg_pythia_delphes.py \
   --validate-results test-results/condor-full-01/example8_smoke_full/production --json
 ```
 
-The implementation roadmap and internal API are documented in
-[development.md](development.md).
+The public core API is exported by `src/mgpd/__init__.py`; the roadmap is
+maintained locally.
 
 After a Condor test, inspect the production without submitting more jobs:
 
@@ -391,3 +390,47 @@ it back to the previous environment. Existing processes retain their interpreter
 and imported package; saved manifests, seeds and scheduler IDs stay in users'
 production directories. Do not remove old environments while processes use them.
 No shared environment was created or modified from this development session.
+
+## MCP adapter development (0.2 alpha)
+
+The adapter is a **separate distribution** under
+[packages/mg-pythia-delphes-mcp](packages/mg-pythia-delphes-mcp/README.md).
+It requires Python 3.11+; the core retains Python 3.9 support and no SDK dependency.
+Run from the repository root:
+
+```bash
+python3.11 -m venv .venv-mcp
+source .venv-mcp/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[validation]' -e packages/mg-pythia-delphes-mcp build
+python -m unittest discover -s tests -v
+python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
+```
+
+The adapter tests use the real SDK stdio client/server, core APIs, saved plans and
+LHE fixtures. Scheduler commands are faked; no jobs are submitted. Tests cover
+read-only parity, capabilities, pagination, invalid arguments, paths/symlinks,
+concurrent relative base directories, diagnostics, errors and timeouts. Running
+core tests alone does not test MCP. Core tests must also pass in a Python 3.9
+installation without the SDK.
+
+Build each distribution independently:
+
+```bash
+python -m build --outdir dist/core
+python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
+```
+
+Install both wheels into a clean MCP environment and repeat the adapter tests
+outside the checkout, ensuring subprocess workers import the installed wheels.
+The local `development.md` is explicitly excluded from source distributions.
+The adapter does not implement preparation, execution, asynchronous operations
+or merging tools yet; those are subsequent milestones. Before enabling writes,
+exercise this read-only server on existing JUPITER productions from a real client.
+
+First-slice validation: the 113 core regressions pass on Python 3.9 without MCP.
+Real stdio tests pass on Python 3.12 with SDK 2.3.0, including installed core and
+adapter wheels outside the checkout. Source archives were checked to exclude the
+local roadmap. No real Condor jobs were submitted and no JUPITER installation was
+modified. Use the adapter guide's `scripts/check_server.py` command to collect
+live JUPITER read-only evidence before enabling additional tools.
