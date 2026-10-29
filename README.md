@@ -44,7 +44,7 @@ With the environment active, use the checkout's small full-chain example:
 ```bash
 cd examples/example8_smoke_full
 mgpd \
-  -c config.yml -o output_test --run_mode condor --dry-run
+  -c config.yml -o output_test --mode condor --dry-run
 ```
 
 Review `output_test/manifest.json` and the generated inputs, then submit them:
@@ -91,7 +91,7 @@ file. `nevents` is per job; `njobs` is per sample. Local jobs run sequentially.
 
 | Setting | Options |
 | --- | --- |
-| `run.mode` / CLI `--run_mode` | `local` (site-aware alias), `local-docker` (default), `local-apptainer`, `condor`, `jupiter` (Condor alias) |
+| `run.mode` / CLI `--mode` | `local` (default; hostname-based), `local-docker`, `local-apptainer`, `condor`, `jupiter` (Condor alias) |
 | `run.image` for Docker | For example `franaln/mg-pythia-delphes:3.5.6`; defaults to `:latest` |
 | `run.image` for Apptainer | Path to a `.sif`, or an installed supported name under `/opt/images` |
 | `run.image` for Condor | `mg-pythia-delphes-3.3.2`, `mg-pythia-delphes-3.5.6`, or `mg-pythia-delphes-latest`, under `/opt/images/*.sif` |
@@ -108,24 +108,22 @@ of each sample in Condor mode. Local mode retains program outputs directly.
 `expert.ncores` configures MadGraph; automatic matching of HTCondor resource
 requests to it is not implemented yet.
 
-Use `--run_mode local` (or YAML `run.mode: local`) to select a local backend:
+Use `--mode local` (or YAML `run.mode: local`) to select a local backend:
 
 ```bash
-mgpd -c config.yml -o production --run_mode local --dry-run
+mgpd -c config.yml -o production --mode local --dry-run
 ```
 
-`local` selects Apptainer on hosts named `jupiter` (including its fully qualified
-hostname), and Docker elsewhere. Sites can set `MGPD_SITE=jupiter` to select
-Apptainer on other JUPITER hosts, or `MGPD_SITE=default` to select Docker;
-`MGPD_SITE=auto` uses hostname detection. `MGPD_JUPITER_HOSTS` can add a
-comma-separated list of hostnames. Explicit `local-apptainer` or `local-docker`
-choices ignore these settings. Container executable detection is not used.
-Choose an image appropriate for the resolved backend in the YAML; the alias does
+`local` is the default when neither YAML nor the CLI specifies a mode. It selects
+Apptainer on hostname `jupiter` (including its fully qualified hostname), and
+Docker elsewhere. Explicit `local-apptainer`, `local-docker` and `condor` choices
+are preserved. There are no site environment settings or container-engine probes.
+Choose an image appropriate for the selected backend in the YAML; the alias does
 not convert Docker image references into Apptainer paths.
 
 Preparation saves the concrete backend. `--execute-prepared` and recovery keep
-that backend even if the host or site settings later change. Omitting the run
-mode still defaults to Docker; the existing `jupiter` alias still means Condor.
+that backend even if the hostname later changes. The `jupiter` mode alias still
+means Condor.
 
 Other supported input styles are external `cards.proc`, a mapping of parameter
 cards under `cards.param`, `input_files`, `input_dir`, and a mapping of named

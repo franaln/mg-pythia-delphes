@@ -344,7 +344,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_saved_execution_rejects_preparation_flags(self):
         for extra in (['-c', 'config.yml'], ['--force'], ['--dry-run'],
-                      ['--validate-only'], ['--run_mode', 'condor'], ['-o', 'other']):
+                      ['--validate-only'], ['--mode', 'condor'], ['-o', 'other']):
             with self.subTest(extra=extra), patch.object(subprocess, 'run') as launch:
                 with self.assertRaises(SystemExit) as error:
                     runner.main(['--execute-prepared', 'production', *extra])

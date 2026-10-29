@@ -27,7 +27,7 @@ From the repository root, with Python 3.9+ and PyYAML:
 
 ```bash
 python3 scripts/test_examples.py --list
-python3 scripts/test_examples.py --output test-results/preparation-condor
+python3 scripts/test_examples.py --mode condor --output test-results/preparation-condor
 python3 scripts/test_examples.py --mode local-docker --output test-results/preparation-docker
 python3 scripts/test_examples.py --mode local-apptainer --output test-results/preparation-apptainer
 ```
@@ -44,26 +44,26 @@ per-example logs, a test configuration and the prepared production. Catalogued
 examples live in `examples/catalog.json`; the regression suite checks that every YAML
 example is registered, so newly added examples cannot silently escape testing.
 
-## Site configuration for the local alias
+## Hostname-based local default
 
-The runner accepts `--run_mode local` and YAML `run.mode: local`; the example
-driver accepts `--mode local`. The driver resolves the alias before executable
-checks, image-name translation and execution, and records both requested and
-resolved modes in its report. For example:
+The runner accepts `--mode local` and YAML `run.mode: local`. When no mode is
+specified, `local` is the default. It selects Apptainer if the short hostname is
+`jupiter`, and Docker on any other host. Explicit concrete modes take precedence.
+There are no site environment variables or configurable hostname aliases.
+
+The example driver also defaults to `--mode local`. It resolves the hostname
+before executable checks, image translation and execution, and records requested
+and resolved modes. For example, on JUPITER:
 
 ```bash
-MGPD_SITE=jupiter python scripts/test_examples.py --mode local \
+python scripts/test_examples.py --mode local \
   --example example8_smoke_full --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
   --output test-results/preparation-local-01
 ```
 
-This prepares only; add `--execute` to run the explicitly selected example.
-Administrators can export `MGPD_SITE=jupiter` in the shared shell/module setup
-for submit/worker hosts; `MGPD_SITE=default` selects Docker, and unset/`auto`
-uses hostname detection. `MGPD_JUPITER_HOSTS=node1,node2,leda.example.org` adds
-host aliases to the built-in short hostname `jupiter`. Matching is case-insensitive
-against the full or short hostname, without prefix guessing. These settings apply
-only to the `local` alias, never to explicit modes or saved execution plans.
+This prepares only; add `--execute` to run the selected example. Use `--mode condor`
+explicitly for Condor tests. Saved productions retain the concrete backend and
+are not reinterpreted when executed on another host.
 
 ## Real integration tests on JUPITER
 

@@ -73,7 +73,7 @@ Generation details
                 driver.parse_lhe_init(block)
 
     def test_live_mode_requires_explicit_example(self):
-        result = subprocess.run([sys.executable, '-B', str(DRIVER), '--execute', '--output', '/unused'],
+        result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute', '--output', '/unused'],
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('explicit --example', result.stderr)
@@ -129,7 +129,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
                 if fail:
                     env['MG_TEST_FAIL_WAIT'] = '1'
                 output = root / 'results'
-                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--execute',
+                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute',
                                          '--example', 'example7_parton_only', '--output', str(output),
                                          '--remove-on-failure', '--timeout', '10'], env=env,
                                         capture_output=True, text=True)
@@ -160,7 +160,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
             root = Path(tmp)
             env = self.fake_condor(root)
             output = root / 'results'
-            result = subprocess.run([sys.executable, '-B', str(DRIVER), '--execute',
+            result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute',
                                      '--example', 'example7_parton_only', '--output', str(output),
                                      '--timeout', '10'], env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

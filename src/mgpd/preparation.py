@@ -360,7 +360,7 @@ def _prepare_production(config, output, force=False):
     validate_config(config)
     original_config = copy.deepcopy(config)
     config = copy.deepcopy(config)
-    run_mode = resolve_run_mode(config['run'].get('mode', 'local-docker'))
+    run_mode = resolve_run_mode(config['run'].get('mode', 'local'))
     config['run']['mode'] = run_mode
     image = resolve_container_image(config['run'], run_mode)
     output_dir = os.path.abspath(os.path.expanduser(output))

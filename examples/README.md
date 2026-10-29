@@ -33,11 +33,11 @@ From the repository root, with the package installed:
 
 ```bash
 cd examples/example8_smoke_full
-mgpd -c config.yml -o production --run_mode condor --dry-run
+mgpd -c config.yml -o production --mode condor --dry-run
 mgpd --execute-prepared production
 ```
 
-For a local run on JUPITER, use `--run_mode local-apptainer` and set `run.image`
+For a local run on JUPITER, use `--mode local-apptainer` and set `run.image`
 to the installed Apptainer image path. Use `local-docker` on a Docker host.
 See the [user guide](../README.md) for configuration, status, validation,
 recovery and merging. Developer testing instructions are in

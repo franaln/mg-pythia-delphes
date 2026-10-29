@@ -26,7 +26,7 @@ Cross-cutting work:
   sample compatibility or identify renamed duplicate attempts.
 
 - **Implemented: site-aware `local` alias.** Runner/YAML and example driver
-  resolve through explicit site settings or configured hostnames, preserving
+  resolve through the hostname alone, preserving
   concrete choices and freezing the resolved backend in saved production plans.
 
 - Add YAML CPU/memory/disk requests and check consistency with MG core counts.
@@ -84,21 +84,35 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 
 ## Changes implemented
 
+### Simplified local default and CLI spelling
+
+- Preserved the user-selected `--mode` CLI spelling and updated example-driver
+  invocations and documentation; `--run_mode` is not retained as an option.
+  Internal API argument names and MG's own `set run_mode` commands are unchanged.
+- `local` is now the default for omitted YAML modes and the example driver.
+  The short hostname `jupiter` selects Apptainer; every other host selects Docker.
+  Removed site environment overrides and configurable hostname aliases.
+- Explicit modes remain authoritative, and saved plans keep their concrete mode.
+  Tests cover omitted/explicit local modes through CLI/YAML/programmatic
+  preparation, both hostname outcomes, driver defaults and saved-plan execution.
+- All 101 tests pass after the simplification and CLI spelling update.
+
+
 ### Site-aware local alias
 
 - Added `local` to runner CLI/YAML and example-driver choices. Shared resolution
-  selects Apptainer on `jupiter` hosts and Docker elsewhere; `MGPD_SITE` and
-  `MGPD_JUPITER_HOSTS` configure site-wide selection without engine detection.
-- Explicit concrete modes bypass site settings. Preparation resolves only the
+  selects Apptainer on `jupiter` hosts and Docker elsewhere without engine detection.
+  The original configurable-site mechanism has since been removed.
+- Explicit concrete modes remain authoritative. Preparation resolves only the
   alias in a copied config and freezes the concrete manifest mode; source config
   retains the requested alias. Saved execution/recovery do not resolve it again.
 - Example driver resolves before image translation, prerequisite checks and
   backend dispatch, recording requested/resolved modes in its report.
 - All 101 local tests pass; no real containers or scheduler jobs were launched.
-- Regressions cover host/site overrides, explicit modes, YAML/programmatic/CLI
+- Regressions cover hostname selection, explicit modes, YAML/programmatic/CLI
   preparation, unchanged caller config, example-driver dispatch and saved-plan
-  execution after site settings change. The existing `jupiter` Condor alias and
-  default Docker mode are unchanged.
+  execution without resolving the hostname again. The existing `jupiter` Condor alias and
+  historical default at that stage were unchanged; the default is now `local`.
 
 
 ### Shared deployment helper

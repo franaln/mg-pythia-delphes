@@ -89,7 +89,7 @@ def run_example(entry, args, result):
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     production = work / 'production'
     command = [sys.executable, str(RUNNER), '-c', str(config_path), '-o', str(production),
-               '--run_mode', args.mode]
+               '--mode', args.mode]
     run_command(command + ['--validate-only'], directory, work / 'validate.log', 60)
     run_command(command + ['--dry-run'], directory, work / 'prepare.log', 120)
     manifest = check_prepared(production, entry)
@@ -144,7 +144,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--example', action='append', help='Catalog name; repeat to select several')
-    parser.add_argument('--mode', choices=['condor', 'local', 'local-docker', 'local-apptainer'], default='condor')
+    parser.add_argument('--mode', choices=['condor', 'local', 'local-docker', 'local-apptainer'], default='local')
     parser.add_argument('--output', type=Path, help='New directory for reports, logs and productions')
     parser.add_argument('--execute', action='store_true', help='Actually run/submit the explicitly selected examples')
     parser.add_argument('--image', help='Override container image (Condor accepts runner-supported image names)')
