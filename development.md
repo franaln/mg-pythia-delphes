@@ -16,7 +16,7 @@ this file when completing a stage or changing the plan.
 | 5. Validate and summarize outputs | Implemented; live validation check pending | Move the example driver's checks into reusable result functions; produce sample-level summaries and distinguish execution success from valid output. |
 | 6. Recover failed jobs | Implemented; live recovery test pending | Retry only missing/failed jobs with preserved inputs/seeds and an explicit attempt history, without duplicating good outputs. |
 | 7. Package and shared deployment | Implemented; JUPITER deployment pending | Installable package, mgpd CLI, optional ROOT validation, legacy wrapper, tested wheel and source distribution. |
-| 8. Add a thin MCP interface | **Next** | Wrap the same validated preparation, execution, status and result functions; no duplicated workflow implementation. |
+| 8. Add a thin MCP interface | **0.2 planned** | Wrap the same validated preparation, execution, status and result functions; no duplicated workflow implementation. |
 
 Cross-cutting work:
 
@@ -35,6 +35,111 @@ Cross-cutting work:
   for all weighted/filtered productions.
 - Avoid changing physics cards, broadening scans or introducing an agent
   framework as part of infrastructure refactors.
+
+## Version 0.2 plan: MCP interface
+
+Status: design only. Do not change the CLI, execution guards or physics defaults
+as part of the adapter. The user reported the latest merge tests passed on
+JUPITER; retain their reports as release evidence. The source version currently
+still says 0.1.0: reconcile the intended 0.1.1 release/tag before starting 0.2
+implementation; do not relabel an already deployed artifact silently.
+
+### Deployment and scope
+
+- Optional `mcp` extra and a proposed `mgpd mcp` entry point; importing or running
+  the core CLI must not require the SDK. Select and pin a released official SDK
+  major version during implementation. The current official SDK source requires
+  Python 3.11+, so use a separate 3.11+ MCP venv while preserving core Python 3.9.
+- Start with stdio, one server process per user. With a remote editor the process
+  runs directly on JUPITER; a desktop client can launch it through `ssh -T`.
+  The process inherits the user's filesystem and Condor identity, never root.
+  Keep protocol stdout clean; redirect workflow output and diagnostics to logs.
+- First supported clients are stdio-capable developer tools. Public HTTP hosting,
+  browser/ChatGPT remote connectors, shared service accounts and multiuser auth
+  are separate follow-up work, not prerequisites for a useful first release.
+- Configuration declares a workspace root. Relative paths resolve explicitly
+  from a selected project/base directory, never the server's incidental cwd.
+  Confine tool-managed paths and recovery links to configured workspace roots,
+  resolving symlinks. This is an application guard, not a sandbox for arbitrary
+  executable MG cards/models supplied by the same user.
+
+### Proposed tools
+
+| Tool | Core behavior | Effects |
+| --- | --- | --- |
+| `validate_config` | Validate a YAML configuration and its input paths | Read-only |
+| `prepare_production` | Freeze inputs, seeds, backend and plan | Creates a new production; never launches |
+| `inspect_production` | Return plan identity, samples, counts, image and attempt summary | Read-only |
+| `production_status` | Read recorded execution and Condor queue/history | Read-only |
+| `validate_results` | Run existing validation policies and sample summaries | Read-only |
+| `plan_recovery` | Explain eligible/preserved/blocked jobs | Read-only |
+| `prepare_recovery` | Clone explicitly selected eligible jobs into a child | Reserves ownership; never launches |
+| `start_execution` | Execute a reviewed saved plan through existing guards | Starts local work or submits Condor jobs |
+| `start_merge` | Run managed production-directory merging | Creates a new dataset/report; never submits |
+| `operation_status` | Observe a started execution/merge operation and bounded logs | Read-only |
+
+Return typed structured data, stable error codes, identifiers and concise
+summaries. Detailed existing validation/merge reports remain available by their
+workspace-relative paths. Cap logs and large job listings. Expose server/package
+capabilities and supported schema through a read-only resource or metadata tool.
+Avoid arbitrary shell, unrestricted file access, raw `condor_submit`, force reset,
+and automatic retry/cancellation tools in 0.2.
+
+### Execution and long operations
+
+- Preparation and execution stay distinct tools. A launch references production
+  identity plus the immutable plan checksum reviewed by the client; a changed
+  plan is rejected. The checksum binds intent to a plan, not user authorization.
+  Client-side approval controls the tool call; the server still enforces its own
+  configured write/execute capabilities, path constraints and existing guards.
+  MCP tool annotations describe effects but are not authorization enforcement.
+- Start operations return a persistent operation ID promptly, for both local
+  execution and potentially long validation/merging. Do not hold an MCP call for
+  an entire MadGraph run. Condor submission completion and physics-job completion
+  must remain distinct states.
+- Operation records/logs live in the user's workspace. Launch via argument arrays
+  with captured logs. Serialize starts per production; associate an operation
+  before launch, retain ambiguous outcomes and never auto-retry after disconnect.
+  Core manifests, locks and checksums remain authoritative for execution.
+- Define cancellation/disconnect semantics before coding: loss of the client
+  connection does not silently terminate submitted jobs or resubmit work. After
+  restart, reconcile durable records; absent terminal evidence remains unknown.
+  PID existence alone is insufficient proof of operation identity/completion.
+- Path handling must avoid a process-wide `chdir` in concurrent requests. Choose
+  an explicit base-directory API or isolated worker with a fixed cwd, preserving
+  CLI relative-path semantics. Test every supported input-source form.
+
+### Implementation sequence and acceptance
+
+1. **Adapter contract and environment.** Confirm the first client/runtime on
+   JUPITER; define schemas, workspace/base-directory rules, permission categories,
+   error mapping and optional SDK packaging. Add capability/version reporting.
+2. **Read-only vertical slice.** Implement inspection, status, config/result
+   validation and recovery planning. Real SDK client/server stdio tests must
+   cover negotiation, discovery, JSON schemas, errors and clean stdout; core
+   installs without MCP continue working.
+3. **Preparation tools.** Add frozen production/recovery preparation. Compare
+   CLI/API/MCP artifacts and manifests, including scans, seeded jobs, relative
+   cards, symlinks and no side effects during validation. No implicit execution.
+4. **Durable operations.** Implement execution, merge and operation observation.
+   Test duplicate/concurrent calls, stale plan checksums, failed/ambiguous submits,
+   disconnect/restart, long local jobs and merge failures without publishing data.
+   Tests must execute the real core paths, not fabricate successful adapter results.
+5. **JUPITER pilot and 0.2 release.** With a real MCP client, prepare two cheap
+   parton jobs, review and launch, reconnect, observe and validate, selectively
+   recover a disposable missing output, then merge exactly one attempt per job.
+   Also exercise local Apptainer and a multi-sample scan. Save protocol logs,
+   manifests, scheduler IDs and reports. Document installation/client config and
+   roll out a new versioned environment only after these checks pass.
+
+Out of scope: autonomous physics-card optimization, parameter-scan orchestration,
+shared HTTP service deployment, generic agent frameworks and new physics checks.
+These can be designed after the small single-user workflow is proven.
+
+Reference material checked for planning:
+- [Official Python SDK transport documentation](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/run/index.md)
+- [Official SDK Python requirement](https://github.com/modelcontextprotocol/python-sdk/blob/main/pyproject.toml)
+- [MCP tool annotation semantics](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-06-18/schema.mdx)
 
 ## Test coverage and remaining gaps
 
