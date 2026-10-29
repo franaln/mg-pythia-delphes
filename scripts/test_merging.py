@@ -153,6 +153,15 @@ def run_test(args, report):
     report['lhco_only_events'] = count
     if count != sum(lhco_counts):
         raise ValueError('LHCO-only conversion changed the event total')
+    # Also exercise the normal user-facing production directory interface.
+    merge([production], args.output / 'production-merged', 'merge-production')
+    managed = json.loads((args.output / 'production-merged/merge-report.json').read_text())
+    sample = managed['samples'][jobs[0]['sample']]
+    if (managed['partial'] or len(sample['jobs']) != 2
+            or sample['metrics'].get('lhe_events') != expected_lhe
+            or sample['metrics'].get('delphes_events') != expected_root):
+        raise ValueError('Production-directory merge report does not match the input production')
+    report['production_merge'] = managed
     report['state'] = 'passed'
 
 

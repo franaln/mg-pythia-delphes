@@ -223,6 +223,30 @@ It also tests LHCO-only merging through `lhco2root` and `root2lhco` separately.
 Use fresh output paths for every test. A passing report is live evidence only for
 the backend/image and input production actually exercised.
 
+## Production-directory merge checks
+
+The regression suite exercises real prepared plans and local/Condor artifact
+readers, with only external merge tools faked. It covers multi-sample separation,
+filtering, incomplete/unfinished jobs, explicit partial datasets, recovery chains,
+original-attempt preference, ownership/input corruption, per-file provenance,
+ROOT/LHE event totals and failure without publishing any samples.
+
+The live merger driver above now also invokes the production-directory interface
+and checks its report against input event totals, in addition to explicit-archive
+and LHCO-only paths. On an existing disposable validated production:
+
+```bash
+mgpd merge production/ --backend local-apptainer
+cat production/merged/merge-report.json
+```
+
+A single selected sample uses the output root; multiple selected samples use
+separate subdirectories. The report belongs to the entire selection. For a retry
+family, invoke this command on the original directory: only registered children
+with matching identities, exact job definitions and frozen inputs are accepted.
+Merging does not require a live scheduler query, but Condor attempts must have
+recorded successful exit evidence. Use fresh destinations when repeating tests.
+
 ## Live saved-execution and recovery test on JUPITER
 
 From the repository root, in an environment with the current package installed
@@ -294,7 +318,8 @@ original image, configuration and seeds.
 | `condor` | Parse IDs and query scheduler state |
 | `results` | Inspect artifacts and summarize validated results |
 | `recovery` | Plan/prepare/recheck parent-child recovery ownership |
-| `merging` | Merge selected output archives through container tools |
+| `merging` | Merge explicit output archives and dispatch merge CLI |
+| `production_merging` | Validate/select recovery attempts and merge per sample with provenance |
 | `cli` | Parse arguments and coordinate public operations |
 | `compat` | Historical script function/template exports |
 

@@ -267,8 +267,44 @@ Condor returns one `output_*.tar.gz` per job, plus scheduler stdout/stderr/logs.
 Local results are under each job's `RUN/Events/` directory. A successful command
 or submission does not itself validate the physics results.
 
-Merge explicitly selected archives from **one sample and distinct jobs** with
-an installed package (no checkout required):
+Merge a completed production directly, including any registered recoveries:
+
+```bash
+mgpd merge production/
+```
+
+For one sample, results go into `production/merged/`. For multiple samples (such
+as a parameter-card scan), each is merged separately under
+`production/merged/<sample>/`. No event data from different samples are combined.
+One valid original attempt is preferred per logical job; otherwise the first
+valid registered recovery descendant is selected. Only stopped attempts with
+valid requested outputs are used. Condor requires recorded successful job-exit
+evidence. Merging reads saved files and does not contact or submit to Condor.
+Use the original production directory so recovery-family selection is complete.
+
+Missing, invalid or unfinished jobs block merging by default. `--allow-partial`
+explicitly permits an incomplete dataset and records every omitted job. A
+`merge-report.json` records selected attempts, seeds, source-file checksums,
+validation metrics, output checksums and incompleteness. Existing output
+folders are never overwritten. The destination is published only after all
+selected sample merges succeed and the merged LHE/ROOT event totals are checked.
+
+Optional controls:
+
+```bash
+mgpd merge production/ --sample dielectron -o merged-dielectron/
+mgpd merge production/ --allow-partial --backend local-apptainer --image image.sif
+```
+
+Repeat `--sample` to select multiple samples. Selecting one sample writes its
+files directly into the output directory. Production merging validates inputs;
+install `[validation]` for productions requesting ROOT output. Input-validation
+policies `--event-count`, `--allow-nonpositive-cross-section` and `--skip-seed-check`
+are also available and are recorded in the report. Cross sections from replicas
+remain separate input measurements; merging does not certify physics normalization.
+
+For expert usage, explicitly selected archives from **one sample and distinct
+jobs** remain supported, with a required output path:
 
 ```bash
 mgpd merge output_sample_*.tar.gz -o output_merged.tar.gz \
@@ -277,20 +313,23 @@ mgpd merge output_sample_*.tar.gz -o output_merged.tar.gz \
 
 Use `--backend local-docker` outside JUPITER. If omitted, the backend defaults to
 Apptainer on hostname `jupiter` and Docker elsewhere; `--image` overrides the
-backend's default 3.5.6 image. LHE uses MadGraph's merge tool, ROOT uses `hadd`,
+backend's default 3.5.6 image. Production merging reuses the saved image when
+compatible with the selected backend. LHE uses MadGraph's merge tool, ROOT uses `hadd`,
 and LHCO uses Delphes conversion tools inside the container. The host does not
-need ROOT or the optional Python validation dependencies for merging.
+need ROOT itself. Explicit archive merging does not require Python validation
+dependencies; production-directory merging validates ROOT with uproot.
 
-An output ending in `.tar.gz` creates an archive; any other name creates a new
+For explicit archive inputs, an output ending in `.tar.gz` creates an archive;
+any other name creates a new directory. Production merging always creates a
 directory. Existing destinations are rejected. `--extract-lhe` decompresses
 merged LHE output; `--keep-all` retains extracted inputs under `all/` in either
 output format. Command failures stop the merge without publishing output.
 HepMC and pre-decay LHE files are not merged. Inputs must have the same supported
 output formats; unsupported auxiliary files are retained only with `--keep-all`.
 
-Validate jobs before merging. Select exactly one validated attempt per logical
-job across recovery productions; automatic recovery-family selection is not yet
-implemented. The archive interface cannot establish physics-sample compatibility
+For the explicit archive interface, validate jobs first and select exactly one
+validated attempt per logical job yourself. The archive interface cannot
+establish physics-sample compatibility
 or detect renamed duplicate attempts. Do not combine samples or interpret summed
 cross sections from replicas as a physical production cross section.
 

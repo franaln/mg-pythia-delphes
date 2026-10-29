@@ -1,5 +1,6 @@
 """Public Python API for the MadGraph/Pythia/Delphes workflow runner."""
 from .merging import merge_outputs
+from .production_merging import merge_production
 from ._version import __version__
 from .models import PreparedProduction
 from .config import load_config, validate_config, resolve_run_mode
@@ -13,6 +14,7 @@ from .recovery import plan_recovery, prepare_recovery
 __all__ = [
     '__version__',
     'merge_outputs',
+    'merge_production',
     'PreparedProduction',
     'load_config',
     'resolve_run_mode',

@@ -155,9 +155,14 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Merge output archives from one sample and distinct jobs')
-    parser.add_argument('inputs', nargs='+', help='Explicit job output archives (.tar.gz)')
-    parser.add_argument('-o', '--output', required=True, help='New output directory or .tar.gz archive')
+    parser = argparse.ArgumentParser(description='Merge a managed production directory or explicit job archives')
+    parser.add_argument('inputs', nargs='+', help='One production directory, or explicit job output archives (.tar.gz)')
+    parser.add_argument('-o', '--output', help='New output; default for a production: DIRECTORY/merged')
+    parser.add_argument('--sample', action='append', help='Select a production sample; repeat as needed')
+    parser.add_argument('--allow-partial', action='store_true', help='Explicitly permit omitted invalid/missing jobs')
+    parser.add_argument('--event-count', choices=['exact', 'nonempty', 'ignore'], default='exact')
+    parser.add_argument('--allow-nonpositive-cross-section', action='store_true')
+    parser.add_argument('--skip-seed-check', action='store_true')
     parser.add_argument('-e', '--extract-lhe', action='store_true')
     parser.add_argument('-k', '--keep-all', action='store_true', help='Retain extracted inputs under all/')
     parser.add_argument('--backend', choices=['local-docker', 'local-apptainer'],
@@ -165,8 +170,21 @@ def main(argv=None):
     parser.add_argument('--image', help='Override the container image/reference')
     args = parser.parse_args(argv)
     try:
-        result = merge_outputs(args.inputs, args.output, backend=args.backend, image=args.image,
-                               extract_lhe=args.extract_lhe, keep_all=args.keep_all)
+        if len(args.inputs) == 1 and Path(args.inputs[0]).is_dir():
+            from .production_merging import merge_production
+            result = merge_production(args.inputs[0], args.output, samples=args.sample,
+                                      allow_partial=args.allow_partial, backend=args.backend, image=args.image,
+                                      extract_lhe=args.extract_lhe, keep_all=args.keep_all,
+                                      event_count=args.event_count,
+                                      require_positive_cross_section=not args.allow_nonpositive_cross_section,
+                                      check_seed=not args.skip_seed_check)
+        else:
+            if not args.output:
+                parser.error('Explicit archive merging requires --output')
+            if args.sample or args.allow_partial or args.event_count != 'exact' or args.allow_nonpositive_cross_section or args.skip_seed_check:
+                parser.error('Sample selection, partial merging and validation policies require a production directory')
+            result = merge_outputs(args.inputs, args.output, backend=args.backend, image=args.image,
+                                   extract_lhe=args.extract_lhe, keep_all=args.keep_all)
     except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 1

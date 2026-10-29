@@ -20,10 +20,9 @@ this file when completing a stage or changing the plan.
 
 Cross-cutting work:
 
-- **Planned: recovery-aware merge selection.** Select exactly one validated
-  attempt per logical job across a production family. The packaged archive merge
-  interface requires users to select inputs explicitly; it cannot establish
-  sample compatibility or identify renamed duplicate attempts.
+- **Implemented: recovery-aware production merging.** `mgpd merge DIRECTORY`
+  selects one validated stopped attempt per logical job across registered
+  descendants and merges each sample separately. Live JUPITER check pending.
 
 - **Implemented: site-aware `local` alias.** Runner/YAML and example driver
   resolve through the hostname alone, preserving
@@ -83,6 +82,27 @@ commands and reports; keep pending live coverage explicit. Remaining extensions:
 - Live container/tool failures and Condor execution/recovery, using recorded reports.
 
 ## Changes implemented
+
+### Production-directory and recovery-aware merging
+
+- Added public `merge_production` and `mgpd merge DIRECTORY` with default
+  `DIRECTORY/merged`, optional sample filters/output/backend/image and explicit
+  partial-dataset policy. Expert archive merging retains its existing interface.
+- Traverses registered recovery descendants, validates ownership/identity/paths,
+  exact logical jobs/seeds and frozen inputs. Prefers the original valid stopped
+  attempt, otherwise the first valid descendant; unknown Condor exits are blocked.
+- Uses sample-wise snapshots, revalidation and checksums. Validates merged LHE and
+  ROOT event totals, stages all samples before publishing, never overwrites an
+  existing destination and preserves manifests and input outputs.
+- Reports selected/omitted jobs, attempt IDs, source locations, seeds, validation
+  policies/metrics, file hashes and outputs. HepMC/logs are explicitly not merged.
+- Validation: all 113 tests pass; wheel/source distributions build successfully,
+  and all 12 production-merge tests pass against the installed wheel outside the
+  checkout. No real container merges or scheduler jobs were launched.
+- Single selected sample writes at the output root; multiple samples get separate
+  folders. The live merge driver also checks this managed-directory interface.
+  Real container/JUPITER verification of the new path remains pending.
+
 
 ### Simplified local default and CLI spelling
 
@@ -607,9 +627,9 @@ fail. Check the original good artifacts remain unchanged. Do not remove real
 analysis outputs just to exercise this test. Real recovery has not been tested
 on JUPITER from this development session.
 
-Recovery does not merge a production family or replace the original summary.
-Dataset assembly must choose one validated attempt per logical job, combining
-original good jobs with validated child jobs without double-counting retries.
+Recovery commands do not replace the original validation summary.
+`mgpd merge ORIGINAL_DIRECTORY` assembles a dataset across registered descendants,
+selecting original good jobs or validated child attempts without double counting.
 
 ## Developer instructions
 
