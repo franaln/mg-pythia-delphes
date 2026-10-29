@@ -1,4 +1,4 @@
-include development.md
+exclude development.md
 include README-dev.md
 recursive-include tests *.py *.txt *.json *.dat *.mg5 *.sh
 recursive-include examples *.md *.yml *.yaml *.json *.dat *.mg5 *.sh *.sub *.tcl *.txt *.f
