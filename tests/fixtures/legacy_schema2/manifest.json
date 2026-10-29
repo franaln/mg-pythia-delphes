@@ -1,0 +1,53 @@
+{
+  "config": {
+    "cards": {
+      "run": "/nonexistent/legacy/run_card.dat"
+    },
+    "options": {
+      "seed": 101
+    },
+    "process": "generate p p > e+ e-",
+    "run": {
+      "image": "placeholder.sif",
+      "mode": "local-apptainer",
+      "name": "legacy",
+      "nevents": 2,
+      "outputs": [
+        "lhe"
+      ]
+    }
+  },
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "execution": {
+    "submit_file": null
+  },
+  "execution_input_sha256": {
+    "run_legacy/cards/run_card.dat": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "run_legacy/run.mg5": "2c009db6977529fce3aefb97861a32f98b98065b932dc20d4aca3df27121a1b2",
+    "run_legacy/run_mg_pythia_delphes.sh": "fca6710b8f8b623e9230597785bb3ee0798b8006fb658ad6130cf82bf55e67a3"
+  },
+  "image": "placeholder.sif",
+  "image_identity": "configured reference; not a verified immutable digest",
+  "jobs": [
+    {
+      "index": 0,
+      "job_id": "legacy_00000",
+      "nevents": 2,
+      "outputs": [
+        "lhe"
+      ],
+      "run_file": "run_legacy/run.mg5",
+      "sample": "legacy",
+      "seed": 101
+    }
+  ],
+  "mode": "local-apptainer",
+  "plan_sha256": "58381ab9c9f8033fef9da97bcd28c10ea4a9ef90c11c969d7bd89d7f768f8a38",
+  "prepared_input_sha256": {
+    "run_legacy/cards/run_card.dat": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "run_legacy/run.mg5": "2c009db6977529fce3aefb97861a32f98b98065b932dc20d4aca3df27121a1b2"
+  },
+  "production_id": "11111111111111111111111111111111",
+  "schema_version": 2,
+  "state": "prepared"
+}

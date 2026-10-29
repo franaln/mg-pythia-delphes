@@ -2,18 +2,15 @@
 """Exercise documented examples; real submission requires --execute and --example."""
 import argparse
 from collections import Counter
-import gzip
 import hashlib
 import importlib.util
 import json
-import math
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
 import time
 
 import yaml
@@ -59,109 +56,15 @@ def check_prepared(output, entry):
     return manifest
 
 
-def parse_job_ids(stdout):
-    """Parse condor_submit -terse's job-ID ranges, preserving submission order."""
-    result = []
-    for line in stdout.splitlines():
-        match = re.fullmatch(r'\s*(\d+)\.(\d+)(?:\s*-\s*(\d+)\.(\d+))?\s*', line)
-        if not match:
-            if line.strip():
-                raise ValueError(f'Unrecognized submit output; inspect submit.log: {line}')
-            continue
-        cluster, first = int(match[1]), int(match[2])
-        last = int(match[4]) if match[4] is not None else first
-        if match[3] is not None and int(match[3]) != cluster or last < first:
-            raise ValueError('Invalid job-ID range')
-        result.extend(f'{cluster}.{proc}' for proc in range(first, last + 1))
-    if not result or len(set(result)) != len(result):
-        raise ValueError('Missing or duplicate submitted job IDs; inspect submit.log')
-    return result
-
-
-def check_lhe(stream, job):
-    events, seed, init, in_init = 0, None, [], False
-    with gzip.GzipFile(fileobj=stream) as source:
-        for raw in source:
-            line = raw.decode('utf-8', errors='replace').strip()
-            events += bool(re.fullmatch(r'<event(?:\s[^>]*)?>', line))
-            match = re.match(r'(\d+)\s*=\s*iseed\b', line)
-            if match:
-                seed = int(match[1])
-            if line == '</init>':
-                in_init = False
-            elif in_init and line and not line.startswith('#'):
-                init.append(line)
-            elif line == '<init>':
-                in_init = True
-    if events != job['nevents']:
-        raise ValueError(f"Expected {job['nevents']} LHE events, found {events}")
-    if seed != job['seed']:
-        raise ValueError(f"LHE seed {seed} differs from planned seed {job['seed']}")
-    if not init:
-        raise ValueError('LHE init block is missing')
-    nprocess = int(init[0].split()[-1])
-    if nprocess < 1 or len(init) != nprocess + 1:
-        raise ValueError('Incomplete LHE cross-section block')
-    cross_section = sum(float(line.split()[0].replace('D', 'E').replace('d', 'e')) for line in init[1:])
-    if not math.isfinite(cross_section) or cross_section <= 0:
-        raise ValueError('Nonpositive/nonfinite cross section')
-    return {'lhe_events': events, 'seed': seed, 'cross_section_pb': cross_section}
-
-
-def inspect_outputs(files, job):
-    """files maps basenames to functions opening binary streams; never unpack tar paths."""
-    checks = {}
-    suffixes = {'lhe': '_unweighted_events.lhe.gz', 'root': '_delphes_events.root',
-                'hepmc': '_pythia8_events.hepmc.gz', 'lhco': '_delphes_events.lhco',
-                'log': '_logs.tar'}
-    for kind in job['outputs']:
-        if kind not in suffixes:
-            raise ValueError(f'Output validation not implemented for {kind}')
-        matches = [name for name in files if name.endswith(suffixes[kind])]
-        if len(matches) != 1:
-            raise ValueError(f'Expected one {kind} output, found {matches}')
-        with files[matches[0]]() as source:
-            if kind == 'lhe':
-                checks.update(check_lhe(source, job))
-            elif kind == 'root':
-                import uproot
-                with tempfile.TemporaryDirectory() as tmp:
-                    path = Path(tmp) / 'events.root'
-                    with path.open('wb') as target:
-                        shutil.copyfileobj(source, target)
-                    with uproot.open(path) as root:
-                        entries = root['Delphes'].num_entries
-                        if entries <= 0:
-                            raise ValueError('Delphes tree is empty')
-                        checks['delphes_events'] = entries
-            elif kind == 'hepmc':
-                with gzip.GzipFile(fileobj=source) as hepmc:
-                    if not hepmc.read(1024):
-                        raise ValueError('Empty HepMC output')
-            elif kind == 'log':
-                with tarfile.open(fileobj=source, mode='r:') as logs:
-                    checks['log_files'] = len(logs.getmembers())
-            elif not source.read(1):
-                raise ValueError(f'Empty {kind} output')
-    return checks
-
-
-def check_condor_job(output, job, scheduler_id):
-    cluster, process = scheduler_id.split('.')
-    stem = f"{job['sample']}_{cluster}_{process}"
-    log = output / f'job_{stem}.log'
-    if not re.search(r'Normal termination \(return value 0\)', log.read_text()):
-        raise ValueError(f'Job {scheduler_id} did not terminate normally with exit code zero')
-    archive_path = output / f'output_{stem}.tar.gz'
-    with tarfile.open(archive_path) as archive:
-        files = {}
-        for member in archive.getmembers():
-            if member.isfile():
-                name = Path(member.name).name
-                if name in files:
-                    raise ValueError(f'Duplicate output basename: {name}')
-                files[name] = lambda member=member: archive.extractfile(member)
-        return inspect_outputs(files, job)
+# Load the shared runner whether this file is executed or imported by tests.
+_runner_spec = importlib.util.spec_from_file_location('_example_workflow_runner', RUNNER)
+_runner = importlib.util.module_from_spec(_runner_spec)
+sys.modules[_runner_spec.name] = _runner
+_runner_spec.loader.exec_module(_runner)
+parse_lhe_init = _runner.parse_lhe_init
+check_lhe = _runner.check_lhe
+inspect_outputs = _runner.inspect_outputs
+check_condor_job = _runner.check_condor_job
 
 
 def run_command(command, cwd, log, timeout):
@@ -186,7 +89,7 @@ def run_example(entry, args, result):
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     production = work / 'production'
     command = [sys.executable, str(RUNNER), '-c', str(config_path), '-o', str(production),
-               '--run_mode', args.mode]
+               '--mode', args.mode]
     run_command(command + ['--validate-only'], directory, work / 'validate.log', 60)
     run_command(command + ['--dry-run'], directory, work / 'prepare.log', 120)
     manifest = check_prepared(production, entry)
@@ -196,30 +99,20 @@ def run_example(entry, args, result):
     if len(manifest['jobs']) > args.max_jobs:
         raise ValueError('Job count exceeds --max-jobs; nothing submitted')
     if args.mode != 'condor':
-        # Run the already prepared commands without rebuilding or changing seeds.
-        for job in manifest['jobs']:
-            run_dir = (production / job['run_file']).parent
-            inner = f'source /setup_mg_pythia_delphes.sh && cd /local && ./run_mg_pythia_delphes.sh {job["sample"]} unused'
-            if args.mode == 'local-docker':
-                command = ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', image, inner]
-            else:
-                command = ['apptainer', 'exec', '--bind', f'{run_dir}:/local', image, '/bin/bash', '-l', '-c', inner]
-            run_command(command, directory, work / f"{job['job_id']}.log", args.timeout)
-            events = run_dir / 'RUN/Events'
-            events = events / ('run_01_decayed_1' if (events / 'run_01_decayed_1').is_dir() else 'run_01')
-            files = {'local_' + path.name: lambda path=path: path.open('rb')
-                     for path in events.iterdir() if path.is_file()}
-            # Local mode keeps ordinary logs rather than the Condor logs tarball.
-            selected = dict(job, outputs=[kind for kind in job['outputs'] if kind != 'log'])
-            result.setdefault('checks', []).append(inspect_outputs(files, selected))
+        run_command([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+                    directory, work / 'execute.log', args.timeout)
+        result['validation'] = _runner.validate_production(production)
+        if result['validation']['state'] != 'valid':
+            raise ValueError('Production output validation failed; inspect report.json')
+        result['checks'] = [job['metrics'] for job in result['validation']['jobs']]
         result['state'] = 'passed'
         return
-    submission = next(production.glob('*.sub'))
-    submitted = subprocess.run(['condor_submit', '-terse', '-maxjobs', str(args.max_jobs), submission.name],
-                               cwd=production, capture_output=True, text=True, timeout=60)
+    submitted = subprocess.run([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+                               cwd=directory, capture_output=True, text=True, timeout=60)
     (work / 'submit.log').write_text(submitted.stdout + '\n' + submitted.stderr)
     submitted.check_returncode()
-    ids = parse_job_ids(submitted.stdout)
+    saved_submission = json.loads((production / 'manifest.json').read_text())['submission']
+    ids = [job['scheduler_id'] for job in saved_submission['jobs']]
     result['scheduler_ids'] = ids
     # Persist IDs immediately so interrupted tests can still be inspected/removed.
     (work / 'submitted_jobs.json').write_text(json.dumps(ids, indent=2) + '\n')
@@ -238,7 +131,12 @@ def run_example(entry, args, result):
         archive = production / f"output_{job['sample']}_{cluster}_{process}.tar.gz"
         while not archive.exists() and time.monotonic() < deadline:
             time.sleep(1)
-        result.setdefault('checks', []).append(check_condor_job(production, job, scheduler_id))
+        if _runner.result_execution_state(production, manifest, job, scheduler_id) != 'completed':
+            raise ValueError(f'Job {scheduler_id} did not terminate normally with exit code zero')
+    result['validation'] = _runner.validate_production(production)
+    if result['validation']['state'] != 'valid':
+        raise ValueError('Production output validation failed; inspect report.json')
+    result['checks'] = [job['metrics'] for job in result['validation']['jobs']]
     result['state'] = 'passed'
 
 
@@ -246,13 +144,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--example', action='append', help='Catalog name; repeat to select several')
-    parser.add_argument('--mode', choices=['condor', 'local-docker', 'local-apptainer'], default='condor')
+    parser.add_argument('--mode', choices=['condor', 'local', 'local-docker', 'local-apptainer'], default='local')
     parser.add_argument('--output', type=Path, help='New directory for reports, logs and productions')
     parser.add_argument('--execute', action='store_true', help='Actually run/submit the explicitly selected examples')
     parser.add_argument('--image', help='Override container image (Condor accepts runner-supported image names)')
     parser.add_argument('--events', type=int, default=100, help='Events per job for tests (default: 100)')
     parser.add_argument('--max-jobs', type=int, default=8, help='Maximum jobs per executed example')
-    parser.add_argument('--timeout', type=int, default=1800, help='Condor wait per example / local job timeout, seconds')
+    parser.add_argument('--timeout', type=int, default=1800, help='Wait/execution timeout per example, seconds')
     parser.add_argument('--remove-on-failure', action='store_true', help='Remove only recorded test job IDs on failure')
     args = parser.parse_args()
     entries = catalog()
@@ -271,6 +169,12 @@ def main():
         if unknown:
             parser.error(f'Unknown examples: {sorted(unknown)}')
         entries = [entry for entry in entries if entry['name'] in args.example]
+    requested_mode = args.mode
+    try:
+        from mgpd.config import resolve_run_mode
+        args.mode = resolve_run_mode(args.mode)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.execute:
         required = ['condor_submit', 'condor_wait'] if args.mode == 'condor' else [args.mode.removeprefix('local-')]
         if args.remove_on_failure and args.mode == 'condor':
@@ -287,7 +191,7 @@ def main():
     if args.output.exists():
         parser.error('--output must be a new directory; existing results are never overwritten')
     args.output.mkdir(parents=True)
-    report = {'mode': args.mode, 'execute': args.execute, 'results': []}
+    report = {'mode': args.mode, 'requested_mode': requested_mode, 'execute': args.execute, 'results': []}
     try:
         for entry in entries:
             result = {'example': entry['name']}

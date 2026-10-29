@@ -1,8 +1,7 @@
 # Executable examples
 
 Run the YAML runner from the example's directory: input paths are relative to
-that directory. The test driver handles this automatically and never edits the
-source examples.
+that directory. Use the installed `mgpd` command with the supplied YAML/cards.
 
 | Example | Purpose | Dependencies beyond the standard container |
 | --- | --- | --- |
@@ -17,122 +16,29 @@ source examples.
 | `example8_smoke_full` | Small SM sample, Pythia + Delphes + first-job HepMC | None |
 | `example9_smoke_madspin` | Small SM Z production, MadSpin decay to electrons, Pythia + Delphes | None |
 | `example10_shower_only` | Pythia without Delphes | None |
+| `example11_merge_smoke` | Two SM jobs with LHE, ROOT and LHCO for live merging checks | None |
 | `example_with_madspin` | Original loop-induced Higgs-pair production with MadSpin | Custom UFO model |
 | `example_hh_loop` | Original loop-induced Higgs-pair production | Custom UFO model |
 
-The five new SM examples request 100 events per job, two jobs per sample, one
+The SM smoke examples request 100 events per job, two jobs per sample, one
 core, and image version `3.5.6`. `example6_input_dirs` has two samples (four
 jobs total). The original physics examples retain their configurations and may
 be expensive even when the event count is reduced. In particular, the original
 Higgs examples import `SM_LQHH_MU2-LAM3-LAM1-LAM2`; preparation does not establish
 that this UFO model is installed in a selected container.
 
-## Preparation checks anywhere
+## Running an example
 
-From the repository root, with Python 3.9+ and PyYAML:
-
-```bash
-python3 scripts/test_examples.py --list
-python3 scripts/test_examples.py --output test-results/preparation-condor
-python3 scripts/test_examples.py --mode local-docker --output test-results/preparation-docker
-python3 scripts/test_examples.py --mode local-apptainer --output test-results/preparation-apptainer
-```
-
-These commands validate and prepare every catalogued YAML example, then check
-sample/job counts, distinct seeds, concrete seeded commands, checksums,
-packaged inputs and Bash syntax. They do not start containers or contact
-HTCondor. They exercise preparation, not MadGraph command syntax or physics.
-The test driver uses 100 events/job by default; `--events` overrides this.
-It retains the documented job counts.
-
-Outputs must go into a **new directory**. Each invocation saves `report.json`,
-per-example logs, a test configuration and the prepared production. Catalogued
-examples live in `catalog.json`; the regression suite checks that every YAML
-example is registered, so newly added examples cannot silently escape testing.
-
-## Real integration tests on JUPITER
-
-Use a host Python environment with PyYAML and, for ROOT checks, uproot:
+From the repository root, with the package installed:
 
 ```bash
-python3 -m venv .venv-tests
-.venv-tests/bin/python -m pip install -r tests/requirements.txt
+cd examples/example8_smoke_full
+mgpd -c config.yml -o production --mode condor --dry-run
+mgpd --execute-prepared production
 ```
 
-First test MadGraph and Condor without showering or detector simulation:
-
-```bash
-.venv-tests/bin/python scripts/test_examples.py \
-  --execute --mode condor --example example7_parton_only \
-  --output test-results/condor-parton-01 --timeout 1800
-```
-
-Then test the full chain:
-
-```bash
-.venv-tests/bin/python scripts/test_examples.py \
-  --execute --mode condor --example example8_smoke_full \
-  --output test-results/condor-full-01 --timeout 1800
-```
-
-`condor_submit` and `condor_wait` must be available in the submitting shell.
-The default SM container must exist on the workers as
-`/opt/images/mg-pythia-delphes-3.5.6.sif`. You can select another runner-supported
-image name with `--image mg-pythia-delphes-latest`.
-
-Add `--example example9_smoke_madspin` to also test the decayed output directory,
-or select any other catalogued example explicitly. Execution never defaults to
-all examples. `--max-jobs` defaults to 8 **per example**; this guard counts every
-sample, not just jobs per sample. Heavy examples require the relevant UFO model
-and may require a higher limit and timeout.
-
-The driver:
-
-1. Prepares and checks inputs before submitting the prepared `.sub` file.
-2. Records exact scheduler IDs immediately in `submitted_jobs.json` and saves
-   submission output in `submit.log`.
-3. Waits for each test job, with one overall Condor wait deadline per example.
-4. Checks normal termination with exit code zero and returned archives.
-5. Checks requested outputs: LHE event counts and actual seed, a positive finite
-   cross section, nonempty HepMC/LHCO, readable log archives, and a readable
-   nonempty Delphes tree for ROOT output.
-6. Writes the report and returns a nonzero exit code if any example fails.
-
-These are software/integrity checks, not a validation of cross sections against
-reference calculations or detector physics. The driver does not implement the
-`outputs: [all]` validation mode; select explicit output types for tests.
-
-Timed-out or failed jobs are **left in the queue by default** for diagnosis.
-Add `--remove-on-failure` to remove only the exact recorded test job IDs;
-`condor_rm` must then also be available. Check `submitted_jobs.json`,
-`submit.log`, and `condor_q` if submission itself was interrupted or its output
-could not be parsed: the driver cannot clean up IDs it did not obtain.
-
-## Real local container tests
-
-For example:
-
-```bash
-.venv-tests/bin/python scripts/test_examples.py \
-  --execute --mode local-docker --example example8_smoke_full \
-  --output test-results/docker-full-01
-```
-
-For local Docker the test driver translates catalogued image names to
-`franaln/mg-pythia-delphes:<version>`; for Apptainer it uses `/opt/images/*.sif`.
-`--image` can override the Docker reference or Apptainer path. Local jobs run
-sequentially, with `--timeout` applied to each job. Local mode validates the
-outputs that the runner creates; it does not synthesize Condor log archives or
-convert ROOT to LHCO. Existing LHCO-requesting examples can therefore expose a
-local-output feature gap. Prefer the new SM examples for initial local tests.
-
-## Automated regression suite
-
-```bash
-.venv-tests/bin/python -B -m unittest discover -s tests -v
-```
-
-This runs all YAML examples through preparation for all three backends, tests
-failure handling, and exercises the integration-test driver against a fake
-scheduler and generated LHE archives. It never submits real jobs. Successful
-mock tests do not establish that a real cluster/container run succeeds.
+For a local run on JUPITER, use `--mode local-apptainer` and set `run.image`
+to the installed Apptainer image path. Use `local-docker` on a Docker host.
+See the [user guide](../README.md) for configuration, status, validation,
+recovery and merging. Developer testing instructions are in
+[README-dev.md](../README-dev.md).

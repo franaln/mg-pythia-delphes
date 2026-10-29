@@ -1,0 +1,26 @@
+run:
+  name: smoke_merge
+  mode: condor
+  image: mg-pythia-delphes-3.5.6
+  nevents: 100
+  njobs: 2
+  outputs:
+  - lhe
+  - root
+  - lhco
+  - log
+process: 'import model sm
+
+  generate p p > e+ e-
+
+  '
+cards:
+  run: ../example1_process/run_card.dat
+  pythia: ../example1_process/pythia8_card.dat
+  delphes: ../example1_process/delphes_card_ATLAS.dat
+options:
+  seed: 1001
+  use_syst: false
+expert:
+  mode: single
+  ncores: 1

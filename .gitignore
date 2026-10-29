@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .venv-tests/
 test-results/
+build/
+dist/
+*.egg-info/
+.venv-dev/
+development.md

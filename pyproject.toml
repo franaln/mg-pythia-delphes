@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mg-pythia-delphes"
+dynamic = ["version"]
+description = "Reproducible MadGraph, Pythia and Delphes workflows with local containers and HTCondor"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["PyYAML>=6,<7"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.optional-dependencies]
+validation = ["uproot>=5,<6"]
+dev = ["build>=1,<2", "uproot>=5,<6"]
+
+[project.scripts]
+mgpd = "mgpd.cli:main"
+
+[project.urls]
+Repository = "https://github.com/franaln/mg-pythia-delphes"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "mgpd._version.__version__"}
