@@ -354,6 +354,6 @@ reference it from the run card, for example `user_cuts.f = custom_fcts`.
 ## Developer documentation
 
 Development setup, testing, releases and shared deployment are documented in
-[README-dev.md](README-dev.md). An optional read-only MCP adapter is being
+[README-dev.md](README-dev.md). An optional MCP adapter is being
 developed separately; see
 [the MCP adapter guide](packages/mg-pythia-delphes-mcp/README.md).

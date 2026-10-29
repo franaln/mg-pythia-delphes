@@ -1,4 +1,4 @@
-"""Workspace checks for read-only adapter operations (not an execution sandbox)."""
+"""Workspace checks for adapter operations (not an execution sandbox)."""
 import json
 from pathlib import Path
 
@@ -38,6 +38,40 @@ class Workspace:
         for value in values:
             for item in value.values() if isinstance(value, dict) else [value]:
                 self.path(item, base)
+
+    def new_output(self, value):
+        raw = Path(value)
+        raw = raw if raw.is_absolute() else self.root / raw
+        if raw.exists() or raw.is_symlink():
+            raise FileExistsError('Output already exists; choose a new directory')
+        output = self.path(raw)
+        if not output.parent.is_dir():
+            raise FileNotFoundError('Output parent directory must exist')
+        for parent in output.parents:
+            if (parent / 'manifest.json').exists():
+                raise ValueError('Output cannot be nested inside an existing production')
+            if parent == self.root:
+                break
+        return output
+
+    def preparation_inputs(self, config, base, output):
+        self.config_inputs(config, base)
+        if config.get('options', {}).get('user_cuts'):
+            self.path('user_cuts.f', base)
+        directories = list(config.get('input_dirs', {}).values())
+        if config.get('input_dir'):
+            directories.append(config['input_dir'])
+        def walk(path, ancestors):
+            resolved = self.path(path, base)
+            if resolved in ancestors:
+                raise ValueError('Cyclic input directory symlink')
+            if resolved.is_dir():
+                if output.is_relative_to(resolved):
+                    raise ValueError('Output cannot be nested inside an input directory')
+                for child in resolved.iterdir():
+                    walk(child, ancestors | {resolved})
+        for directory in directories:
+            walk(directory, set())
 
     def production(self, directory, seen=None):
         """Check mutable output paths and linked manifests before core reads them."""

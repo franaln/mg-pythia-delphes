@@ -1,28 +1,49 @@
 """One core API request per process; cwd and diagnostic output are isolated."""
 from contextlib import redirect_stdout
 import json
+from pathlib import Path
 import sys
 
 import mgpd
 import yaml
 from .paths import PathError, Workspace
 
-OPERATIONS = {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
+WRITE_OPERATIONS = {'prepare_production', 'prepare_recovery'}
+OPERATIONS = WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
 
 
 def error(code, message):
     return {'schema_version': 1, 'ok': False, 'error': {'code': code, 'message': str(message)[:2000]}}
 
 
+def prepared_summary(prepared, workspace, limit):
+    manifest = prepared.manifest
+    samples = sorted({job['sample'] for job in manifest['jobs']})
+    recovery = manifest.get('recovery')
+    if recovery:
+        recovery = {key: recovery[key] for key in
+                    ('parent_directory', 'parent_id', 'parent_plan_sha256', 'policy')}
+    return {'production_id': manifest['production_id'], 'plan_sha256': manifest['plan_sha256'],
+            'directory': str(Path(prepared.output_dir).relative_to(workspace.root)),
+            'state': manifest['state'], 'mode': manifest['mode'], 'image': manifest['image'],
+            'jobs': manifest['jobs'][:limit], 'jobs_total': len(manifest['jobs']),
+            'jobs_truncated': len(manifest['jobs']) > limit,
+            'samples': samples[:limit], 'samples_total': len(samples), 'samples_truncated': len(samples) > limit,
+            'submitted': False, 'review_required': True,
+            'recovery': recovery}
+
+
 def dispatch(request):
     workspace = Workspace(request['workspace'])
     operation = request['operation']
     if operation not in OPERATIONS:
-        raise ValueError('Unsupported read-only operation')
+        raise ValueError('Unsupported operation')
+    if operation in WRITE_OPERATIONS and not request.get('allow_prepare', False):
+        return error('PREPARATION_DISABLED', 'Server preparation capability is disabled')
     limit = request.get('limit', 100)
     if type(limit) is not int or not 1 <= limit <= 1000:
         raise ValueError('limit must be between 1 and 1000')
-    if operation == 'validate_config':
+    if operation in ('validate_config', 'prepare_production'):
         base = workspace.path(request.get('base_directory', '.'))
         if not base.is_dir():
             raise FileNotFoundError('Base directory does not exist')
@@ -34,6 +55,11 @@ def dispatch(request):
         os.chdir(base)  # This worker handles exactly one request, never concurrent calls.
         workspace.config_inputs(config, base)
         mgpd.validate_config(config)
+        if operation == 'prepare_production':
+            output = workspace.new_output(request['output'])
+            workspace.preparation_inputs(config, base, output)
+            prepared = mgpd.prepare_production(config, str(output))
+            return {'schema_version': 1, 'ok': True, 'data': prepared_summary(prepared, workspace, limit)}
         data = {'valid': True, 'config_path': str(path.relative_to(workspace.root)),
                 'base_directory': str(base.relative_to(workspace.root)),
                 'run': {key: value for key, value in config['run'].items()
@@ -41,6 +67,17 @@ def dispatch(request):
                 'resolved_mode': mgpd.resolve_run_mode(config['run'].get('mode', 'local'))}
     else:
         path = workspace.production(request['path'])
+        if operation == 'prepare_recovery':
+            output = workspace.new_output(request['output'])
+            job_ids = request.get('job_ids')
+            if (not isinstance(job_ids, list) or not job_ids or
+                    any(not isinstance(value, str) or not value for value in job_ids)):
+                raise ValueError('Select explicit nonempty job_ids')
+            policy = {'event_count': request.get('event_count', 'exact'),
+                      'require_positive_cross_section': request.get('require_positive_cross_section', True),
+                      'check_seed': request.get('check_seed', True)}
+            prepared = mgpd.prepare_recovery(str(path), str(output), job_ids=job_ids, **policy)
+            return {'schema_version': 1, 'ok': True, 'data': prepared_summary(prepared, workspace, limit)}
         if operation == 'inspect_production':
             prepared = mgpd.load_prepared_production(path)
             manifest = prepared.manifest
@@ -88,6 +125,8 @@ def main():
             result = dispatch(request)
     except PathError as exc:
         result = error('PATH_OUTSIDE_WORKSPACE', exc)
+    except FileExistsError as exc:
+        result = error('OUTPUT_EXISTS', exc)
     except FileNotFoundError as exc:
         result = error('NOT_FOUND', exc)
     except (ValueError, TypeError, KeyError, OSError, yaml.YAMLError) as exc:

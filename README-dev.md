@@ -424,9 +424,10 @@ python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
 Install both wheels into a clean MCP environment and repeat the adapter tests
 outside the checkout, ensuring subprocess workers import the installed wheels.
 The local `development.md` is explicitly excluded from source distributions.
-The adapter does not implement preparation, execution, asynchronous operations
-or merging tools yet; those are subsequent milestones. Before enabling writes,
-exercise this read-only server on existing JUPITER productions from a real client.
+The adapter implements read tools and opt-in production/recovery preparation.
+Execution, asynchronous operations and merging tools are subsequent milestones.
+The user has verified the read-only server on JUPITER through the desktop SSH
+connection; preparation now needs a pilot using disposable output directories.
 
 First-slice validation: the 113 core regressions pass on Python 3.9 without MCP.
 Real stdio tests pass on Python 3.12 with SDK 2.3.0, including installed core and
@@ -434,3 +435,17 @@ adapter wheels outside the checkout. Source archives were checked to exclude the
 local roadmap. No real Condor jobs were submitted and no JUPITER installation was
 modified. Use the adapter guide's `scripts/check_server.py` command to collect
 live JUPITER read-only evidence before enabling additional tools.
+
+Alpha 2 adds `--allow-prepare`: real stdio tests compare prepared local/Condor
+plans and param-card scans with core API output, exercise all complete-input
+source forms, reject recursive external symlinks/nested/existing outputs, race
+concurrent requests and validate recovery ownership with exact seeds/inputs.
+Fake physics/submission executables fail if invoked. Preparation timeouts return
+an unknown outcome rather than suggesting a safe retry; partial files/ownership
+must be inspected. Default startup remains read-only. See the adapter guide for
+the tested SSH configuration and the preparation opt-in.
+
+Alpha 2 validation: 15 MCP stdio tests pass, including the installed wheel outside
+the checkout, and all 113 independent core tests pass on Python 3.9. Wheel and
+source builds succeed. No real physics engines, scheduler submissions or shared
+JUPITER installations were used in this development session.
