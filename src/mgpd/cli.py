@@ -13,6 +13,7 @@ from .execution import execute_production, load_prepared_production
 from .condor import production_status
 from .results import validate_production
 from .recovery import plan_recovery, prepare_recovery
+from .merging import configure_parser
 
 MODES = ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']
 
@@ -31,8 +32,10 @@ def _policy(args):
 
 def _parser():
     parser = argparse.ArgumentParser(prog='mgpd', description='Create, prepare, execute and merge simulation projects')
+
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     commands = parser.add_subparsers(dest='command', required=True)
+
     create = commands.add_parser('create', help='Create editable YAML/cards from a template')
     create.add_argument('directory', nargs='?', help='New project directory')
     create.add_argument('--template', choices=sorted(TEMPLATES), default='parton')
@@ -43,6 +46,7 @@ def _parser():
     create.add_argument('--nevents', type=int, default=100, help='Events per job')
     create.add_argument('--njobs', type=int, default=1)
     create.add_argument('--seed', type=int, help='Fixed starting seed; default: RANDOM')
+
     for name, help_text in [('prepare', 'Freeze a project into a prepared production'),
                             ('run', 'Prepare and execute/submit a project')]:
         command = commands.add_parser(name, help=help_text)
@@ -51,20 +55,25 @@ def _parser():
         command.add_argument('--base-directory', help='Input path base; default: directory containing the YAML')
         command.add_argument('--mode', dest='run_mode', choices=MODES)
         command.add_argument('-f', '--force', action='store_true', help='Replace unexecuted preparation only; never reset attempts')
+
     execute = commands.add_parser('execute', help='Execute/submit an existing prepared production once')
     execute.add_argument('directory')
+
     status = commands.add_parser('status', help='Read execution state from local records or Condor')
     status.add_argument('directory')
     status.add_argument('--json', action='store_true', dest='json_output')
+
     config = commands.add_parser('validate-config', help='Check a project YAML and its input files without writing')
     config.add_argument('project', help='Project directory or YAML file')
     config.add_argument('--mode', dest='run_mode', choices=MODES)
     config.add_argument('--base-directory', help='Input path base; default: directory containing the YAML')
     config.add_argument('--json', action='store_true', dest='json_output')
+
     results = commands.add_parser('validate-results', help='Check completed outputs and summarize samples')
     results.add_argument('directory')
     results.add_argument('--json', action='store_true', dest='json_output')
     _policies(results)
+
     recover = commands.add_parser('recover', help='Plan recovery or prepare selected jobs in a new production; never execute')
     recover.add_argument('directory')
     recover.add_argument('--plan', action='store_true', help='Only report eligibility; never reserve or copy jobs')
@@ -72,8 +81,9 @@ def _parser():
     recover.add_argument('--job-id', action='append', help='Select an eligible job; repeat as needed (default: all eligible jobs)')
     recover.add_argument('--json', action='store_true', dest='json_output')
     _policies(recover)
-    from .merging import configure_parser
+
     configure_parser(commands.add_parser('merge', help='Merge validated outputs across original/recovery attempts'))
+
     return parser
 
 
@@ -110,12 +120,15 @@ def _print_results(report):
 
 
 def main(argv=None):
+
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments:
         _parser().print_help()
         return 0
+
     parser, args = parse_args(arguments)
     try:
+
         if args.command == 'create':
             if args.list_templates:
                 for template in list_config_templates():
@@ -126,6 +139,7 @@ def main(argv=None):
             print(f"Created {project['template']} project: {project['directory']}")
             print(f"Edit {project['config_path']} and cards/ before running.")
             return 0
+
         if args.command == 'validate-config':
             config = load_project_config(args.project, args.run_mode, args.base_directory)
             if args.json_output:
@@ -134,6 +148,7 @@ def main(argv=None):
             else:
                 print('Configuration is valid')
             return 0
+
         if args.command in ('prepare', 'run'):
             production = prepare_project(args.project, args.output, mode=args.run_mode, force=args.force,
                                          base_directory=args.base_directory)
@@ -141,9 +156,11 @@ def main(argv=None):
             if args.command == 'run':
                 execute_production(production)
             return 0
+
         if args.command == 'execute':
             execute_production(load_prepared_production(args.directory))
             return 0
+
         if args.command == 'status':
             status = production_status(args.directory)
             if args.json_output:
@@ -158,6 +175,7 @@ def main(argv=None):
                 for error in status['query_errors']:
                     print(f"Query error ({error['command']}): {error['error']}", file=sys.stderr)
             return int(bool(status['query_errors']))
+
         if args.command == 'validate-results':
             report = validate_production(args.directory, **_policy(args))
             if args.json_output:
@@ -165,6 +183,7 @@ def main(argv=None):
             else:
                 _print_results(report)
             return int(report['state'] != 'valid')
+
         if args.command == 'recover':
             if args.plan:
                 plan = plan_recovery(args.directory, **_policy(args))
@@ -182,9 +201,11 @@ def main(argv=None):
             else:
                 print(f'Recovery prepared: {child.output_dir}; review and use mgpd execute to launch')
             return 0
+
         if args.command == 'merge':
             from .merging import merge_from_args
             return merge_from_args(args, parser)
+
     except (OSError, ValueError, TypeError, yaml.YAMLError, subprocess.CalledProcessError) as exc:
         if args.command == 'validate-config' and args.json_output:
             print(json.dumps({'valid': False, 'config_path': args.project, 'errors': [str(exc)]}, indent=2))

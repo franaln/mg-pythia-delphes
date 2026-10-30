@@ -234,6 +234,7 @@ def prepare_sample_inputs(config, output_dir):
 
 def prepare_job_plan(config, output_dir, run_dirs, run_mode):
     """Assign concrete seeds and write exact per-job command files."""
+
     run_njobs = config['run'].get('njobs', 1)
     run_nevents = config['run'].get('nevents', 10_000)
     run_outputs = config['run'].get('outputs', ['lhe', 'lhco', 'log'])
@@ -357,13 +358,19 @@ def _prepare_production(config, output, force=False):
     Does not mutate config or change the process working directory. Relative
     inputs are resolved from the caller's cwd, matching the historical CLI.
     """
+
     validate_config(config)
+
     original_config = copy.deepcopy(config)
     config = copy.deepcopy(config)
+
     run_mode = resolve_run_mode(config['run'].get('mode', 'local'))
     config['run']['mode'] = run_mode
+
     image = resolve_container_image(config['run'], run_mode)
+
     output_dir = os.path.abspath(os.path.expanduser(output))
+
     print(f'- Using working/output dir: {output_dir}')
     if os.path.exists(output_dir):
         if not force:
@@ -371,8 +378,10 @@ def _prepare_production(config, output, force=False):
         print('Output dir already exists. Removing it.')
         shutil.rmtree(output_dir)
     os.mkdir(output_dir)
+
     run_dirs = prepare_sample_inputs(config, output_dir)
     jobs, local_dirs = prepare_job_plan(config, output_dir, run_dirs, run_mode)
+
     prepared_files = {}
     for path in sorted(Path(output_dir).rglob('*')):
         if path.is_file():
@@ -384,6 +393,7 @@ def _prepare_production(config, output, force=False):
                 'jobs': jobs, 'prepared_input_sha256': prepared_files}
     package_sample_inputs(output_dir, run_dirs, run_mode)
     prepare_wrappers(output_dir, local_dirs, run_mode, config['run'].get('outputs', ['lhe', 'lhco', 'log']))
+
     submit_file = None
     if run_mode in ('condor', 'jupiter'):
         submit_file = prepare_condor_submission(config, output_dir, image, jobs, manifest['production_id'])
@@ -393,14 +403,19 @@ def _prepare_production(config, output, force=False):
         for path in sorted(Path(output_dir).rglob('*')) if path.is_file()
     }
     manifest['plan_sha256'] = plan_sha256(manifest)
+
     write_manifest(output_dir, manifest)
+
     return PreparedProduction(output_dir, manifest, local_dirs, submit_file)
 
 
 def prepare_production(config, output, force=False):
     """Prepare a new plan; --force cannot erase an execution attempt."""
+
     output_dir = Path(output).expanduser().resolve()
+
     if output_dir.exists() and force:
+
         with execution_lock(output_dir):
             manifest_path = output_dir / 'manifest.json'
             if manifest_path.exists():
@@ -409,6 +424,7 @@ def prepare_production(config, output, force=False):
                     raise ValueError('Cannot overwrite a production with recovery ownership; use a new output directory')
                 if saved.get('execution_attempt') or saved.get('state') != 'prepared':
                     raise ValueError('Cannot overwrite an attempted production; use a new output directory')
-            return _prepare_production(config, str(output_dir), force=True)
-    return _prepare_production(config, str(output_dir), force=force)
 
+            return _prepare_production(config, str(output_dir), force=True)
+
+    return _prepare_production(config, str(output_dir), force=force)

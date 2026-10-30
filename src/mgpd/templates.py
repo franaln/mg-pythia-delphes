@@ -1,7 +1,5 @@
 """Generated MG, Bash and HTCondor templates."""
 
-
-
 template_run_mg = """# run.mg5
 
 # Config options
@@ -299,4 +297,3 @@ fi
 
 echo "Finished OK, $(date)"
 """
-

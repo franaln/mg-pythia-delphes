@@ -15,15 +15,22 @@ from .storage import execution_lock, file_sha256
 from .results import validate_production, result_files, inspect_outputs
 from .merging import merge_outputs, _decompress, DOCKER_IMAGE, APPTAINER_IMAGE
 
-SUFFIXES = {'lhe': '_unweighted_events.lhe.gz', 'root': '_delphes_events.root',
-            'lhco': '_delphes_events.lhco', 'hepmc': '_pythia8_events.hepmc.gz', 'log': '_logs.tar'}
+SUFFIXES = {
+    'lhe': '_unweighted_events.lhe.gz',
+    'root': '_delphes_events.root',
+    'lhco': '_delphes_events.lhco',
+    'hepmc': '_pythia8_events.hepmc.gz',
+    'log': '_logs.tar'
+}
 MERGEABLE = {'lhe', 'root', 'lhco'}
 
 
 def _verify_child(parent, child, registration):
+
     before, after = parent.manifest, child.manifest
     link = after.get('recovery', {})
     selected = registration['job_ids']
+
     if (after['production_id'] != registration['production_id']
             or Path(registration['directory']).resolve() != Path(child.output_dir)
             or link.get('parent_id') != before['production_id']
@@ -35,10 +42,12 @@ def _verify_child(parent, child, registration):
             or {job['job_id'] for job in after['jobs']} != set(selected)
             or after['image'] != before['image'] or after['mode'] != before['mode']):
         raise ValueError('Recovery identity/path/ownership does not match its parent')
+
     original = {job['job_id']: job for job in before['jobs']}
     for job in after['jobs']:
         if job != original.get(job['job_id']):
             raise ValueError('Recovery changed a logical job or its seed')
+
     # Child submit files are new; all other frozen execution inputs are clones.
     for name, digest in after['execution_input_sha256'].items():
         if name == after['execution']['submit_file']:
@@ -48,6 +57,7 @@ def _verify_child(parent, child, registration):
 
 
 def _family(directory, stack):
+
     family, seen_paths, seen_ids = [], set(), set()
 
     def visit(path, parent=None, registration=None):
@@ -96,9 +106,11 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
         raise ValueError('Production merging requires an output directory; use explicit archives for tar output')
     if not destination.parent.is_dir():
         raise ValueError('Output parent directory must exist')
+
     backend = resolve_run_mode(backend or 'local')
     if backend not in ('local-apptainer', 'local-docker'):
         raise ValueError('Merge backend must be local-apptainer or local-docker')
+
     with ExitStack() as stack:
         family = _family(root, stack)
         manifest = family[0].manifest
@@ -142,11 +154,14 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                                               'execution_state': entry[2]['execution_state'],
                                               'error': entry[2].get('error'),
                                               'outputs': entry[2]['outputs']} for entry in candidates]})
+
         if omitted and not allow_partial:
             raise ValueError('Missing/invalid or unfinished jobs: ' + ', '.join(row['job_id'] for row in omitted)
                              + '; inspect mgpd validate-results or use --allow-partial explicitly')
+
         if not chosen:
             raise ValueError('No validated stopped jobs are available for merging')
+
         report = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
                   'production_id': manifest['production_id'], 'production_directory': str(root),
                   'plan_sha256': manifest['plan_sha256'], 'backend': backend, 'image': image,
@@ -154,12 +169,14 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                   'selection_rule': 'original valid stopped attempt, then first valid registered descendant (parent-first)',
                   'family': [{'production_id': p.manifest['production_id'], 'directory': p.output_dir,
                               'plan_sha256': p.manifest['plan_sha256']} for p in family], 'samples': {}}
+
         for sample in selected_samples:
             entries = [entry for entry in chosen if entry[1]['sample'] == sample]
             if entries:
                 formats = set(entries[0][1]['outputs']) & MERGEABLE
                 if not formats or any(set(entry[1]['outputs']) & MERGEABLE != formats for entry in entries):
                     raise ValueError(f'No consistent mergeable LHE/ROOT/LHCO selection for sample {sample}')
+
         selection = []
         for production, job, row, _ in chosen:
             files_digest = {}
@@ -171,9 +188,11 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                         for block in iter(lambda: source.read(1024 * 1024), b''):
                             digest.update(block)
                     files_digest[name] = digest.hexdigest()
+
             selection.append({'job_id': job['job_id'], 'sample': job['sample'],
                               'seed': job['seed'], 'production_id': production.manifest['production_id'],
                               'directory': production.output_dir, 'files': files_digest})
+
         review = {'production_id': manifest['production_id'], 'plan_sha256': manifest['plan_sha256'],
                   'output': str(destination), 'backend': backend, 'image': image, 'policy': policy,
                   'allow_partial': allow_partial, 'extract_lhe': extract_lhe, 'keep_all': keep_all,
@@ -186,6 +205,7 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
         if preview:
             return {**review, 'selection_sha256': digest, 'partial': bool(omitted)}
         reviewed_files = {(entry['production_id'], entry['job_id']): entry['files'] for entry in selection}
+
         with tempfile.TemporaryDirectory(prefix='.mgpd-dataset-', dir=destination.parent) as temporary:
             work = Path(temporary)
             staged = work / 'result'
@@ -266,6 +286,7 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
             except BaseException:
                 shutil.rmtree(destination)
                 raise
+
         return str(destination)
 
 

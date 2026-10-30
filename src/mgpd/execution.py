@@ -30,6 +30,7 @@ def build_local_command(run_mode, image, sample, run_dir):
 
 def load_prepared_production(output_dir):
     """Load and verify a saved plan without its original YAML/cards or cwd."""
+
     output_dir = str(Path(output_dir).expanduser().resolve())
     manifest = read_production_manifest(output_dir)
     if manifest.get('schema_version') != 2:
@@ -126,4 +127,3 @@ def execute_production(production):
         production.manifest.clear()
         production.manifest.update(manifest)
         return manifest
-
