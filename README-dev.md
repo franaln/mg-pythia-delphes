@@ -167,7 +167,7 @@ python3 scripts/run_mg_pythia_delphes.py \
 
 Selective recovery can be tested separately on a disposable completed smoke
 production. Use `--plan-recovery`, then `--prepare-recovery` to a new directory;
-see [README.md](README.md#recover-selected-failed-or-missing-jobs). Recovery
+see [README.md](README.md#selective-recovery). Recovery
 is never enabled automatically by this test driver. The regression suite also
 covers the complete recovery CLI with a fake scheduler, without real jobs.
 
@@ -335,15 +335,14 @@ installs for the shared production environment.
 `python -m build` creates an sdist and builds the wheel from that sdist. Before
 releasing, install the wheel in a fresh environment and test outside the source
 checkout. Confirm core commands work without uproot, then install the validation
-extra and run all regressions. Check `mgpd --version`, `python -m mgpd`, and a
-copy of the legacy wrapper outside the repository. Package refactoring does not
+extra and run all regressions. Check `mgpd --version` and `python -m mgpd` outside the repository. Package refactoring does not
 require rebuilding existing schema-2 productions or resetting attempt guards.
 
 The example driver remains in the repository and runs with its Python
 interpreter's package version. Examples are not installed with the wheel;
-regular users supply their own YAML/cards. The legacy wrapper chooses an
-installed package over the source tree; use the intended environment explicitly
-when testing releases or current development.
+regular users supply their own YAML/cards. Use the intended environment
+explicitly when testing releases or current development. The examples driver
+uses `python -m mgpd`; the old standalone runner script has been removed.
 
 ## Shared JUPITER deployment
 
@@ -362,7 +361,7 @@ install a wheel already tested on JUPITER instead:
 
 ```bash
 python scripts/deploy_shared.py \
-  --wheel dist/mg_pythia_delphes-0.1.0-py3-none-any.whl \
+  --wheel dist/mg_pythia_delphes-0.2.0-py3-none-any.whl \
   --prefix /opt/venvs --bin-dir /opt/bin
 ```
 
@@ -389,30 +388,34 @@ versioned directory; change `mgpd-current` only after validation. Rollback point
 it back to the previous environment. Existing processes retain their interpreter
 and imported package; saved manifests, seeds and scheduler IDs stay in users'
 production directories. Do not remove old environments while processes use them.
-No shared environment was created or modified from this development session.
 
-## MCP adapter development (0.2.0)
+## MCP adapter development
 
-The adapter is a **separate distribution** under
-[packages/mg-pythia-delphes-mcp](packages/mg-pythia-delphes-mcp/README.md).
-It requires Python 3.11+; the core retains Python 3.9 support and no SDK dependency.
-Run from the repository root:
+The adapter is a separate distribution in `packages/mg-pythia-delphes-mcp`.
+Core supports Python 3.9 without the SDK; MCP requires Python 3.11+. For release
+0.2.0 the adapter requires core `>=0.2.0,<0.3` and SDK `>=2.3,<3`.
+User connection instructions and the end-to-end workflow are in the
+[adapter README](packages/mg-pythia-delphes-mcp/README.md).
+
+### Environment and automated tests
+
+From the repository root:
 
 ```bash
 python3.11 -m venv .venv-mcp
 source .venv-mcp/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[validation]' -e packages/mg-pythia-delphes-mcp build
-python -m unittest discover -s tests -v
 python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
 ```
 
-The adapter tests use the real SDK stdio client/server, core APIs, saved plans and
-LHE fixtures. Scheduler commands are faked; no jobs are submitted. Tests cover
-read-only parity, capabilities, pagination, invalid arguments, paths/symlinks,
-concurrent relative base directories, diagnostics, errors and timeouts. Running
-core tests alone does not test MCP. Core tests must also pass in a Python 3.9
-installation without the SDK.
+Tests use real SDK stdio transport, core APIs and file fixtures, with fake
+scheduler/container executables. Coverage includes preparation parity and seed
+preservation, workspace checks, recovery ownership, duplicate/concurrent
+requests, detached workers, reconnects, failed launches, killed workers, merge
+selection/checksums, partial merging, event totals and provenance. These tests
+never submit real jobs. Run the independent core suite in Python 3.9 without the
+MCP SDK as well; running core tests alone does not exercise the adapter.
 
 Build each distribution independently:
 
@@ -421,80 +424,204 @@ python -m build --outdir dist/core
 python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
 ```
 
-Install both wheels into a clean MCP environment and repeat the adapter tests
-outside the checkout, ensuring subprocess workers import the installed wheels.
-The local `development.md` is explicitly excluded from source distributions.
-The adapter implements read tools, opt-in production/recovery preparation and
-separately enabled detached Condor submission operations. Local production execution is not exposed; managed merging is separately enabled. The user has verified read-only tools and
-preparation on JUPITER through the desktop SSH connection, including no-overwrite
-behavior. Condor execution now needs the pilot described in the adapter guide.
+Install both wheels in a fresh Python 3.11+ environment and run tests from
+outside the checkout, so subprocesses import installed wheels:
 
-First-slice validation: the 113 core regressions pass on Python 3.9 without MCP.
-Real stdio tests pass on Python 3.12 with SDK 2.3.0, including installed core and
-adapter wheels outside the checkout. Source archives were checked to exclude the
-local roadmap. No real Condor jobs were submitted and no JUPITER installation was
-modified. Use the adapter guide's `scripts/check_server.py` command to collect
-live JUPITER read-only evidence before enabling additional tools.
+```bash
+python -m pip install 'dist/core/mg_pythia_delphes-0.2.0-py3-none-any.whl[validation]' \
+  dist/mcp/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl
+cd /tmp
+/absolute/path/to/test-env/bin/python -m unittest discover \
+  -s /absolute/path/to/repository/packages/mg-pythia-delphes-mcp/tests -v
+```
 
-Alpha 2 adds `--allow-prepare`: real stdio tests compare prepared local/Condor
-plans and param-card scans with core API output, exercise all complete-input
-source forms, reject recursive external symlinks/nested/existing outputs, race
-concurrent requests and validate recovery ownership with exact seeds/inputs.
-Fake physics/submission executables fail if invoked. Preparation timeouts return
-an unknown outcome rather than suggesting a safe retry; partial files/ownership
-must be inspected. Default startup remains read-only. See the adapter guide for
-the tested SSH configuration and the preparation opt-in.
+Check dependency consistency with `python -m pip check`, version metadata and
+wheel/source contents. The local `development.md` must remain untracked and
+excluded from source distributions.
 
-Alpha 2 validation: 15 MCP stdio tests pass, including the installed wheel outside
-the checkout, and all 113 independent core tests pass on Python 3.9. Wheel and
-source builds succeed. No real physics engines, scheduler submissions or shared
-JUPITER installations were used in this development session.
+### JUPITER connectivity and live workflow checks
 
+Run as the normal user with Condor access, never with sudo:
 
-Alpha 3 adds opt-in Condor execution (`--allow-execute`) and read-only
-`operation_status`. Tests use real MCP stdio and detached Python workers with
-fake scheduler executables: disconnect/reconnect, repeated and concurrent calls,
-checksum/path/backend checks, failed submissions and killed workers. Run the
-adapter suite above before the JUPITER pilot documented in the adapter README.
-Core stays 0.1.1. Local execution and MCP merging remain unavailable.
+```bash
+.venv-mcp/bin/python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
+  --workspace /home/USER/mg-pythia-delphes \
+  --production production > mcp-check.json
+```
 
-Alpha 3 validation: all 23 adapter tests pass against source and the installed
-wheel outside the checkout. Tests use fake Condor commands; live JUPITER
-submission remains to be validated. No core runtime code changed.
+This launches the installed server with a real SDK client, discovers tools and
+inspects an existing completed production. It does not submit work or modify
+production files. Omit `--production` for discovery only; add `--config` and
+`--base-directory` to validate YAML. Nonzero exit indicates tool/query errors or
+invalid, incomplete or unknown results. Preserve the JSON report for diagnosis.
 
+For the live workflow use a disposable parton-level example, then a full-chain
+example when needed. Follow the user guide's SSH workflow with all three action
+flags enabled and check:
 
-Alpha 4 adds core `plan_production_merge`, shared with the managed merge selector,
-and MCP `plan_merge`, opt-in `merge_production` (`--allow-merge`) and `merge_report`.
-Core development version is `0.1.2.dev0` and adapter is `0.2.0a4`; reinstall both
-in the dedicated MCP environment. Reviewed selections bind source byte hashes,
-recovery identity, options and output location. Detached merge operations reuse
-the operation locks, atomic records and bounded logs independently of submission.
-Tests cover original/recovery selection, partial policy, checksum changes,
-no-overwrite/path/backend guards, reconnect/repeated requests, provenance/event
-counts, and tool failures. No real container or Condor jobs run in these tests.
-The examples driver and regression tests now use the installed package/module
-entry point after removal of the legacy runner script.
+1. Preparation has the expected jobs/seeds/image, submits nothing and refuses
+   an existing output directory.
+2. Submission records scheduler IDs. Reconnect and recover the operation;
+   repeated requests must not submit again.
+3. Wait for tagged, successful completion and validate the outputs.
+4. After completion, withhold one disposable job output into a backup location.
+   Plan and prepare only that job; verify its seed/cards match, good outputs
+   remain unchanged and duplicate recovery ownership is refused. Submit and
+   validate the child. Restore the withheld output after the test.
+5. Plan merging from the original production. Verify one attempt per job,
+   sample separation and event totals. Reconnect while merging, repeat the
+   request and check the same operation ID and provenance report. Use a fresh
+   destination when previous tests already created `merged/`.
 
-Alpha 4 validation: 114 core tests pass on Python 3.9 without the MCP SDK;
-27 adapter tests pass against source and installed wheels outside the checkout.
-Both wheels build successfully. The JUPITER merge pilot is still pending.
+Keep manifests, scheduler IDs, operation logs and reports. Manual success
+validates the environment used, not every fault scenario. Do not withhold or
+remove actual analysis results just to exercise recovery.
 
+The 0.2.0 release passed 114 core regressions on Python 3.9 without MCP and 27
+adapter tests against installed wheels. The user also reported successful
+manual JUPITER preparation, execution, validation, recovery and merging tests.
 
-## Release 0.2.0
+### Shared MCP deployment on JUPITER
 
-Core and optional MCP adapter both use version 0.2.0. The adapter requires core
-`>=0.2.0,<0.3` for the reviewed merge API. Python requirements stay at 3.9 for
-core and 3.11 for MCP. Earlier alpha entries above describe historical checks.
-The user reported successful JUPITER manual tests of the entire Condor workflow,
-including selective recovery and merging. This supersedes earlier pilot-pending
-notes. Fault injection remains automated test evidence unless separately noted.
+Build and test wheels as a normal account. Install the tested core and adapter
+wheels together in a new, administrator-owned Python 3.11+ environment. The core
+`deploy_shared.py` helper installs the CLI distribution only; it does not deploy
+the MCP adapter. For example, with wheel files staged at `/path/to/wheels`:
 
-Build both wheels, install them together in the dedicated MCP environment and
-run the adapter tests outside the checkout. Run core regressions independently
-on Python 3.9 without the SDK. Shared stable environments must be deployed into a
-new versioned directory; never replace an environment used by running workers.
-The separate MCP guide documents SSH configuration and opt-in capability flags.
+```bash
+sudo /usr/bin/python3.11 -m venv /opt/venvs/mgpd-mcp-0.2.0
+sudo /opt/venvs/mgpd-mcp-0.2.0/bin/python -m pip install \
+  '/path/to/wheels/mg_pythia_delphes-0.2.0-py3-none-any.whl[validation]' \
+  /path/to/wheels/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl
+sudo /opt/venvs/mgpd-mcp-0.2.0/bin/python -m pip check
+/opt/venvs/mgpd-mcp-0.2.0/bin/mgpd-mcp --version
+```
 
-Release validation: 114 core tests pass on Python 3.9 without MCP; 27 adapter
-tests pass against the installed 0.2.0 wheels outside the checkout. Both final
-wheels build successfully and their runtime modules match the release sources.
+Adjust the Python path to the available interpreter. The new directory must not
+already exist. Never use editable installs or grant ordinary users write access
+to shared environments. Installation uses sudo; MCP servers and jobs run as each
+user. No shared daemon or HTTP service is needed: each SSH client starts its
+own stdio server with that user's workspace and Condor identity.
+
+After testing as a normal user, select the environment through a stable link:
+
+```bash
+sudo ln -s /opt/venvs/mgpd-mcp-0.2.0 /opt/venvs/mgpd-mcp-current.new
+sudo mv -Tf /opt/venvs/mgpd-mcp-current.new /opt/venvs/mgpd-mcp-current
+```
+
+Users point their SSH MCP command at
+`/opt/venvs/mgpd-mcp-current/bin/mgpd-mcp`; their workspace remains user-owned.
+Choose the allowed capabilities in the client arguments. Keep previous
+versioned environments for rollback and running workers. Rollback selects the
+previous target using the same link replacement. Reconnect clients after an
+upgrade; do not overwrite an environment used by existing servers/workers.
+
+SSH must support noninteractive authentication (`BatchMode=yes`), and shell
+startup must not print banners to stdout. Configure explicit SSH on the local
+client; do not combine the documented entry with
+`experimental_environment="remote"`. Ensure the remote noninteractive environment
+can find Condor, Apptainer and other required executables. Do not start a second
+server manually inside the SSH command's protocol stream.
+
+### Protocol and operation internals
+
+The `mgpd://capabilities` resource reports versions, workspace, enabled actions
+and timeout. Requests run in isolated core workers; their cwd and diagnostic
+stdout cannot interfere with the server. Diagnostics go to stderr; protocol
+stdout contains MCP messages only.
+
+Adapter responses contain matching text JSON and structured data:
+
+- Success: `{"schema_version":1,"ok":true,"data":{...}}`.
+- Failure: `{"schema_version":1,"ok":false,"error":{"code":"...","message":"..."}}`
+  with the MCP error flag. Scheduler query failures retain observations in `data`.
+- SDK argument-validation/unknown-tool failures use SDK-native errors.
+- Invalid output is an observation (`data.state="invalid"`), not a protocol error.
+
+Error codes include `PATH_OUTSIDE_WORKSPACE`, `NOT_FOUND`, `VALIDATION_ERROR`,
+`QUERY_FAILED`, `TOOL_TIMEOUT`, `WORKER_FAILED`, `OUTPUT_EXISTS`,
+`PREPARATION_UNKNOWN`, `EXECUTION_UNKNOWN` and `MERGE_UNKNOWN`. Listing `limit`
+is 1–1000, default 100. Totals/truncation flags bound returned lists, not the
+underlying validation work. Log pagination uses `log_offset`, `log_limit`
+(maximum 16000 bytes) and `log_next_offset`.
+
+`--timeout` defaults to 120 seconds. Read/preparation workers and subprocesses
+are killed on timeout/disconnection; interrupted preparation may leave partial
+files or recovery ownership. There is no automatic rollback/reset. Preparation
+can invoke system `tar`, but never engines or scheduler submission. Recursively
+checked inputs, output paths and registered parent/child paths must stay within
+the workspace. These path checks are not an execution sandbox or a Unix-user
+authorization boundary; physics cards/models remain user-supplied code.
+
+Submission and merge workers detach from the request and survive MCP/SSH
+shutdown. Submission reserves `.mgpd-mcp-operation/` in the production. Merge
+reserves `.mgpd-mcp-operation-merge-<output-hash>/`, independently per destination.
+Each reservation has atomic `operation.json`, `worker.lock` and `submission.log`
+(the filename is shared by both operation kinds). Submitted is not physics
+completion; completed merge means its output checks passed.
+
+A queued operation may appear unknown briefly before acquiring its lock.
+Interrupted workers, failed launches and ambiguous submissions remain unknown;
+inspect operation/production records and queue/history before taking action.
+An identical repeated request retrieves the existing reservation; it does not
+restart work. Partial reservations without metadata also block launch. There is
+no automatic retry/reset. Reboot, logout policies or administrative signals can
+kill workers; core attempt guards remain in effect.
+
+Merge checksums bind source bytes, recovery identity, selected jobs, omissions,
+options and destination. The worker revalidates under core locks and verifies
+copied bytes. Container failures do not publish staged results; interruption
+during final publication can leave a destination requiring inspection. Planning
+may read large ROOT/HepMC files: increase both server/client timeouts beforehand
+when needed.
+
+## Core workflow implementation notes
+
+Schema-2 execution verifies frozen inputs and the immutable plan checksum, then
+writes a durable attempt marker under a nonblocking POSIX lock before launching
+work. `--force` cannot reset attempts. Earlier manifests may be readable but
+cannot be safely executed without new preparation. Direct `condor_submit`
+bypasses the runner's guards. Container tags are recorded, not verified as
+immutable image digests.
+
+Condor status checks exact IDs in queue then history and verifies identity tags.
+Missing records or exit details remain unknown; successful execution requires
+normal exit with code zero. Query errors produce CLI exit code 1; job failures
+are observations in status data. Local status reports saved execution state.
+
+LHE validation reads the complete gzip stream and checks counts, seed, finite
+cross section and structure. ROOT validation requires uproot and a nonempty
+Delphes tree; it reads metadata rather than every event basket. HepMC validation
+checks gzip integrity and nonempty content, not physics. Known execution failure
+invalidates readable outputs; missing validation dependencies do not justify
+regeneration. Cross sections from replica jobs remain separate measurements.
+
+Recovery clones frozen inputs/seeds, records parent/child ownership and rechecks
+eligibility on execution. Terminal tagged Condor history is required; active,
+held, unknown or untagged jobs and query errors are blocked. Keep registered paths
+and parents available. Retry failed children from the child. There is no automatic
+owner reassignment/reset for deleted or ambiguous children, or a distributed
+exactly-once guarantee over manual scheduler actions.
+
+Managed merging verifies registered descendants and selects the original valid
+stopped attempt, otherwise the first valid descendant in parent-first order.
+It validates copied snapshots and merged LHE/ROOT event totals, stages all samples
+before publishing, and records provenance/omissions/hashes. Different samples
+stay separate. Explicit-archive merging cannot establish sample compatibility
+or detect renamed duplicates; users select distinct jobs themselves. MadGraph's
+merge tool, ROOT `hadd` and Delphes conversion execute in containers. HepMC and
+pre-decay LHE are not merged; unsupported auxiliary files require `--keep-all`.
+The host does not need ROOT, but managed ROOT validation requires uproot.
+
+For writable model additions, generate into the job working directory:
+
+```text
+import model sm-lepton_masses
+add model taudecay_UFO --output=./models_tmp
+import ./models_tmp-lepton_masses
+```
+
+For custom cuts, include `user_cuts.f` in the complete input directory and
+reference `user_cuts.f = custom_fcts` from the run card. `expert.ncores` controls
+MadGraph; automatic matching of Condor resource requests is not implemented.
