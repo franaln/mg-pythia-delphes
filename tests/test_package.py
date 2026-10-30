@@ -53,15 +53,12 @@ class PackageTests(unittest.TestCase):
         self.assertTrue(uproot)
         self.assertTrue(all('extra ==' in item for item in uproot))
 
-    def test_installed_commands_and_copied_legacy_wrapper_outside_checkout(self):
+    def test_installed_commands_outside_checkout(self):
         launcher = self.launcher()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            wrapper = root / 'run_mg_pythia_delphes.py'
-            shutil.copyfile(REPO / 'scripts/run_mg_pythia_delphes.py', wrapper)
             commands = [[launcher, '--version'], [launcher, '--help'],
-                        [sys.executable, '-m', 'mgpd', '--version'],
-                        [sys.executable, str(wrapper), '--version']]
+                        [sys.executable, '-m', 'mgpd', '--version']]
             env = dict(os.environ)
             env.pop('PYTHONPATH', None)
             for command in commands:
@@ -70,7 +67,7 @@ class PackageTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn(mgpd.__version__ if '--version' in command else '--execute-prepared', result.stdout)
 
-    def test_console_and_legacy_cli_prepare_identical_inputs(self):
+    def test_console_and_module_cli_prepare_identical_inputs(self):
         launcher = self.launcher()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -88,15 +85,15 @@ options:
   seed: 101
 ''')
             for command, output in [([launcher], 'console'),
-                                    ([sys.executable, str(REPO / 'scripts/run_mg_pythia_delphes.py')], 'legacy')]:
+                                    ([sys.executable, '-m', 'mgpd'], 'module')]:
                 result = subprocess.run(command + ['-c', 'config.yml', '-o', output, '--dry-run'],
                                         cwd=root, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
             def inputs(directory):
                 return {str(path.relative_to(directory)): path.read_bytes()
                         for path in directory.rglob('*') if path.is_file() and path.name != 'manifest.json'}
-            self.assertEqual(inputs(root / 'console'), inputs(root / 'legacy'))
-            for name in ('console', 'legacy'):
+            self.assertEqual(inputs(root / 'console'), inputs(root / 'module'))
+            for name in ('console', 'module'):
                 manifest = json.loads((root / name / 'manifest.json').read_text())
                 self.assertEqual(manifest['jobs'][0]['seed'], 101)
                 self.assertNotIn('execution_attempt', manifest)

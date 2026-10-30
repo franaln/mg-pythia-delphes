@@ -3,7 +3,6 @@
 import argparse
 from collections import Counter
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import re
@@ -17,7 +16,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO / 'examples'
-RUNNER = REPO / 'scripts/run_mg_pythia_delphes.py'
+RUNNER = 'mgpd'
 
 
 def catalog():
@@ -56,15 +55,8 @@ def check_prepared(output, entry):
     return manifest
 
 
-# Load the shared runner whether this file is executed or imported by tests.
-_runner_spec = importlib.util.spec_from_file_location('_example_workflow_runner', RUNNER)
-_runner = importlib.util.module_from_spec(_runner_spec)
-sys.modules[_runner_spec.name] = _runner
-_runner_spec.loader.exec_module(_runner)
-parse_lhe_init = _runner.parse_lhe_init
-check_lhe = _runner.check_lhe
-inspect_outputs = _runner.inspect_outputs
-check_condor_job = _runner.check_condor_job
+from mgpd.results import (parse_lhe_init, check_lhe, inspect_outputs, check_condor_job,
+                          validate_production, result_execution_state)
 
 
 def run_command(command, cwd, log, timeout):
@@ -88,7 +80,7 @@ def run_example(entry, args, result):
     config_path = work / 'test_config.yml'
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     production = work / 'production'
-    command = [sys.executable, str(RUNNER), '-c', str(config_path), '-o', str(production),
+    command = [sys.executable, '-m', RUNNER, '-c', str(config_path), '-o', str(production),
                '--mode', args.mode]
     run_command(command + ['--validate-only'], directory, work / 'validate.log', 60)
     run_command(command + ['--dry-run'], directory, work / 'prepare.log', 120)
@@ -99,15 +91,15 @@ def run_example(entry, args, result):
     if len(manifest['jobs']) > args.max_jobs:
         raise ValueError('Job count exceeds --max-jobs; nothing submitted')
     if args.mode != 'condor':
-        run_command([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+        run_command([sys.executable, '-m', RUNNER, '--execute-prepared', str(production)],
                     directory, work / 'execute.log', args.timeout)
-        result['validation'] = _runner.validate_production(production)
+        result['validation'] = validate_production(production)
         if result['validation']['state'] != 'valid':
             raise ValueError('Production output validation failed; inspect report.json')
         result['checks'] = [job['metrics'] for job in result['validation']['jobs']]
         result['state'] = 'passed'
         return
-    submitted = subprocess.run([sys.executable, str(RUNNER), '--execute-prepared', str(production)],
+    submitted = subprocess.run([sys.executable, '-m', RUNNER, '--execute-prepared', str(production)],
                                cwd=directory, capture_output=True, text=True, timeout=60)
     (work / 'submit.log').write_text(submitted.stdout + '\n' + submitted.stderr)
     submitted.check_returncode()
@@ -131,9 +123,9 @@ def run_example(entry, args, result):
         archive = production / f"output_{job['sample']}_{cluster}_{process}.tar.gz"
         while not archive.exists() and time.monotonic() < deadline:
             time.sleep(1)
-        if _runner.result_execution_state(production, manifest, job, scheduler_id) != 'completed':
+        if result_execution_state(production, manifest, job, scheduler_id) != 'completed':
             raise ValueError(f'Job {scheduler_id} did not terminate normally with exit code zero')
-    result['validation'] = _runner.validate_production(production)
+    result['validation'] = validate_production(production)
     if result['validation']['state'] != 'valid':
         raise ValueError('Production output validation failed; inspect report.json')
     result['checks'] = [job['metrics'] for job in result['validation']['jobs']]

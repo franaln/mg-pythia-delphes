@@ -1,6 +1,5 @@
 """Selective recovery using real prepared inputs and mocked scheduler evidence."""
 import gzip
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -12,10 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_mg_pythia_delphes.py'
-spec = importlib.util.spec_from_file_location('recovery_runner', SCRIPT)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+SCRIPT = 'mgpd'
+from mgpd import compat as runner
 from mgpd import recovery as recovery_module
 
 

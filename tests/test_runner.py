@@ -1,5 +1,4 @@
 """Regression checks that do not require physics software or a scheduler."""
-import importlib.util
 import copy
 import shutil
 import os
@@ -12,10 +11,8 @@ import unittest
 import yaml as yaml_lib
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_mg_pythia_delphes.py'
-spec = importlib.util.spec_from_file_location('runner', SCRIPT)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+SCRIPT = 'mgpd'
+from mgpd import compat as runner
 from mgpd import preparation as preparation_module
 
 

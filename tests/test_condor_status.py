@@ -1,5 +1,4 @@
 """Scheduler tracking tests with recorded ClassAds; no real Condor is contacted."""
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -7,10 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_mg_pythia_delphes.py'
-spec = importlib.util.spec_from_file_location('status_runner', SCRIPT)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+SCRIPT = 'mgpd'
+from mgpd import compat as runner
 
 
 class CondorStatusTests(unittest.TestCase):

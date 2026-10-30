@@ -20,17 +20,17 @@ Limit = Annotated[int, Field(ge=1, le=1000)]
 Policy = Literal['exact', 'nonempty', 'ignore']
 
 
-def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=False):
+def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=False, allow_merge=False):
     root = Workspace(workspace).root
     server = MCPServer('mg-pythia-delphes', version=__version__,
                        instructions='Workflow inspection and optional preparation tools. Paths are relative to the workspace. '
-                       'Execution is separately opt-in and supports prepared Condor plans only. '
+                       'Execution supports prepared Condor plans; merging is separately opt-in. '
                        'Review returned identity, checksum and jobs. Scheduler completion and valid outputs are separate.')
     annotations = ToolAnnotations(read_only_hint=True, destructive_hint=False,
                                   idempotent_hint=True, open_world_hint=False)
 
     async def call(operation, **parameters):
-        request = {'workspace': str(root), 'operation': operation, 'allow_prepare': allow_prepare, 'allow_execute': allow_execute, **parameters}
+        request = {'workspace': str(root), 'operation': operation, 'allow_prepare': allow_prepare, 'allow_execute': allow_execute, 'allow_merge': allow_merge, **parameters}
         process = await asyncio.create_subprocess_exec(
             sys.executable, '-m', 'mgpd_mcp.worker', cwd=root,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -54,16 +54,16 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
             await process.communicate()
             if isinstance(exc, asyncio.CancelledError):
                 raise
-            if operation == 'execute_production':
-                payload = error('EXECUTION_UNKNOWN', 'Submission operation may have started; inspect operation_status and production_status. Do not resubmit.')
+            if operation in ('execute_production', 'merge_production'):
+                payload = error('MERGE_UNKNOWN' if operation == 'merge_production' else 'EXECUTION_UNKNOWN', 'Operation may have started; inspect operation_status and production state. Do not retry automatically.')
                 payload['path'] = parameters.get('path')
             elif operation in WRITE_OPERATIONS:
                 payload = error('PREPARATION_UNKNOWN', 'Preparation timed out; inspect the output and parent manifest before retrying. No jobs were submitted.')
                 payload['output'] = parameters.get('output')
             else:
                 payload = error('TOOL_TIMEOUT', 'Read-only operation exceeded its time limit; no jobs were submitted')
-        if operation == 'execute_production' and payload.get('error', {}).get('code') == 'WORKER_FAILED':
-            payload = error('EXECUTION_UNKNOWN', 'Submission outcome is unknown; inspect operation_status and production_status. Do not resubmit.')
+        if operation in ('execute_production', 'merge_production') and payload.get('error', {}).get('code') == 'WORKER_FAILED':
+            payload = error('MERGE_UNKNOWN' if operation == 'merge_production' else 'EXECUTION_UNKNOWN', 'Operation outcome is unknown; inspect operation_status and production state. Do not retry automatically.')
         if operation in WRITE_OPERATIONS and payload.get('error', {}).get('code') == 'WORKER_FAILED':
             payload = error('PREPARATION_UNKNOWN', 'Worker outcome is unknown; inspect the output and parent manifest before retrying. No jobs were submitted.')
             payload['output'] = parameters.get('output')
@@ -74,9 +74,9 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
     def capabilities() -> str:
         return json.dumps({'adapter_version': __version__, 'core_version': mgpd.__version__,
                            'schema_version': 1, 'workspace': str(root), 'transport': 'stdio',
-                           'read_only': not (allow_prepare or allow_execute), 'preparation_enabled': allow_prepare, 'execution_enabled': allow_execute, 'timeout_seconds': timeout,
+                           'read_only': not (allow_prepare or allow_execute or allow_merge), 'preparation_enabled': allow_prepare, 'execution_enabled': allow_execute, 'merge_enabled': allow_merge, 'timeout_seconds': timeout,
                            'tools': ['validate_config', 'inspect_production', 'production_status',
-                                     'validate_results', 'plan_recovery', 'operation_status'] + (['prepare_production', 'prepare_recovery'] if allow_prepare else []) + (['execute_production'] if allow_execute else [])})
+                                     'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report'] + (['prepare_production', 'prepare_recovery'] if allow_prepare else []) + (['execute_production'] if allow_execute else []) + (['merge_production'] if allow_merge else [])})
 
     @server.tool(annotations=annotations, structured_output=False)
     async def validate_config(path: str, base_directory: str = '.') -> CallToolResult:
@@ -114,7 +114,7 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
     async def operation_status(path: str, operation_id: str,
                                log_offset: Annotated[int, Field(ge=0)] = 0,
                                log_limit: Annotated[int, Field(ge=1, le=16000)] = 4000) -> CallToolResult:
-        """Inspect a persistent submission operation and a bounded log page. Submitted is not physics completion. Never retries."""
+        """Inspect a persistent submission or merge operation and a bounded log page. Submitted is not physics completion. Never retries."""
         return await call('operation_status', path=path, operation_id=operation_id,
                           log_offset=log_offset, log_limit=log_limit)
 
@@ -126,6 +126,33 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
         async def execute_production(path: str, plan_sha256: str) -> CallToolResult:
             """Submit a reviewed prepared Condor plan once. Requires its exact checksum. Present jobs/seeds/image for user approval before calling. Returns a durable operation ID; poll operation_status and production_status. Never retry unknown submissions or treat submission as completion."""
             return await call('execute_production', path=path, plan_sha256=plan_sha256)
+
+    @server.tool(annotations=annotations, structured_output=False)
+    async def plan_merge(path: str, output: str | None = None, samples: list[str] | None = None,
+                         allow_partial: bool = False, backend: Literal['local', 'local-apptainer', 'local-docker'] = 'local',
+                         image: str | None = None, extract_lhe: bool = False, keep_all: bool = False,
+                         event_count: Policy = 'exact', require_positive_cross_section: bool = True,
+                         check_seed: bool = True, limit: Limit = 100) -> CallToolResult:
+        """Review exact validated job selection across recoveries, file hashes and merge checksum. No engines run. Default output is production/merged. Partial merging is explicit."""
+        return await call('plan_merge', **{key: value for key, value in locals().items() if key != 'call'})
+
+    @server.tool(annotations=annotations, structured_output=False)
+    async def merge_report(path: str, operation_id: str, limit: Limit = 100) -> CallToolResult:
+        """Read bounded provenance and metrics from a completed merge operation."""
+        return await call('merge_report', path=path, operation_id=operation_id, limit=limit)
+
+    if allow_merge:
+        merging = ToolAnnotations(read_only_hint=False, destructive_hint=False,
+                                  idempotent_hint=True, open_world_hint=True)
+
+        @server.tool(annotations=merging, structured_output=False)
+        async def merge_production(selection_sha256: str, path: str, output: str | None = None, samples: list[str] | None = None,
+                         allow_partial: bool = False, backend: Literal['local', 'local-apptainer', 'local-docker'] = 'local',
+                         image: str | None = None, extract_lhe: bool = False, keep_all: bool = False,
+                         event_count: Policy = 'exact', require_positive_cross_section: bool = True,
+                         check_seed: bool = True) -> CallToolResult:
+            """Merge the reviewed selection in a detached operation. Require plan_merge checksum and identical options. Review omissions before authorizing allow_partial. No overwrite, no automatic retry; inspect operation_status then merge_report."""
+            return await call('merge_production', **{key: value for key, value in locals().items() if key != 'call'})
 
     if allow_prepare:
         preparation = ToolAnnotations(read_only_hint=False, destructive_hint=False,
@@ -151,9 +178,10 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); preparation and Condor submission are separately opt-in')
+    parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); preparation, Condor submission and merging are separately opt-in')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--workspace', type=Path, required=True, help='Existing root for all tool-managed paths')
+    parser.add_argument('--allow-merge', action='store_true', help='Enable reviewed managed merges in detached workers')
     parser.add_argument('--allow-execute', action='store_true', help='Enable one-shot prepared Condor submission; jobs run as the SSH user')
     parser.add_argument('--allow-prepare', action='store_true', help='Enable preparation tools; never enables execution')
     parser.add_argument('--timeout', type=float, default=120, help='Maximum seconds per operation; interrupted preparation may leave partial files')
@@ -161,7 +189,7 @@ def main():
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
     try:
-        server = create_server(args.workspace, timeout=args.timeout, allow_prepare=args.allow_prepare, allow_execute=args.allow_execute)
+        server = create_server(args.workspace, timeout=args.timeout, allow_prepare=args.allow_prepare, allow_execute=args.allow_execute, allow_merge=args.allow_merge)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     server.run(transport='stdio')

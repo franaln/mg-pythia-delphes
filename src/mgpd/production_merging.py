@@ -2,6 +2,7 @@
 from contextlib import ExitStack
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import re
 import shutil
@@ -79,7 +80,8 @@ def _family(directory, stack):
 
 
 def merge_production(directory, output=None, *, samples=None, allow_partial=False,
-                     backend=None, image=None, extract_lhe=False, keep_all=False, **policy):
+                     backend=None, image=None, extract_lhe=False, keep_all=False,
+                     preview=False, selection_sha256=None, **policy):
     """Select the first validated stopped attempt per job, then merge per sample.
 
     Traverses only registered, verified descendants in parent-first order. It
@@ -152,6 +154,38 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                   'selection_rule': 'original valid stopped attempt, then first valid registered descendant (parent-first)',
                   'family': [{'production_id': p.manifest['production_id'], 'directory': p.output_dir,
                               'plan_sha256': p.manifest['plan_sha256']} for p in family], 'samples': {}}
+        for sample in selected_samples:
+            entries = [entry for entry in chosen if entry[1]['sample'] == sample]
+            if entries:
+                formats = set(entries[0][1]['outputs']) & MERGEABLE
+                if not formats or any(set(entry[1]['outputs']) & MERGEABLE != formats for entry in entries):
+                    raise ValueError(f'No consistent mergeable LHE/ROOT/LHCO selection for sample {sample}')
+        selection = []
+        for production, job, row, _ in chosen:
+            files_digest = {}
+            with result_files(production.output_dir, production.manifest, job,
+                              row['scheduler_id']) as (files, _, _):
+                for name, opener in sorted(files.items()):
+                    digest = hashlib.sha256()
+                    with opener() as source:
+                        for block in iter(lambda: source.read(1024 * 1024), b''):
+                            digest.update(block)
+                    files_digest[name] = digest.hexdigest()
+            selection.append({'job_id': job['job_id'], 'sample': job['sample'],
+                              'seed': job['seed'], 'production_id': production.manifest['production_id'],
+                              'directory': production.output_dir, 'files': files_digest})
+        review = {'production_id': manifest['production_id'], 'plan_sha256': manifest['plan_sha256'],
+                  'output': str(destination), 'backend': backend, 'image': image, 'policy': policy,
+                  'allow_partial': allow_partial, 'extract_lhe': extract_lhe, 'keep_all': keep_all,
+                  'samples': sorted(selected_samples), 'selection': selection,
+                  'omitted_job_ids': [job['job_id'] for job in omitted], 'family': report['family']}
+        digest = hashlib.sha256(json.dumps(review, sort_keys=True).encode()).hexdigest()
+        if selection_sha256 is not None and selection_sha256 != digest:
+            raise ValueError('Merge selection changed since review; plan the merge again')
+        report['selection_sha256'] = digest
+        if preview:
+            return {**review, 'selection_sha256': digest, 'partial': bool(omitted)}
+        reviewed_files = {(entry['production_id'], entry['job_id']): entry['files'] for entry in selection}
         with tempfile.TemporaryDirectory(prefix='.mgpd-dataset-', dir=destination.parent) as temporary:
             work = Path(temporary)
             staged = work / 'result'
@@ -183,6 +217,8 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                             with files[matches[0]]() as source, path.open('wb') as target:
                                 shutil.copyfileobj(source, target)
                             copied_kinds.append(kind)
+                            if file_sha256(path) != reviewed_files[(production.manifest['production_id'], job['job_id'])][matches[0]]:
+                                raise ValueError('Output changed since merge review')
                             files_report.append({'kind': kind, 'source_name': matches[0],
                                                  'sha256': file_sha256(path), 'bytes': path.stat().st_size})
                         # Revalidate the copied snapshot, not just mutable source files.
@@ -231,3 +267,11 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                 shutil.rmtree(destination)
                 raise
         return str(destination)
+
+
+def plan_production_merge(directory, output=None, **options):
+    """Validate and fingerprint the exact merge selection without invoking engines.
+
+    Acquires the same production locks as merging; no outputs are published.
+    """
+    return merge_production(directory, output, preview=True, **options)

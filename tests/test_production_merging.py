@@ -98,6 +98,23 @@ class ProductionMergingTests(unittest.TestCase):
             output = merge_production(directory, backend='local-apptainer', **kwargs)
         return Path(output), json.loads((Path(output) / 'merge-report.json').read_text())
 
+    def test_review_is_stable_and_changed_source_blocks_execution(self):
+        parent = self.fixture()
+        before = Path(parent.output_dir, 'manifest.json').read_bytes()
+        with patch('mgpd.production_merging.merge_outputs', side_effect=AssertionError('Planning must not run engines')):
+            review = mgpd.plan_production_merge(parent.output_dir, backend='local-apptainer')
+            again = mgpd.plan_production_merge(parent.output_dir, backend='local-apptainer')
+        self.assertEqual(review['selection_sha256'], again['selection_sha256'])
+        self.assertEqual(len(review['selection']), 2)
+        self.assertFalse(Path(parent.output_dir, 'merged').exists())
+        self.assertEqual(Path(parent.output_dir, 'manifest.json').read_bytes(), before)
+        output = self.native_output(parent, 0)
+        output.write_bytes(gzip.compress(gzip.decompress(output.read_bytes()).replace(b'10 0.1 1 1', b'11 0.1 1 1')))
+        with patch('mgpd.production_merging.merge_outputs', side_effect=AssertionError('Stale review must fail first')):
+            with self.assertRaisesRegex(ValueError, 'selection changed'):
+                mgpd.merge_production(parent.output_dir, backend='local-apptainer', selection_sha256=review['selection_sha256'])
+        self.assertFalse(Path(parent.output_dir, 'merged').exists())
+
     def test_local_and_condor_directories_merge_once_and_preserve_manifests(self):
         for mode in ('local-apptainer', 'condor'):
             with self.subTest(mode=mode):

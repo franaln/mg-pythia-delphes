@@ -148,7 +148,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
                     production = output / 'example7_parton_only/production'
                     before = (production / 'manifest.json').read_bytes()
                     env['MG_TEST_PRODUCTION'] = str(production)
-                    status = subprocess.run([sys.executable, '-B', str(driver.RUNNER), '--status',
+                    status = subprocess.run([sys.executable, '-B', '-m', str(driver.RUNNER), '--status',
                                              str(production), '--json'], env=env,
                                             capture_output=True, text=True)
                     self.assertEqual(status.returncode, 0, status.stderr)
@@ -171,7 +171,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
             (parent / f"output_{first['sample']}_123_0.tar.gz").unlink()
             good_path = parent / f"output_{good['sample']}_123_1.tar.gz"
             good_bytes = good_path.read_bytes()
-            command = [sys.executable, '-B', str(driver.RUNNER)]
+            command = [sys.executable, '-B', '-m', str(driver.RUNNER)]
             plan = subprocess.run(command + ['--plan-recovery', str(parent), '--json'],
                                   env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(plan.returncode, 0, plan.stderr)

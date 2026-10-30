@@ -425,8 +425,7 @@ Install both wheels into a clean MCP environment and repeat the adapter tests
 outside the checkout, ensuring subprocess workers import the installed wheels.
 The local `development.md` is explicitly excluded from source distributions.
 The adapter implements read tools, opt-in production/recovery preparation and
-separately enabled detached Condor submission operations. Local execution and
-merging tools are not exposed. The user has verified read-only tools and
+separately enabled detached Condor submission operations. Local production execution is not exposed; managed merging is separately enabled. The user has verified read-only tools and
 preparation on JUPITER through the desktop SSH connection, including no-overwrite
 behavior. Condor execution now needs the pilot described in the adapter guide.
 
@@ -462,3 +461,20 @@ Core stays 0.1.1. Local execution and MCP merging remain unavailable.
 Alpha 3 validation: all 23 adapter tests pass against source and the installed
 wheel outside the checkout. Tests use fake Condor commands; live JUPITER
 submission remains to be validated. No core runtime code changed.
+
+
+Alpha 4 adds core `plan_production_merge`, shared with the managed merge selector,
+and MCP `plan_merge`, opt-in `merge_production` (`--allow-merge`) and `merge_report`.
+Core development version is `0.1.2.dev0` and adapter is `0.2.0a4`; reinstall both
+in the dedicated MCP environment. Reviewed selections bind source byte hashes,
+recovery identity, options and output location. Detached merge operations reuse
+the operation locks, atomic records and bounded logs independently of submission.
+Tests cover original/recovery selection, partial policy, checksum changes,
+no-overwrite/path/backend guards, reconnect/repeated requests, provenance/event
+counts, and tool failures. No real container or Condor jobs run in these tests.
+The examples driver and regression tests now use the installed package/module
+entry point after removal of the legacy runner script.
+
+Alpha 4 validation: 114 core tests pass on Python 3.9 without the MCP SDK;
+27 adapter tests pass against source and installed wheels outside the checkout.
+Both wheels build successfully. The JUPITER merge pilot is still pending.

@@ -4,7 +4,7 @@ Separate, optional MCP adapter for `mg-pythia-delphes`. By default it is
 **read-only**: inspect existing work, validate configurations/results, observe
 Condor and plan recovery. An explicit startup option also enables preparation
 of productions/recoveries. A separate option enables submission of prepared
-Condor productions. Local execution and merging are not exposed.
+Condor productions. Managed merging is separately enabled; local production execution is not exposed.
 The core CLI remains independent and supports Python 3.9; this adapter requires
 Python 3.11+ and uses the official MCP Python SDK 2.x.
 
@@ -22,7 +22,7 @@ mgpd-mcp --version
 
 This installs both distributions into the MCP environment. It does not alter the
 shared `mgpd-current` installation. The declared core compatibility range is
-`>=0.1.1,<0.2`; the adapter's development version is `0.2.0a3`.
+`>=0.1.2.dev0,<0.2`; the adapter's development version is `0.2.0a4`.
 
 ## Connect a stdio client
 
@@ -64,7 +64,10 @@ HTTP listener, shared daemon, root account or model-provider API key is required
 | `prepare_production` | Opt-in: freeze existing YAML into a new production |
 | `prepare_recovery` | Opt-in: reserve and clone explicitly selected eligible jobs |
 | `execute_production` | Opt-in: submit a reviewed prepared Condor plan once |
-| `operation_status` | Inspect a persistent submission operation and paginated logs |
+| `operation_status` | Inspect a persistent submission/merge operation and paginated logs |
+| `plan_merge` | Validate and fingerprint original/recovery job selection without engines |
+| `merge_production` | Opt-in: merge the reviewed selection in a detached worker |
+| `merge_report` | Read bounded provenance and output metrics |
 
 `mgpd://capabilities` reports adapter/core versions, workspace, timeout and tools.
 Paths are relative to the configured workspace; absolute paths inside it are
@@ -175,7 +178,7 @@ operations still need a JUPITER pilot with disposable outputs.
 After validating preparation, add `--allow-execute` to the existing SSH server
 arguments and reconnect. This capability is independent of `--allow-prepare`.
 Run the server as your normal account; it submits with that account's Condor
-credentials and environment. Core remains version 0.1.1.
+credentials and environment. The merge planning API requires the development core 0.1.2.dev0; reinstall both packages in the MCP environment.
 
 First inspect the production and review jobs, seeds, image and output location.
 Then authorize submission and call:
@@ -254,3 +257,62 @@ completed production. It never submits jobs or writes production files. Omit
 query errors or invalid/incomplete/unknown results cause a nonzero exit status.
 Run as the same user with scheduler access, not with sudo. A successful check is
 live evidence only for the workspace, scheduler and environment actually tested.
+
+
+## Managed merging (alpha 4)
+
+Update both editable installations in the dedicated MCP environment:
+
+```bash
+.venv-mcp/bin/python -m pip install -e '.[validation]' -e packages/mg-pythia-delphes-mcp
+```
+
+This uses development core `0.1.2.dev0` and adapter `0.2.0a4`; the shared stable
+installation is unaffected. Add `--allow-merge` to the SSH server arguments and
+reconnect. Preparation and Condor submission permissions are independent.
+
+1. Call `plan_merge(path="production")`. The backend defaults to `local`, which
+   selects Apptainer on JUPITER. The default output is `production/merged`.
+2. Review `selection`, `samples`, `omitted_job_ids`, backend/image and
+   `selection_sha256`. Planning uses the core merge selector, validates the
+   registered recovery family and fingerprints source bytes; it runs no engines.
+   It acquires existing production locks but does not change manifests.
+3. Call `merge_production` with that `selection_sha256` and the **same options**.
+4. Record the operation ID. Poll `operation_status(path, operation_id)`, including
+   after reconnecting. `completed` means the merge and its output checks passed.
+5. Call `merge_report(path, operation_id, limit=100)` for bounded provenance,
+   event totals, output hashes and omissions. The complete report remains in
+   `merged/merge-report.json`.
+
+Optional arguments shared by planning/execution: `output` (workspace-relative),
+`samples` (nonempty list, otherwise all), `allow_partial` (default false),
+`backend`, `image`, `extract_lhe`, `keep_all`, and the standard result validation
+policies. Different samples are merged separately. The core chooses one valid
+stopped attempt per logical job, preferring the original then registered
+recoveries; jobs are never counted twice. Default merging rejects missing,
+invalid or unfinished jobs. Partial merging requires explicit authorization and
+records every omission. Planning/report responses use `limit` with totals and
+truncation flags; all selected jobs still contribute to the checksum.
+
+A changed source, recovery family, policy or output location invalidates the
+review checksum. The worker rechecks selection under core locks and verifies
+copied bytes before merging. Existing destinations are refused. Container/tool
+failures are not retried automatically and staged results are not published.
+An interruption during final publication can leave output files: inspect them.
+
+Merge operations use `.mgpd-mcp-operation-merge-<output-hash>/` beside the
+production, independently of the submission reservation. Repeating an identical
+request retrieves its existing operation, even after completion. A different
+request for a reserved destination is rejected; choose a fresh destination and
+review again for an intentional new merge. The worker log retains the shared
+operation filename `submission.log`. Unknown outcomes require inspection of the
+operation, log and destination. There is no reset/cancellation tool.
+
+Planning and fingerprints can read large ROOT/HepMC files; increase server/client
+timeouts if needed. A planning timeout has no merge side effect. A merge-start
+`MERGE_UNKNOWN` response means the detached worker may already be active.
+
+JUPITER pilot: plan and merge the small production with its successful recovery,
+reconnect while merging, verify repeated requests return the same operation ID,
+and check report provenance and total events against one valid attempt per job.
+Use a fresh destination when earlier CLI tests already created `merged/`.

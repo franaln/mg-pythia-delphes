@@ -12,10 +12,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/run_mg_pythia_delphes.py'
-spec = importlib.util.spec_from_file_location('results_runner', SCRIPT)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+SCRIPT = 'mgpd'
+from mgpd import compat as runner
 
 
 def lhe(events=2, seed=101, cross=10, closed=True):

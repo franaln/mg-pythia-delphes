@@ -9,7 +9,7 @@ import yaml
 from .paths import PathError, Workspace
 
 WRITE_OPERATIONS = {'prepare_production', 'prepare_recovery'}
-OPERATIONS = {'execute_production', 'operation_status'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
+OPERATIONS = {'execute_production', 'operation_status', 'plan_merge', 'merge_production', 'merge_report'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
 
 
 def error(code, message):
@@ -40,6 +40,25 @@ def dispatch(request):
         raise ValueError('Unsupported operation')
     if operation in WRITE_OPERATIONS and not request.get('allow_prepare', False):
         return error('PREPARATION_DISABLED', 'Server preparation capability is disabled')
+    if operation in ('plan_merge', 'merge_production', 'merge_report'):
+        from . import merge_tools, operations
+        limit = request.get('limit', 100)
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError('Invalid limit')
+        if operation == 'merge_report':
+            data = merge_tools.report(workspace, request['path'], request['operation_id'], limit)
+        else:
+            options = {key: request[key] for key in ('output', 'samples', 'allow_partial', 'backend', 'image',
+                       'extract_lhe', 'keep_all', 'event_count', 'require_positive_cross_section', 'check_seed') if key in request}
+            if options.get('samples') == []:
+                raise ValueError('Sample selection must be nonempty or omitted')
+            if operation == 'merge_production':
+                if not request.get('allow_merge', False):
+                    return error('MERGE_DISABLED', 'Server merge capability is disabled')
+                data = operations.start_merge(workspace, request['path'], request['selection_sha256'], options)
+            else:
+                data = merge_tools.plan(workspace, request['path'], options, limit)
+        return {'schema_version': 1, 'ok': True, 'data': data}
     if operation in ('execute_production', 'operation_status'):
         from . import operations
         if operation == 'execute_production':
