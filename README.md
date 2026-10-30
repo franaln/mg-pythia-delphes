@@ -1,4 +1,4 @@
-# mg-pythia-delphes
+# mgpd: mg-pythia-delphes
 
 Run MadGraph, optionally MadSpin, Pythia8 and Delphes from a YAML configuration,
 locally with Docker/Apptainer or through HTCondor.
@@ -26,16 +26,8 @@ install MadGraph, container engines or HTCondor: those remain in the existing
 containers/system setup. This package is not published to PyPI; install from the
 checkout or a built wheel.
 
-On JUPITER, administrators can provide a versioned shared environment instead of
-one environment per user. Users can run its `bin/mgpd` directly or add that `bin`
-to PATH. See [shared deployment](README-dev.md#shared-jupiter-deployment) for
-administrator setup and rollback. Workers do not need this Python package;
-submitted jobs still run the prepared Bash wrapper in Apptainer.
+On JUPITER, the package is installed and you can directly run mgpd command from anywhere.
 
-The legacy `python scripts/run_mg_pythia_delphes.py ...` command still works with
-identical arguments and historical function exports. It uses the installed
-package when available, with a source-checkout fallback. A copied standalone
-wrapper requires the package installed in its Python environment.
 
 ## Quick start
 
@@ -43,8 +35,7 @@ With the environment active, use the checkout's small full-chain example:
 
 ```bash
 cd examples/example8_smoke_full
-mgpd \
-  -c config.yml -o output_test --mode condor --dry-run
+mgpd -c config.yml -o output_test --mode condor --dry-run
 ```
 
 Review `output_test/manifest.json` and the generated inputs, then submit them:
@@ -105,8 +96,6 @@ Add `cards.pythia` and `cards.delphes` to enable those stages, and
 `cards.madspin` for decays. The param card is optional. For ROOT/LHCO output,
 provide a Delphes configuration. `hepmc0` retains HepMC only from the first job
 of each sample in Condor mode. Local mode retains program outputs directly.
-`expert.ncores` configures MadGraph; automatic matching of HTCondor resource
-requests to it is not implemented yet.
 
 Use `--mode local` (or YAML `run.mode: local`) to select a local backend:
 
@@ -115,15 +104,14 @@ mgpd -c config.yml -o production --mode local --dry-run
 ```
 
 `local` is the default when neither YAML nor the CLI specifies a mode. It selects
-Apptainer on hostname `jupiter` (including its fully qualified hostname), and
+Apptainer on hostname `jupiter`, and
 Docker elsewhere. Explicit `local-apptainer`, `local-docker` and `condor` choices
-are preserved. There are no site environment settings or container-engine probes.
+are preserved.
 Choose an image appropriate for the selected backend in the YAML; the alias does
 not convert Docker image references into Apptainer paths.
 
 Preparation saves the concrete backend. `--execute-prepared` and recovery keep
-that backend even if the hostname later changes. The `jupiter` mode alias still
-means Condor.
+that backend even if the hostname later changes.
 
 Other supported input styles are external `cards.proc`, a mapping of parameter
 cards under `cards.param`, `input_files`, `input_dir`, and a mapping of named
@@ -154,9 +142,6 @@ A failed or ambiguous Condor submission can still have queued jobs: inspect
 deciding what to do. Recovery requires explicit planning and execution as described below. Directly
 calling `condor_submit` bypasses the runner's duplicate guard.
 
-The guarded execution command requires a newly prepared schema-2 manifest.
-Older productions remain readable, but must be prepared again in a **new
-output directory** to use this command; do not regenerate already-running jobs.
 
 ## Check production status
 
@@ -199,8 +184,7 @@ cross section, and complete file/event closing tags. Different productions can
 choose explicit policies:
 
 ```bash
-mgpd --validate-results production \
-  --event-count nonempty --allow-nonpositive-cross-section --json
+mgpd --validate-results production --event-count nonempty --allow-nonpositive-cross-section --json
 ```
 
 `--event-count` accepts `exact` (default), `nonempty` or `ignore`.
@@ -254,7 +238,7 @@ original again. No original jobs are cancelled or released by these commands.
 Retry summaries cover child jobs only; use one validated attempt per logical
 job when combining datasets.
 
-## Seeds and outputs
+## Seeds
 
 A positive `options.seed` starts a deterministic sequence across all jobs and
 samples. `0`, `RANDOM`, or an omitted seed chooses a starting point during
@@ -262,6 +246,8 @@ preparation. Seeds are distinct within each production (range 1–30080), not
 across separate productions. Independent Pythia/Delphes seed settings are not
 overridden. A fixed container tag is recorded but not verified as an immutable
 image digest.
+
+## Outputs and merging
 
 Condor returns one `output_*.tar.gz` per job, plus scheduler stdout/stderr/logs.
 Local results are under each job's `RUN/Events/` directory. A successful command
