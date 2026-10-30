@@ -27,32 +27,44 @@ From the repository root, prepare the small parton-level example:
 
 ```bash
 cd examples/example7_parton_only
-mgpd -c config.yml -o production --mode condor --dry-run
+mgpd prepare config.yml -o production --mode condor
 ```
 
 Review the generated inputs in `production/`, then submit from your Condor
 submission host:
 
 ```bash
-mgpd --execute-prepared production
-mgpd --status production
+mgpd execute production
+mgpd status production
 ```
 
 After the jobs finish, validate and merge their outputs:
 
 ```bash
-mgpd --validate-results production
+mgpd validate-results production
 mgpd merge production
 ```
 
 Merged files and `merge-report.json` are written to `production/merged/`.
-Use a new output directory for each production. To prepare and run in one step,
-omit `--dry-run` from the preparation command.
+Use a new output directory for each production. To prepare and execute in one
+step, use `mgpd run config.yml -o production-new --mode condor`.
 
 See the [example catalog](examples/README.md) for Pythia, Delphes, MadSpin,
 parameter scans and complete input directories.
 
 ## Configuration
+
+Create a configuration directory with editable cards from a template:
+
+```bash
+mgpd create --list-templates
+mgpd create my-config --template delphes --mode condor
+```
+
+Choose `parton`, `pythia`, or `delphes`. Edit `my-config/config.yml` and the
+files in `my-config/cards/` before preparing. These are Standard Model starter
+configurations; adapt the process and cards for your analysis.
+`mgpd prepare my-config` writes to `my-config/production/` by default.
 
 A minimal configuration uses an existing run card:
 
@@ -77,8 +89,10 @@ options:
   use_syst: false
 ```
 
-Input paths are relative to the **current working directory**, not the YAML
-file. `nevents` is per job; `njobs` is per sample. A positive `seed` gives a
+Input paths are relative to the **directory containing the YAML file**. Use
+`--base-directory` with `prepare`, `run`, or `validate-config` to choose another
+input base. Explicit `-o` paths are relative to your current working directory.
+`nevents` is per job; `njobs` is per sample. A positive `seed` gives a
 repeatable sequence; omit it or use `RANDOM` for a random starting point.
 
 | Setting | Usage |
@@ -97,7 +111,7 @@ elsewhere. Choose an image appropriate for that backend; local jobs run
 sequentially. For example:
 
 ```bash
-mgpd -c config.yml -o production-local --mode local-apptainer --dry-run
+mgpd prepare config.yml -o production-local --mode local-apptainer
 ```
 
 ROOT/LHCO output requires a Delphes card. `hepmc0` keeps HepMC only from the
@@ -107,9 +121,9 @@ intend to validate results; `outputs: [all]` is not supported by validation.
 ## Status and validation
 
 ```bash
-mgpd -c config.yml --validate-only
-mgpd --status production --json
-mgpd --validate-results production --json > results.json
+mgpd validate-config config.yml
+mgpd status production --json
+mgpd validate-results production --json > results.json
 ```
 
 Run status queries from the submission host with the same user account.
@@ -121,7 +135,7 @@ Validation defaults to the planned event count and seed and a positive cross
 section. Override these policies when appropriate:
 
 ```bash
-mgpd --validate-results production --event-count nonempty \
+mgpd validate-results production --event-count nonempty \
   --allow-nonpositive-cross-section --skip-seed-check
 ```
 
@@ -134,14 +148,15 @@ inspect the scheduler before attempting recovery.
 Plan recovery, then prepare only the eligible jobs you select:
 
 ```bash
-mgpd --plan-recovery production --json
-mgpd --prepare-recovery production -o retry-01 --job-id JOB_ID
-mgpd --execute-prepared retry-01
-mgpd --status retry-01
-mgpd --validate-results retry-01
+mgpd recover production --plan --json
+mgpd recover production -o retry-01 --job-id JOB_ID
+mgpd execute retry-01
+mgpd status retry-01
+mgpd validate-results retry-01
 ```
 
-Repeat `--job-id` for multiple jobs; omit it to select all eligible jobs.
+Recovery preparation does not execute jobs; review the child before calling
+`execute`. Repeat `--job-id` for multiple jobs; omit it to select all eligible jobs.
 Use the same validation policies for planning and preparation. Recovery keeps
 the original inputs and seeds and preserves good results. Keep parent and retry
 directories in place. Active, held, or unknown Condor jobs cannot be recovered.
