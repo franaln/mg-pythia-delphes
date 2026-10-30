@@ -1,0 +1,19 @@
+run:
+  name: sample
+  mode: local
+  nevents: 100
+  njobs: 1
+  outputs: [lhe, hepmc, log]
+process: |
+  import model sm
+  generate p p > e+ e-
+cards:
+  run: cards/run_card.dat
+  param: cards/param_card.dat
+  pythia: cards/pythia8_card.dat
+options:
+  seed: RANDOM
+  use_syst: false
+expert:
+  mode: single
+  ncores: 1

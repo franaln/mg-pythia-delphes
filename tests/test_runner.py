@@ -35,7 +35,7 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runner.validate_config(config)
 
-    def test_validate_only_does_not_touch_output_even_with_force(self):
+    def test_validate_config_does_not_touch_existing_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config = self.config(root)
@@ -45,8 +45,7 @@ class RunnerTests(unittest.TestCase):
             marker.write_text('keep')
             yaml = root / 'config.yml'
             yaml.write_text(yaml_lib.safe_dump(config))
-            with patch('sys.argv', [str(SCRIPT), '-c', str(yaml), '-o', str(output),
-                                    '--validate-only', '--force']):
+            with patch('sys.argv', [str(SCRIPT), 'validate-config', str(yaml)]):
                 runner.main()
             self.assertEqual(marker.read_text(), 'keep')
 
@@ -99,7 +98,7 @@ class RunnerTests(unittest.TestCase):
                 yaml = root / 'config.yml'
                 yaml.write_text(yaml_lib.safe_dump(config))
                 output = root / 'production'
-                with patch('sys.argv', [str(SCRIPT), '-c', str(yaml), '-o', str(output), '--dry-run']):
+                with patch('sys.argv', [str(SCRIPT), 'prepare', str(yaml), '-o', str(output)]):
                     runner.main()
                 manifest = json.loads((output / 'manifest.json').read_text())
                 self.assertEqual(manifest['state'], 'prepared')
@@ -147,10 +146,9 @@ class RunnerTests(unittest.TestCase):
             yaml = root / 'config.yml'
             yaml.write_text(yaml_lib.safe_dump(self.config(root)))
             output = root / 'production'
-            with patch('sys.argv', [str(SCRIPT), '-c', str(yaml), '-o', str(output)]), \
+            with patch('sys.argv', [str(SCRIPT), 'run', str(yaml), '-o', str(output)]), \
                  patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'docker')):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    runner.main()
+                self.assertEqual(runner.main(), 1)
             manifest = json.loads((output / 'manifest.json').read_text())
             self.assertEqual(manifest['state'], 'failed')
             self.assertEqual(manifest['failed_job_id'], 'sample_00000')
@@ -344,7 +342,7 @@ class RunnerTests(unittest.TestCase):
                       ['--validate-only'], ['--mode', 'condor'], ['-o', 'other']):
             with self.subTest(extra=extra), patch.object(subprocess, 'run') as launch:
                 with self.assertRaises(SystemExit) as error:
-                    runner.main(['--execute-prepared', 'production', *extra])
+                    runner.main(['execute', 'production', *extra])
                 self.assertEqual(error.exception.code, 2)
                 launch.assert_not_called()
 

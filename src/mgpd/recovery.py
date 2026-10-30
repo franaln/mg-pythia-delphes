@@ -80,9 +80,9 @@ def prepare_recovery(output_dir, output, job_ids=None, **policy):
         plan = plan_recovery(parent_dir, **policy)
         selected = list(job_ids) if job_ids is not None else plan['eligible_job_ids']
         if not selected or len(set(selected)) != len(selected):
-            raise ValueError('Select at least one distinct eligible job; inspect --plan-recovery')
+            raise ValueError('Select at least one distinct eligible job; inspect mgpd recover --plan')
         if set(selected) - set(plan['eligible_job_ids']):
-            raise ValueError('Selection includes ineligible jobs; inspect --plan-recovery')
+            raise ValueError('Selection includes ineligible jobs; inspect mgpd recover --plan')
         child_dir.mkdir()  # Never overwrite another production or recovery.
         identity = uuid.uuid4().hex
         jobs = [copy.deepcopy(job) for job in parent.manifest['jobs'] if job['job_id'] in selected]

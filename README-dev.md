@@ -3,6 +3,8 @@
 For users, see [README.md](README.md) and the [example catalog](examples/README.md).
 This guide contains development setup, automated and live tests, release checks,
 and shared deployment. The implementation roadmap is maintained locally.
+CLI usage below follows 0.3 development; use the guide at `v0.2.0` for its older
+CLI. Deployment examples explicitly pinned to 0.2.0 still build that release.
 
 ## Development environment
 
@@ -98,7 +100,7 @@ and may require a higher limit and timeout.
 The driver:
 
 1. Prepares and checks inputs, then executes them through the guarded
-   `--execute-prepared` CLI. Both the runner and driver enforce job-count limits.
+   `mgpd execute` CLI. Both the runner and driver enforce job-count limits.
 2. Uses the runner's exact scheduler-ID mapping in the production manifest,
    also saving `submitted_jobs.json` and submission output in `submit.log`.
 3. Waits for each test job, with one overall Condor wait deadline per example.
@@ -151,8 +153,7 @@ report includes `validation` with job details and sample summaries. Default
 smoke policies remain strict. To inspect an existing result without another run:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py \
-  --validate-results test-results/condor-full-01/example8_smoke_full/production --json
+mgpd validate-results test-results/condor-full-01/example8_smoke_full/production --json
 ```
 
 The public core API is exported by `src/mgpd/__init__.py`; the roadmap is
@@ -161,12 +162,11 @@ maintained locally.
 After a Condor test, inspect the production without submitting more jobs:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py \
-  --status test-results/condor-full-01/example8_smoke_full/production --json
+mgpd status test-results/condor-full-01/example8_smoke_full/production --json
 ```
 
 Selective recovery can be tested separately on a disposable completed smoke
-production. Use `--plan-recovery`, then `--prepare-recovery` to a new directory;
+production. Use `mgpd recover DIRECTORY --plan`, then `mgpd recover DIRECTORY -o CHILD`;
 see [README.md](README.md#selective-recovery). Recovery
 is never enabled automatically by this test driver. The regression suite also
 covers the complete recovery CLI with a fake scheduler, without real jobs.
@@ -262,7 +262,7 @@ events per job (override with `--events`, limited to 1000). It:
 
 1. Prepares the example, loads and executes its saved plan, then checks that a
    duplicate execution is rejected without changing the manifest.
-2. Polls read-only `--status` until both jobs have tagged, successful completion
+2. Polls read-only `mgpd status` until both jobs have tagged, successful completion
    records in history; validates results and checks no recovery is needed.
 3. Moves one test-owned archive into `withheld/`, verifies the missing result is
    detected, and prepares a child containing exactly that job with its original
@@ -310,6 +310,7 @@ original image, configuration and seeds.
 | Module | Responsibility |
 | --- | --- |
 | `config` | Load/validate YAML and resolve image references |
+| `projects` | Packaged configuration/cards, project creation and project-relative preparation |
 | `models`, `templates` | Production model, seed range and generated templates |
 | `storage` | Manifests, checksums, path confinement and locks |
 | `preparation` | Render sample/job inputs, package and freeze execution files |
@@ -587,7 +588,7 @@ and Condor credentials remain per-user. Installation uses sudo; servers and jobs
 run as each normal SSH user. No shared daemon or HTTP service is installed.
 
 For 0.2.0 the action flags are `--allow-prepare`, `--allow-execute` and
-`--allow-merge`.
+`--allow-merge`. Configuration writes belong to the 0.3 development version.
 Reconnect clients after selecting a new environment. Existing detached workers
 keep their original interpreter and must retain access to that environment.
 
@@ -699,3 +700,202 @@ import ./models_tmp-lepton_masses
 For custom cuts, include `user_cuts.f` in the complete input directory and
 reference `user_cuts.f = custom_fcts` from the run card. `expert.ncores` controls
 MadGraph; automatic matching of Condor resource requests is not implemented.
+
+
+## Configuration editing development (0.3.0a1)
+
+This milestone creates new YAML configurations from existing files and edits
+existing YAML. It does not create templates from scratch, edit card contents or
+prepare/execute productions. Core and adapter development versions are 0.3.0a1;
+the stable 0.2.0 tag remains separate. User READMEs are maintained by the user and
+must not be modified without explicit instructions.
+
+The core API exports `inspect_config`, `plan_config_change` and
+`apply_config_change`. Install the optional `configuration` extra for round-trip
+YAML support (`ruamel.yaml`); the base CLI still only requires PyYAML. The MCP
+adapter depends on this extra. For development:
+
+```bash
+python -m pip install -e '.[dev]' -e packages/mg-pythia-delphes-mcp
+python -m unittest discover -s tests -p test_configuration.py -v
+python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -p test_configuration.py -v
+```
+
+`validate_config` now accepts an optional `base_directory`, preserving the CLI's
+cwd default while allowing concurrent API validation without changing global cwd.
+Core inspection/planning defaults to the source's parent. MCP config paths
+resolve from explicit `base_directory` (workspace root by default), like the
+existing validation/preparation tools; output paths remain workspace-relative.
+The reviewed base is returned and must also be used for later preparation,
+especially when saving a copy into another directory. Paths in YAML are not
+silently rewritten when a copy is saved.
+
+Read-only MCP tools are `inspect_config` and `plan_config_change`. Enable only
+saving with `--allow-config-write`; this does not enable production preparation,
+submission or merging. Restart the client after adding the flag. Example calls,
+with the repository root as workspace:
+
+```json
+{
+  "path": "config.yml",
+  "base_directory": "examples/example7_parton_only",
+  "output": "my-config.yml",
+  "changes": {"run.nevents": 1000, "run.njobs": 4, "options.seed": 1234},
+  "remove": ["options.use_syst"]
+}
+```
+
+Send these arguments to `plan_config_change`. Output must be a new `.yml` or
+`.yaml` file with an existing parent. Omit `output` to edit the source. Mapping
+paths use dotted names; JSON pointers such as `/cards/param/mass.1000` support
+keys containing dots, with standard `~0`/`~1` escaping. Lists and the process
+string are replaced as a whole. Overlapping changes/removals and missing
+removals are rejected. Existing comments, quoting and block styles are retained
+where possible; CRLF is preserved. Ambiguous YAML strings are quoted for the
+runner's PyYAML semantics. YAML aliases/merge keys are inspectable but cannot be
+edited in this first implementation; duplicate keys are rejected. Config text
+is limited to 128 KiB and changes/removals to 200 paths.
+
+The response is the complete proposal, including content, diff, validation,
+source/content hashes and `change_sha256`. Review all of it; invalid proposals
+are visible but cannot be saved. Call `apply_config_change` with:
+
+```python
+review = result.structured_content['data']  # plan_config_change response
+await client.call_tool('apply_config_change', {
+    'proposal': review,
+    'change_sha256': review['change_sha256'],
+})
+```
+
+Pass the complete returned proposal object, not just its diff. Apply
+checks the complete proposal checksum, original source checksum and current
+input files before saving. Source/destination/base and YAML input references
+are confined to the MCP workspace. Writes reject symlinks and destinations
+within prepared productions. Edit permissions do not bypass preparation's
+frozen-input protection. Save-as leaves the source untouched and does not write
+lock files into its directory, so read-only source directories can be used.
+
+A target-side advisory lock serializes cooperating writers. A private temporary
+file is flushed and fsynced, then edits use atomic replacement and creates use
+an atomic hard link that refuses an existing destination. Source hashes are
+rechecked immediately before publication. External editors do not honor these
+locks: this is not a filesystem compare-and-swap against arbitrary external
+writers. Edits preserve file permissions; new files use mode 0600.
+
+After interruption or a publication/directory-sync failure, `CONFIG_WRITE_UNKNOWN`
+means inspect source/destination checksums before doing anything else. Do not
+blindly replay or automatically overwrite. Partial temporary files and target
+lock files can remain after a killed worker; no production jobs were started.
+
+Tests exercise actual round-trip YAML, source/destination races, concurrent
+writers, stale/modified reviews, fresh input validation, comments/quoting/CRLF,
+explicit bases, protected production paths, workspace and symlink escapes,
+publication failures and real SDK stdio (including reconnect and write timeout).
+For the JUPITER pilot, use copies of example YAML, review and save a new config,
+inspect it with the same base and then validate/prepare it separately. Keep
+existing physics cards and production directories unchanged.
+
+
+Configuration milestone verification: 129 core tests pass on Python 3.9 without
+the MCP SDK; 33 adapter tests pass using real stdio, both against source and
+installed 0.3.0a1 wheels outside the checkout. Dependency checks pass and wheel
+runtime files match source. New YAML files were only created in temporary test
+directories. No JUPITER deployment or live configuration edit was performed.
+
+When preparing a saved-as file, use its returned absolute `path` together with
+the returned `base_directory`; do not accidentally resolve a workspace-relative
+output name from the original configuration's base. Target lock files are
+intentionally retained after successful writes; OS locks release when the worker
+exits. Do not unlink lock files while another writer may be using them.
+
+
+## Project templates and create/run commands (0.3 development)
+
+The CLI has explicit `create`, `prepare`, `execute`, `run`, `validate-config`,
+`validate-results`, `recover`, `merge` and `status` commands. Previous root flags
+and `run -c`, `--dry-run`, `--validate-only` are intentionally rejected; no CLI
+compatibility dispatcher remains. No physics engines or scheduler are needed
+for project creation or configuration validation.
+User READMEs must remain untouched unless their owner requests an edit.
+
+```bash
+mgpd create --list-templates
+mgpd create my-config --template delphes --mode condor --nevents 100 --njobs 2
+# Edit my-config/config.yml and its cards/ copies.
+mgpd validate-config my-config
+mgpd prepare my-config
+mgpd execute my-config/production
+mgpd status my-config/production
+mgpd validate-results my-config/production
+mgpd merge my-config/production
+```
+
+`prepare PROJECT` and `run PROJECT` accept a directory or YAML file, with default
+output `production/` beside the YAML. `run` is prepare+execute; `execute DIRECTORY`
+only loads and launches a saved production with its frozen mode/inputs. `-o` is
+relative to the invocation cwd; YAML input paths resolve from the YAML directory.
+`--base-directory` overrides the input base for `prepare`, `run` and
+`validate-config`, including configurations saved-as through the editing API.
+A project directory must contain exactly one `config.yml` or `config.yaml`; use
+an explicit file when both exist. Public `load_config` keeps its existing Python
+API semantics; the removed interface is the CLI, not that API.
+
+`validate-config PROJECT` checks YAML and input existence without producing a
+production; `validate-results DIRECTORY` checks saved job outputs. Both support
+JSON and return nonzero on invalid results/configurations. Status query errors
+also remain nonzero. `recover DIRECTORY --plan` reports eligibility without
+reservation; `recover DIRECTORY -o CHILD [--job-id ID ...]` prepares a child but
+never executes it. Review and use `execute CHILD` separately. Policy flags are
+shared by result validation, recovery and merging.
+
+Core API: `list_config_templates()`, `create_project(...)`,
+`load_project_config(...)` and `prepare_project(...)`. Loading/preparing projects
+resolves known card/input paths without changing cwd or modifying source YAML.
+Arbitrary paths embedded in MadGraph commands are not rewritten. The MCP can
+reuse these APIs; this milestone does not add a separate MCP project-create tool.
+
+The three bundled templates are `parton`, `pythia`, and `delphes`, all using the
+SM dielectron process and an SM param card. They copy the repository's existing
+run/param/Pythia/ATLAS Delphes cards into `cards/` as appropriate. These files
+live under `src/mgpd/data/` and are explicitly included as package data, so
+installed wheels do not depend on examples or the source checkout. They are
+editable starter physics settings, not model-independent default cards: changing
+the model requires corresponding process/param cards.
+
+Create options: `--template`, `--name`, `--mode`, `--image`, `--nevents`,
+`--njobs`, `--seed`. Default sample names derive from the directory name (unsafe
+characters replaced by underscores), mode is `local`, events/job is 100, jobs
+is 1 and seed is RANDOM. Images are selected for the resolved backend, with an
+explicit `--image` override; creation does not download or validate runtime
+availability of the image. Moving a project to another backend may require an
+image edit. Creation rejects existing destinations (including empty directories
+and symlinks), missing parents and destinations inside prepared productions.
+It validates staged files before reserving a new directory. Cards are copied,
+not linked to package resources or shared between projects.
+
+Regression tests cover every template, backend/image defaults, invalid requests,
+concurrent creation, copy independence, cross-cwd loading/preparation, CLI
+subcommands and saved execution dispatch. Install the wheel and run
+`test_projects.py` outside the checkout to verify its packaged resources.
+Live physics generation with the new starters remains a separate JUPITER pilot.
+
+Project-command validation: all 161 core regressions pass on Python 3.9 and
+all 33 MCP regressions pass. The 8 project tests also pass against an installed
+wheel outside the checkout; all 7 YAML/card resources are included in the wheel.
+These checks use preparation and fake execution, not real physics engines.
+
+
+Command migration updates the example/Condor test drivers and subprocess tests
+to the explicit verbs. Their generated YAML uses absolute known input paths,
+so saving driver configs outside an example directory retains the intended
+inputs. Tests also reject removed syntax before any preparation/execution call,
+check command-specific argument boundaries and verify prepare/execute/run and
+recovery planning/preparation remain distinct operations.
+
+Command-only CLI verification: all 161 core tests pass against the installed
+wheel outside the checkout with Python 3.9. All 33 MCP tests pass. The 7 command
+boundary tests cover removed syntax, prepare/execute/run separation, validator
+JSON/exit codes, explicit input bases, recovery safety and every command's help.
+The live-test drivers use the new commands; scheduler/container interactions in
+these automated checks are simulated. No real JUPITER jobs were submitted.

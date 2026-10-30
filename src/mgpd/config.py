@@ -58,7 +58,7 @@ def get_expert_options(config):
     return config_options
 
 
-def validate_config(config):
+def validate_config(config, base_directory=None):
     """Validate inputs without creating directories or submitting work.
 
     Relative input paths retain the CLI's historical current-directory semantics.
@@ -117,6 +117,8 @@ def validate_config(config):
         if any(x in outputs for x in ('root', 'lhco')) and 'delphes' not in cards:
             raise ValueError('ROOT/LHCO output requires a Delphes card')
     for path in paths:
+        if base_directory is not None and not path.is_absolute():
+            path = Path(base_directory) / path
         if not path.is_file():
             raise ValueError(f'Input file does not exist: {path}')
     return config

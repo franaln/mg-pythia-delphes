@@ -209,11 +209,11 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root)
             output = io.StringIO()
             with redirect_stdout(output):
-                code = runner.main(['--validate-results', str(root), '--json'])
+                code = runner.main(['validate-results', str(root), '--json'])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output.getvalue())['state'], 'valid')
             with self.assertRaises(SystemExit):
-                runner.main(['--status', str(root), '--event-count', 'ignore'])
+                runner.main(['status', str(root), '--event-count', 'ignore'])
 
 
 if __name__ == '__main__':

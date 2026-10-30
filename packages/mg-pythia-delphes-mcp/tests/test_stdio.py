@@ -53,7 +53,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
         async with self.client() as client:
             tools = (await client.list_tools()).tools
             self.assertEqual({tool.name for tool in tools}, {'validate_config', 'inspect_production',
-                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report'})
+                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change'})
             for tool in tools:
                 self.assertTrue(tool.annotations.read_only_hint)
                 self.assertFalse(tool.annotations.destructive_hint)

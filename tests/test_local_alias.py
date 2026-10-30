@@ -51,7 +51,7 @@ class LocalAliasTests(unittest.TestCase):
                     source = root / 'local.yml'
                     source.write_text(yaml.safe_dump(config))
                     with patch('mgpd.config.socket.gethostname', return_value=host), redirect_stdout(io.StringIO()):
-                        cli_main(['-c', str(source), '-o', str(root / 'yaml-production'), '--dry-run'])
+                        cli_main(['prepare', str(source), '-o', str(root / 'yaml-production')])
                     self.assertEqual(json.loads((root / 'yaml-production/manifest.json').read_text())['mode'], expected)
                     with patch('mgpd.config.resolve_run_mode', side_effect=AssertionError('Must not re-resolve')), \
                             patch('mgpd.execution.subprocess.run') as run, redirect_stdout(io.StringIO()):
@@ -75,7 +75,7 @@ class LocalAliasTests(unittest.TestCase):
 
     def test_cli_mode_overrides_yaml_and_old_option_is_not_accepted(self):
         from mgpd.cli import parse_args
-        _, args = parse_args(['-c', 'config.yml', '--mode', 'local', '--validate-only'])
+        _, args = parse_args(['validate-config', 'config.yml', '--mode', 'local'])
         self.assertEqual(args.run_mode, 'local')
         with redirect_stdout(io.StringIO()), patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
-            parse_args(['-c', 'config.yml', '--run_mode', 'local', '--validate-only'])
+            parse_args(['validate-config', 'config.yml', '--run_mode', 'local'])

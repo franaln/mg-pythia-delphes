@@ -176,7 +176,7 @@ class CondorStatusTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 4, ExitBySignal=False, ExitCode=0)])), redirect_stdout(output):
-                code = runner.main(['--status', str(root), '--json'])
+                code = runner.main(['status', str(root), '--json'])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output.getvalue())['state'], 'completed')
 

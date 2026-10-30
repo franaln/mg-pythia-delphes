@@ -154,8 +154,7 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
     return str(destination)
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description='Merge a managed production directory or explicit job archives')
+def configure_parser(parser):
     parser.add_argument('inputs', nargs='+', help='One production directory, or explicit job output archives (.tar.gz)')
     parser.add_argument('-o', '--output', help='New output; default for a production: DIRECTORY/merged')
     parser.add_argument('--sample', action='append', help='Select a production sample; repeat as needed')
@@ -168,7 +167,10 @@ def main(argv=None):
     parser.add_argument('--backend', choices=['local-docker', 'local-apptainer'],
                         help='Default: Apptainer on jupiter, Docker elsewhere')
     parser.add_argument('--image', help='Override the container image/reference')
-    args = parser.parse_args(argv)
+    return parser
+
+
+def merge_from_args(args, parser):
     try:
         if len(args.inputs) == 1 and Path(args.inputs[0]).is_dir():
             from .production_merging import merge_production
@@ -190,3 +192,8 @@ def main(argv=None):
         return 1
     print(f'Merged outputs: {result}')
     return 0
+
+
+def main(argv=None):
+    parser = configure_parser(argparse.ArgumentParser(description='Merge a managed production directory or explicit job archives'))
+    return merge_from_args(parser.parse_args(argv), parser)

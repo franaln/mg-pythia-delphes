@@ -3,6 +3,7 @@
 import argparse
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ import tarfile
 import time
 
 import yaml
+from mgpd.projects import load_project_config
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO / 'examples'
@@ -67,7 +69,7 @@ def run_command(command, cwd, log, timeout):
 
 def run_example(entry, args, result):
     directory = EXAMPLES / Path(entry['config']).parent
-    config = yaml.safe_load((EXAMPLES / entry['config']).read_text())
+    config = load_project_config(EXAMPLES / entry['config'])
     config['run']['nevents'] = args.events
     image = args.image or config['run']['image']
     if args.mode == 'local-docker' and image.startswith('mg-pythia-delphes-'):
@@ -80,10 +82,11 @@ def run_example(entry, args, result):
     config_path = work / 'test_config.yml'
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     production = work / 'production'
-    command = [sys.executable, '-m', RUNNER, '-c', str(config_path), '-o', str(production),
-               '--mode', args.mode]
-    run_command(command + ['--validate-only'], directory, work / 'validate.log', 60)
-    run_command(command + ['--dry-run'], directory, work / 'prepare.log', 120)
+    command = [sys.executable, '-m', RUNNER]
+    run_command(command + ['validate-config', str(config_path), '--mode', args.mode],
+                directory, work / 'validate.log', 60)
+    run_command(command + ['prepare', str(config_path), '-o', str(production), '--mode', args.mode],
+                directory, work / 'prepare.log', 120)
     manifest = check_prepared(production, entry)
     result.update(state='prepared', jobs=len(manifest['jobs']), production=str(production))
     if not args.execute:
@@ -91,7 +94,7 @@ def run_example(entry, args, result):
     if len(manifest['jobs']) > args.max_jobs:
         raise ValueError('Job count exceeds --max-jobs; nothing submitted')
     if args.mode != 'condor':
-        run_command([sys.executable, '-m', RUNNER, '--execute-prepared', str(production)],
+        run_command([sys.executable, '-m', RUNNER, 'execute', str(production)],
                     directory, work / 'execute.log', args.timeout)
         result['validation'] = validate_production(production)
         if result['validation']['state'] != 'valid':
@@ -99,7 +102,7 @@ def run_example(entry, args, result):
         result['checks'] = [job['metrics'] for job in result['validation']['jobs']]
         result['state'] = 'passed'
         return
-    submitted = subprocess.run([sys.executable, '-m', RUNNER, '--execute-prepared', str(production)],
+    submitted = subprocess.run([sys.executable, '-m', RUNNER, 'execute', str(production)],
                                cwd=directory, capture_output=True, text=True, timeout=60)
     (work / 'submit.log').write_text(submitted.stdout + '\n' + submitted.stderr)
     submitted.check_returncode()
@@ -175,7 +178,7 @@ def main():
             if not shutil.which(executable):
                 parser.error(f'{executable} is not available')
         for entry in entries:
-            config = yaml.safe_load((EXAMPLES / entry['config']).read_text())
+            config = load_project_config(EXAMPLES / entry['config'])
             if 'root' in config['run'].get('outputs', []):
                 if importlib.util.find_spec('uproot') is None:
                     parser.error('Live ROOT checks require uproot in the host Python environment')

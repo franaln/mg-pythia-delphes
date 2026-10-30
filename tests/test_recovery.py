@@ -229,7 +229,7 @@ class RecoveryTests(unittest.TestCase):
                     runner.prepare_recovery(parent.output_dir, root / 'retry')
             output = io.StringIO()
             with redirect_stdout(output), patch.object(subprocess, 'run') as launch:
-                self.assertEqual(runner.main(['--plan-recovery', parent.output_dir, '--json']), 0)
+                self.assertEqual(runner.main(['recover', parent.output_dir, '--plan', '--json']), 0)
                 launch.assert_not_called()
             self.assertEqual(json.loads(output.getvalue())['eligible_job_ids'], ['sample_00001'])
 

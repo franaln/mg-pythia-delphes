@@ -52,7 +52,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.is_error)
         async with self.client() as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-            self.assertEqual(len(tools), 10)
+            self.assertEqual(len(tools), 12)
             for name in ('prepare_production', 'prepare_recovery'):
                 self.assertFalse(tools[name].annotations.read_only_hint)
                 self.assertFalse(tools[name].annotations.idempotent_hint)

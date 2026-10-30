@@ -144,7 +144,7 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                                               'outputs': entry[2]['outputs']} for entry in candidates]})
         if omitted and not allow_partial:
             raise ValueError('Missing/invalid or unfinished jobs: ' + ', '.join(row['job_id'] for row in omitted)
-                             + '; inspect --validate-results or use --allow-partial explicitly')
+                             + '; inspect mgpd validate-results or use --allow-partial explicitly')
         if not chosen:
             raise ValueError('No validated stopped jobs are available for merging')
         report = {'schema_version': 1, 'created_at': datetime.now(timezone.utc).isoformat(),

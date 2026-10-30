@@ -65,7 +65,7 @@ class PackageTests(unittest.TestCase):
                 with self.subTest(command=command):
                     result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn(mgpd.__version__ if '--version' in command else '--execute-prepared', result.stdout)
+                    self.assertIn(mgpd.__version__ if '--version' in command else 'create', result.stdout)
 
     def test_console_and_module_cli_prepare_identical_inputs(self):
         launcher = self.launcher()
@@ -86,7 +86,7 @@ options:
 ''')
             for command, output in [([launcher], 'console'),
                                     ([sys.executable, '-m', 'mgpd'], 'module')]:
-                result = subprocess.run(command + ['-c', 'config.yml', '-o', output, '--dry-run'],
+                result = subprocess.run(command + ['prepare', 'config.yml', '-o', output],
                                         cwd=root, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
             def inputs(directory):
