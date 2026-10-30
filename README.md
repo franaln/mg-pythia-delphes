@@ -340,6 +340,8 @@ reference it from the run card, for example `user_cuts.f = custom_fcts`.
 ## Developer documentation
 
 Development setup, testing, releases and shared deployment are documented in
-[README-dev.md](README-dev.md). An optional MCP adapter is being
-developed separately; see
-[the MCP adapter guide](packages/mg-pythia-delphes-mcp/README.md).
+[README-dev.md](README-dev.md). The optional MCP adapter provides the Condor
+workflow through an assistant: preparation, submission, monitoring, validation,
+selective recovery and merging. See
+[the MCP adapter guide](packages/mg-pythia-delphes-mcp/README.md) for installation
+and SSH connection setup.

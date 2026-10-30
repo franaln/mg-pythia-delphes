@@ -1,4 +1,4 @@
-# mg-pythia-delphes-mcp (0.2 alpha)
+# mg-pythia-delphes-mcp (0.2.0)
 
 Separate, optional MCP adapter for `mg-pythia-delphes`. By default it is
 **read-only**: inspect existing work, validate configurations/results, observe
@@ -22,7 +22,7 @@ mgpd-mcp --version
 
 This installs both distributions into the MCP environment. It does not alter the
 shared `mgpd-current` installation. The declared core compatibility range is
-`>=0.1.2.dev0,<0.2`; the adapter's development version is `0.2.0a4`.
+`>=0.2.0,<0.3`; the adapter version is `0.2.0`.
 
 ## Connect a stdio client
 
@@ -106,7 +106,7 @@ does not change the MCP server's cwd. Diagnostics go to stderr, never protocol
 stdout. In default read-only mode files/manifests are not modified and no write
 tools are registered. Preparation tools must be explicitly enabled as below.
 
-## Enable preparation (alpha 2)
+## Enable preparation
 
 Add `--allow-prepare` to the server command to expose the two preparation tools:
 
@@ -168,17 +168,16 @@ tool_timeout_sec = 150
 ```
 
 Adjust account/paths and keep the VPN connected. This configuration runs SSH on
-the Mac; do not add `experimental_environment="remote"` to this entry. The
-read-only version of this SSH connection was verified by the user. Restart the
-connection/new chat to discover newly enabled preparation tools. The new write
-operations still need a JUPITER pilot with disposable outputs.
+the Mac; do not add `experimental_environment="remote"` to this entry. The user verified inspection, preparation, Condor execution, selective recovery
+and merging on JUPITER through this SSH connection. Restart the connection/new
+chat after changing capability flags.
 
-## Enable Condor submission (alpha 3)
+## Enable Condor submission
 
 After validating preparation, add `--allow-execute` to the existing SSH server
 arguments and reconnect. This capability is independent of `--allow-prepare`.
 Run the server as your normal account; it submits with that account's Condor
-credentials and environment. The merge planning API requires the development core 0.1.2.dev0; reinstall both packages in the MCP environment.
+credentials and environment. The merge planning API requires the core 0.2.0; reinstall both packages in the MCP environment.
 
 First inspect the production and review jobs, seeds, image and output location.
 Then authorize submission and call:
@@ -259,7 +258,7 @@ Run as the same user with scheduler access, not with sudo. A successful check is
 live evidence only for the workspace, scheduler and environment actually tested.
 
 
-## Managed merging (alpha 4)
+## Managed merging
 
 Update both editable installations in the dedicated MCP environment:
 
@@ -267,7 +266,7 @@ Update both editable installations in the dedicated MCP environment:
 .venv-mcp/bin/python -m pip install -e '.[validation]' -e packages/mg-pythia-delphes-mcp
 ```
 
-This uses development core `0.1.2.dev0` and adapter `0.2.0a4`; the shared stable
+This uses core `0.2.0` and adapter `0.2.0`; the shared stable
 installation is unaffected. Add `--allow-merge` to the SSH server arguments and
 reconnect. Preparation and Condor submission permissions are independent.
 
@@ -316,3 +315,19 @@ JUPITER pilot: plan and merge the small production with its successful recovery,
 reconnect while merging, verify repeated requests return the same operation ID,
 and check report provenance and total events against one valid attempt per job.
 Use a fresh destination when earlier CLI tests already created `merged/`.
+
+
+## Version 0.2.0 scope and validation
+
+The user manually validated the complete JUPITER Condor workflow: preparation,
+submission, monitoring, result validation, selective recovery and managed merging.
+The automated suites additionally exercise disconnects, duplicate requests,
+unknown outcomes, changed inputs and partial-merge policy using fake engines and
+scheduler commands. Manual success is not evidence that every fault scenario
+was reproduced on the cluster.
+
+Install the core and adapter from the same 0.2.0 checkout/wheel set. The CLI still
+supports local Docker/Apptainer and Python 3.9; the optional MCP distribution
+requires Python 3.11. MCP accepts existing configurations/cards, executes prepared
+productions through Condor and runs merges locally in containers. Configuration
+creation/editing and local production execution are not part of this release.

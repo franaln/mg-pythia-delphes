@@ -391,7 +391,7 @@ and imported package; saved manifests, seeds and scheduler IDs stay in users'
 production directories. Do not remove old environments while processes use them.
 No shared environment was created or modified from this development session.
 
-## MCP adapter development (0.2 alpha)
+## MCP adapter development (0.2.0)
 
 The adapter is a **separate distribution** under
 [packages/mg-pythia-delphes-mcp](packages/mg-pythia-delphes-mcp/README.md).
@@ -478,3 +478,23 @@ entry point after removal of the legacy runner script.
 Alpha 4 validation: 114 core tests pass on Python 3.9 without the MCP SDK;
 27 adapter tests pass against source and installed wheels outside the checkout.
 Both wheels build successfully. The JUPITER merge pilot is still pending.
+
+
+## Release 0.2.0
+
+Core and optional MCP adapter both use version 0.2.0. The adapter requires core
+`>=0.2.0,<0.3` for the reviewed merge API. Python requirements stay at 3.9 for
+core and 3.11 for MCP. Earlier alpha entries above describe historical checks.
+The user reported successful JUPITER manual tests of the entire Condor workflow,
+including selective recovery and merging. This supersedes earlier pilot-pending
+notes. Fault injection remains automated test evidence unless separately noted.
+
+Build both wheels, install them together in the dedicated MCP environment and
+run the adapter tests outside the checkout. Run core regressions independently
+on Python 3.9 without the SDK. Shared stable environments must be deployed into a
+new versioned directory; never replace an environment used by running workers.
+The separate MCP guide documents SSH configuration and opt-in capability flags.
+
+Release validation: 114 core tests pass on Python 3.9 without MCP; 27 adapter
+tests pass against the installed 0.2.0 wheels outside the checkout. Both final
+wheels build successfully and their runtime modules match the release sources.
