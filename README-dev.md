@@ -346,48 +346,132 @@ uses `python -m mgpd`; the old standalone runner script has been removed.
 
 ## Shared JUPITER deployment
 
-Run the deployment helper as the account that owns the shared installation.
-By default it builds the **current checkout**, installs its version with the
-`validation` extra into `/opt/venvs/mgpd-VERSION`, checks dependencies/imports and
-`mgpd --version`, then atomically selects it through `mgpd-current`:
+`scripts/deploy_shared.py` can install the CLI and MCP adapter together in
+`/opt/venvs/mgpd-VERSION`. Both commands follow a single `mgpd-current` symlink.
+Build-only is separate from installation. Deployment actions can be combined:
+
+| Action | Effect |
+| --- | --- |
+| `--build` | Only build wheels into `--outdir` (default `./dist`), without changing shared installations |
+| `--deploy-venv` | Install/check a new versioned environment; leave current unchanged |
+| `--update-current` | Validate and select an installed version; no build/install unless also requested |
+| `--create-wrapper --bin-dir DIR` | Create launchers for the selected environment |
+
+`--with-mcp` builds/includes the adapter when deploying from source, or requires
+it when activating an existing environment. `--mcp-wheel` implies MCP deployment
+and requires a matching `--wheel`. Core-only deployments remain supported with
+Python 3.9+; combined deployments require Python 3.11+. No action is implicit.
+
+### Build the intended release as a normal user
+
+Default source builds use the checkout containing the script, not the latest
+Git release. When development has moved on, build tested release wheels from
+an isolated checkout and deploy those. On JUPITER, install the build frontend
+in a user-owned environment (`python -m pip install build`). From a 0.2.0 source
+checkout, run the updated helper without sudo:
 
 ```bash
-python scripts/deploy_shared.py --prefix /opt/venvs --bin-dir /opt/bin
+python scripts/deploy_shared.py --build --with-mcp --version 0.2.0 \
+  --outdir dist/0.2.0
 ```
 
-The caller's Python needs `build` (included in the development extra). This does
-not fetch Git changes or publish to PyPI. Update/review the checkout first. To
-install a wheel already tested on JUPITER instead:
+If the working checkout is already on 0.3 development, keep it intact and select
+an isolated stable source tree explicitly:
 
 ```bash
-python scripts/deploy_shared.py \
-  --wheel dist/mg_pythia_delphes-0.2.0-py3-none-any.whl \
-  --prefix /opt/venvs --bin-dir /opt/bin
+git worktree add --detach /tmp/mgpd-020-source v0.2.0
+python scripts/deploy_shared.py --build --with-mcp --version 0.2.0 \
+  --source /tmp/mgpd-020-source --outdir dist/0.2.0
 ```
 
-`--bin-dir` is optional and for the first installation only: it creates an `mgpd`
-wrapper pointing through `mgpd-current`. Users need `/opt/bin` on `PATH`; they
-can then run `mgpd` without activating the shared venv or changing their Python.
-The helper refuses to overwrite an existing wrapper. On upgrades omit
-`--bin-dir`; the existing wrapper follows the updated `mgpd-current` link.
+The frontend runs with the interpreter invoking the script; `--python` only
+selects the deployment runtime. Both project wheels are pure Python, so their
+builder need not match the runtime interpreter exactly. Building on JUPITER is
+convenient; the installed dependencies are selected there for its Python/OS.
+Omit `--with-mcp` for a CLI-only build. `--build` cannot be combined with install,
+activation or launcher actions. Both wheel versions are checked before final
+publication, and existing wheel files are never overwritten; use a fresh output
+directory for another build. Build isolation may create temporary build
+environments, but no shared runtime environment is created or selected.
 
-An existing `mgpd-VERSION` is never reused or overwritten: increment the package
-version before deploying another release. Installation/check failures leave the
-current link unchanged and retain the new environment for diagnosis. The helper
-prints the previous target for rollback. An alternate root such as a shared NFS
-directory is supported via `--prefix`; use `--python /path/to/python3` to select
-the interpreter. Python must support venv creation and package installation.
+Run the core/MCP wheel checks described below before installation. The helper
+never fetches Git changes or publishes packages. `--version` checks wheel
+metadata before creating an environment, preventing accidental deployment of a
+newer checkout. Different core/MCP versions and mixed wheel/source inputs are
+rejected. Do not run a source build with sudo when tested wheels are available.
 
-Keep environments administrator-owned, readable/executable by users and not
-writable by ordinary accounts. Test the wheel with the documented local Apptainer
-and Condor smoke tests before deployment; the helper's import/CLI checks do not
-run physics simulations or submit jobs.
+### Stage 0.2.0 without changing current
 
-Do not overwrite an environment in use. Install the next release in another
-versioned directory; change `mgpd-current` only after validation. Rollback points
-it back to the previous environment. Existing processes retain their interpreter
-and imported package; saved manifests, seeds and scheduler IDs stay in users'
-production directories. Do not remove old environments while processes use them.
+Run installation as the administrator who owns the shared environment:
+
+```bash
+sudo python3.11 scripts/deploy_shared.py --deploy-venv --version 0.2.0 \
+  --wheel dist/0.2.0/mg_pythia_delphes-0.2.0-py3-none-any.whl \
+  --mcp-wheel dist/0.2.0/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl \
+  --prefix /opt/venvs --python /usr/bin/python3.11
+```
+
+Adjust the Python path to the available interpreter. The helper installs the
+core validation extra and adapter together, checks dependencies/imports and both
+versions, and retains failed environments for diagnosis. Incomplete installations
+have a marker and cannot be activated. Existing versioned directories are never
+reused, modified or removed; inspect failures before choosing another location
+or release. This step changes neither launchers nor `mgpd-current`.
+
+Test the staged commands as a normal user, using the new environment explicitly:
+
+```bash
+/opt/venvs/mgpd-0.2.0/bin/mgpd --version
+/opt/venvs/mgpd-0.2.0/bin/mgpd-mcp --version
+/opt/venvs/mgpd-0.2.0/bin/python \
+  packages/mg-pythia-delphes-mcp/scripts/check_server.py \
+  --workspace /home/USER/mg-pythia-delphes --production production
+```
+
+Use a completed production you own. Import/version checks alone do not test
+physics engines, scheduler access or SSH connectivity.
+
+### Activate and create launchers
+
+After validation, switch both commands together:
+
+```bash
+sudo python3.11 scripts/deploy_shared.py --update-current --version 0.2.0 \
+  --with-mcp --prefix /opt/venvs \
+  --create-wrapper --bin-dir /usr/local/bin
+```
+
+This validates the already installed environment without rebuilding it, then
+atomically replaces `mgpd-current`. The wrappers are `mgpd` and `mgpd-mcp`.
+An existing matching managed `mgpd` wrapper is preserved, so an upgrade can add
+just the missing MCP launcher. Unrelated commands/symlinks are refused, and
+wrapper collisions are checked before switching current. Wrapper-only actions
+require the requested version to already be current. Users need the wrapper
+directory on PATH and do not need to activate a virtual environment.
+
+For later activation or rollback, omit wrapper creation:
+
+```bash
+sudo python3.11 scripts/deploy_shared.py --update-current --version 0.2.0 \
+  --with-mcp --prefix /opt/venvs
+```
+
+Change the version to a previously installed combined release to roll back both
+commands. Omitting `--with-mcp` permits selecting a CLI-only release; MCP will
+then be unavailable. The previous link target is printed for rollback.
+
+To build and install directly from an intentionally selected checkout:
+
+```bash
+python scripts/deploy_shared.py --deploy-venv --with-mcp --version 0.2.0 \
+  --prefix /path/to/user-owned/venvs --python /path/to/python3.11
+```
+
+The caller's Python needs `build`. Add `--update-current` if activation should
+happen in the same invocation. Always use a new versioned environment rather
+than overwriting an in-use installation. Keep administrator ownership and normal
+read/execute access for users; never grant ordinary accounts write permission
+to shared environments. Keep old environments while servers/workers use them.
 
 ## MCP adapter development
 
@@ -481,41 +565,31 @@ The 0.2.0 release passed 114 core regressions on Python 3.9 without MCP and 27
 adapter tests against installed wheels. The user also reported successful
 manual JUPITER preparation, execution, validation, recovery and merging tests.
 
-### Shared MCP deployment on JUPITER
+Deployment-helper verification: 17 isolated tests cover action boundaries,
+wheel/version mismatch, install/activation failures, incomplete environments,
+existing versions, wrapper collisions/reuse and combined actions. A real temporary
+combined 0.2.0 environment was installed from stable-tag wheels, staged without
+switching current, activated, and queried through both launchers and MCP stdio.
+A real standalone `--build --with-mcp --version 0.2.0` run against the stable
+source checkout also produced both wheels without installing or selecting a
+shared environment. Build-only tests cover core-only builds, existing outputs,
+wrong/mismatched versions and incompatible action flags. No JUPITER/shared
+installation was changed by these local checks.
 
-Build and test wheels as a normal account. Install the tested core and adapter
-wheels together in a new, administrator-owned Python 3.11+ environment. The core
-`deploy_shared.py` helper installs the CLI distribution only; it does not deploy
-the MCP adapter. For example, with wheel files staged at `/path/to/wheels`:
+### MCP shared installation and SSH environment
 
-```bash
-sudo /usr/bin/python3.11 -m venv /opt/venvs/mgpd-mcp-0.2.0
-sudo /opt/venvs/mgpd-mcp-0.2.0/bin/python -m pip install \
-  '/path/to/wheels/mg_pythia_delphes-0.2.0-py3-none-any.whl[validation]' \
-  /path/to/wheels/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl
-sudo /opt/venvs/mgpd-mcp-0.2.0/bin/python -m pip check
-/opt/venvs/mgpd-mcp-0.2.0/bin/mgpd-mcp --version
-```
+Use the combined deployment procedure in
+[Shared JUPITER deployment](#shared-jupiter-deployment), rather than a separate
+hand-installed MCP environment. Set the remote executable in each user's SSH
+MCP configuration to `/usr/local/bin/mgpd-mcp` (or the absolute wrapper directory
+you selected). Its target is `/opt/venvs/mgpd-current/bin/mgpd-mcp`. Workspaces
+and Condor credentials remain per-user. Installation uses sudo; servers and jobs
+run as each normal SSH user. No shared daemon or HTTP service is installed.
 
-Adjust the Python path to the available interpreter. The new directory must not
-already exist. Never use editable installs or grant ordinary users write access
-to shared environments. Installation uses sudo; MCP servers and jobs run as each
-user. No shared daemon or HTTP service is needed: each SSH client starts its
-own stdio server with that user's workspace and Condor identity.
-
-After testing as a normal user, select the environment through a stable link:
-
-```bash
-sudo ln -s /opt/venvs/mgpd-mcp-0.2.0 /opt/venvs/mgpd-mcp-current.new
-sudo mv -Tf /opt/venvs/mgpd-mcp-current.new /opt/venvs/mgpd-mcp-current
-```
-
-Users point their SSH MCP command at
-`/opt/venvs/mgpd-mcp-current/bin/mgpd-mcp`; their workspace remains user-owned.
-Choose the allowed capabilities in the client arguments. Keep previous
-versioned environments for rollback and running workers. Rollback selects the
-previous target using the same link replacement. Reconnect clients after an
-upgrade; do not overwrite an environment used by existing servers/workers.
+For 0.2.0 the action flags are `--allow-prepare`, `--allow-execute` and
+`--allow-merge`.
+Reconnect clients after selecting a new environment. Existing detached workers
+keep their original interpreter and must retain access to that environment.
 
 SSH must support noninteractive authentication (`BatchMode=yes`), and shell
 startup must not print banners to stdout. Configure explicit SSH on the local
