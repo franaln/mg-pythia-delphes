@@ -1,5 +1,4 @@
 """Render and package frozen production inputs without launching work."""
-import os
 import string
 import shutil
 import shlex
@@ -22,13 +21,7 @@ from .storage import (
 )
 from .config import get_config_options, get_expert_options, resolve_container_image, validate_config, resolve_run_mode
 
-
-def mkdir(path):
-    try:
-        os.mkdir(path)
-    except FileExistsError:
-        pass
-
+RUN_MODE_CONDOR_ALIASES = ('condor', 'jupiter')
 
 def allocate_seeds(seed, count):
     """A numeric seed starts a deterministic sequence; 0/RANDOM selects a start."""
@@ -56,6 +49,8 @@ def render_seeded_run(text, seed):
 
 def prepare_sample_inputs(config, output_dir):
     """Copy sample inputs and render unseeded MG commands; never run physics tools."""
+    output_dir = Path(output_dir)
+
     # Inputs
     run_name = config['run']['name']
     run_nevents = config['run'].get('nevents', 10_000)
@@ -69,34 +64,34 @@ def prepare_sample_inputs(config, output_dir):
             for name, input_dir in config['input_dirs'].items():
 
                 model_name = f'{run_name}_{name}'
-                run_dir_model = f'{output_dir}/run_{model_name}'
+                run_dir_model = output_dir / f'run_{model_name}'
                 run_dirs[model_name] = run_dir_model
 
-                shutil.copytree(input_dir, run_dir_model)
+                shutil.copytree(Path(input_dir), run_dir_model)
 
         elif 'input_dir' in config:
 
-            run_dir = f'{output_dir}/run_{run_name}'
+            run_dir = output_dir / f'run_{run_name}'
             run_dirs[run_name] = run_dir
 
-            shutil.copytree(config['input_dir'], run_dir)
+            shutil.copytree(Path(config['input_dir']), run_dir)
 
         else:
 
-            run_dir = f'{output_dir}/run_{run_name}'
+            run_dir = output_dir / f'run_{run_name}'
             run_dirs[run_name] = run_dir
 
-            mkdir(run_dir)
+            run_dir.mkdir(exist_ok=True)
             for f in config['input_files']:
-                shutil.copy(f, run_dir)
+                shutil.copy(Path(f), run_dir)
 
 
         for name, run_dir in run_dirs.items():
 
-            if not os.path.exists(f'{run_dir}/run.mg5'):
+            if not (run_dir / 'run.mg5').exists():
                 raise Exception('Error in input files: run.mg5 not found in input dir')
 
-            run_mg5_str = Path(run_dir, 'run.mg5').read_text()
+            run_mg5_str = (run_dir / 'run.mg5').read_text()
 
             options = [
                 f'set run_tag = {name}',
@@ -115,8 +110,7 @@ def prepare_sample_inputs(config, output_dir):
             run_mg5_str += options_str
             run_mg5_str += '\n\ndone\n'
 
-            with open(f'{run_dir}/run.mg5', 'w') as f:
-                f.write(run_mg5_str)
+            (run_dir / 'run.mg5').write_text(run_mg5_str)
 
 
     else:
@@ -135,25 +129,25 @@ def prepare_sample_inputs(config, output_dir):
 
             for name, card in config_cards['param'].items():
                 model_name = f'{run_name}_{name}'
-                run_dir_model = f'{output_dir}/run_{model_name}'
+                run_dir_model = output_dir / f'run_{model_name}'
 
                 run_dirs[model_name] = run_dir_model
 
-                mkdir(run_dir_model)
-                mkdir(f'{run_dir_model}/cards')
+                run_dir_model.mkdir(exist_ok=True)
+                (run_dir_model / 'cards').mkdir(exist_ok=True)
 
-                shutil.copyfile(card, f'{run_dir_model}/cards/param_card.dat')
+                shutil.copyfile(Path(card), run_dir_model / 'cards' / 'param_card.dat')
 
         else:
-            run_dir = f'{output_dir}/run_{run_name}'
+            run_dir = output_dir / f'run_{run_name}'
             run_dirs[run_name] = run_dir
 
             #if not os.path.exists(inputs_dir):
-            mkdir(run_dir)
-            mkdir(f'{run_dir}/cards')
+            run_dir.mkdir(exist_ok=True)
+            (run_dir / 'cards').mkdir(exist_ok=True)
 
             if 'param' in config_cards:
-                shutil.copyfile(config_cards["param"], f'{run_dir}/cards/param_card.dat')
+                shutil.copyfile(Path(config_cards["param"]), run_dir / 'cards' / 'param_card.dat')
 
         ## Other cards
         run_madspin = 'madspin' in config_cards
@@ -161,13 +155,13 @@ def prepare_sample_inputs(config, output_dir):
         run_delphes = 'delphes' in config_cards
 
         for name, run_dir in run_dirs.items():
-            shutil.copyfile(config_cards['run'], f'{run_dir}/cards/run_card.dat')
+            shutil.copyfile(Path(config_cards['run']), run_dir / 'cards' / 'run_card.dat')
             if run_madspin:
-                shutil.copyfile(config_cards["madspin"], f'{run_dir}/cards/madspin_card.dat')
+                shutil.copyfile(Path(config_cards["madspin"]), run_dir / 'cards' / 'madspin_card.dat')
             if run_pythia:
-                shutil.copyfile(config_cards["pythia"],  f'{run_dir}/cards/pythia8_card.dat')
+                shutil.copyfile(Path(config_cards["pythia"]),  run_dir / 'cards' / 'pythia8_card.dat')
             if run_delphes:
-                shutil.copyfile(config_cards["delphes"], f'{run_dir}/cards/delphes_card.dat')
+                shutil.copyfile(Path(config_cards["delphes"]), run_dir / 'cards' / 'delphes_card.dat')
 
         cards_str = 'cards/run_card.dat\n'
         if 'param' in config_cards:
@@ -196,7 +190,7 @@ def prepare_sample_inputs(config, output_dir):
 
         if 'set run_card custom_fcts /local/user_cuts.f' in config_options:
             # copy user cut module to each run dir
-            shutil.copyfile('user_cuts.f', f'{run_dir}/user_cuts.f')
+            shutil.copyfile(Path('user_cuts.f'), run_dir / 'user_cuts.f')
 
         for name, run_dir in run_dirs.items():
 
@@ -217,14 +211,16 @@ def prepare_sample_inputs(config, output_dir):
                 'expert_options': '\n'.join(expert_options) if expert_options else ''
             }
 
-            create_file_from_template('run.mg5', f'{run_dir}/run.mg5', replace_dict)
+            create_file_from_template('run.mg5', run_dir / 'run.mg5', replace_dict)
 
 
-    return run_dirs
+    return {name: str(directory) for name, directory in run_dirs.items()}
 
 
 def prepare_job_plan(config, output_dir, run_dirs, run_mode):
     """Assign concrete seeds and write exact per-job command files."""
+
+    output_dir = Path(output_dir)
 
     run_njobs = config['run'].get('njobs', 1)
     run_nevents = config['run'].get('nevents', 10_000)
@@ -235,7 +231,8 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
     local_dirs = {}
 
     for sample, directory in run_dirs.items():
-        text = (Path(directory) / 'run.mg5').read_text()
+        directory = Path(directory)
+        text = (directory / 'run.mg5').read_text()
         for index in range(run_njobs):
             seed = next(seeds)
             job_id = f'{sample}_{index:05d}'
@@ -243,14 +240,14 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
             outputs = [value for value in run_outputs if value != 'hepmc0']
             if 'hepmc0' in run_outputs and index == 0 and 'hepmc' not in outputs:
                 outputs.append('hepmc')
-            if run_mode in ('condor', 'jupiter'):
-                seed_path = Path(output_dir) / f'{job_id}.mg5'
+            if run_mode in RUN_MODE_CONDOR_ALIASES:
+                seed_path = output_dir / f'{job_id}.mg5'
             else:
-                job_directory = directory if run_njobs == 1 else f'{directory}_job{index:05d}'
+                job_directory = directory if run_njobs == 1 else directory.with_name(f'{directory.name}_job{index:05d}')
                 if job_directory != directory:
                     shutil.copytree(directory, job_directory)
-                local_dirs[job_id] = (sample, job_directory)
-                seed_path = Path(job_directory) / 'run.mg5'
+                local_dirs[job_id] = (sample, str(job_directory))
+                seed_path = job_directory / 'run.mg5'
             seed_path.write_text(seeded_text)
 
             planned_jobs.append({'job_id': job_id, 'sample': sample, 'index': index,
@@ -266,11 +263,12 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
 
 def package_sample_inputs(output_dir, run_dirs, run_mode):
     """Package shared Condor inputs, retaining local directories in local modes."""
-    # Prepare input files
-    if run_mode in ('condor', 'jupiter'):
+    output_dir = Path(output_dir)
+    if run_mode in RUN_MODE_CONDOR_ALIASES:
         for name, run_dir in run_dirs.items():
-            print(f'- Compressing input files here: {output_dir}/run_{name}.tar.gz')
-            subprocess.run(['tar', '-czf', f'{output_dir}/run_{name}.tar.gz', '-C', run_dir, '.'], check=True)
+            archive_path = output_dir / f'run_{name}.tar.gz'
+            print(f'- Compressing input files here: {archive_path}')
+            subprocess.run(['tar', '-czf', str(archive_path), '-C', str(run_dir), '.'], check=True)
             shutil.rmtree(run_dir)
     else:
         print('- Running locally, no need to compress input files')
@@ -279,25 +277,28 @@ def package_sample_inputs(output_dir, run_dirs, run_mode):
 def prepare_wrappers(output_dir, local_dirs, run_mode, outputs=None):
     """Write executable wrappers without starting containers or submitting jobs."""
 
+    output_dir = Path(output_dir)
+
     if run_mode in ('condor', 'jupiter'):
-        script_path = f'{output_dir}/run_mg_pythia_delphes.sh'
+        script_path = output_dir / 'run_mgpd_condor.sh'
         print(f'- Preparing run script: {script_path}')
         create_file_from_script_template('run_mgpd_condor.sh', script_path)
-        os.chmod(script_path, 0o755)
+        script_path.chmod(0o755)
     elif run_mode in ('local-docker', 'local-apptainer'):
         for name, run_dir in local_dirs.values():
-            script_path = f'{run_dir}/run_mg_pythia_delphes.sh'
+            script_path = Path(run_dir) / 'run_mgpd_local.sh'
             print(f'- Preparing run script: {script_path}')
             create_file_from_script_template(
                 'run_mgpd_local.sh',
                 script_path,
                 { '# MGPD_LOCAL_OUTPUTS': 'outputs=' + shlex.quote(' '.join(outputs or [])) }
             )
-            os.chmod(script_path, 0o755)
+            script_path.chmod(0o755)
 
 
 def prepare_condor_submission(config, output_dir, container_image_path, planned_jobs, production_id=None):
     """Render the submit file; no scheduler access is performed here."""
+    output_dir = Path(output_dir)
     config_run = config['run']
     run_name = config_run['name']
     run_email = config_run.get('email', '')
@@ -335,7 +336,7 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
 
     # Save job.sub file
     job_file = f'job_{run_name}.sub'
-    output_path = f'{output_dir}/{job_file}'
+    output_path = output_dir / job_file
 
     print(f'- Saving job submission description in {output_path}')
     create_file_from_template('job.sub', output_path, job_replace_dict)
@@ -360,44 +361,53 @@ def _prepare_production(config, output, force=False):
 
     image = resolve_container_image(config['run'], run_mode)
 
-    output_dir = os.path.abspath(os.path.expanduser(output))
+    output_dir = Path(output).expanduser().absolute()
 
     print(f'- Using working/output dir: {output_dir}')
-    if os.path.exists(output_dir):
+    if output_dir.exists():
         if not force:
             raise FileExistsError(f'Output directory already exists: {output_dir}')
         print('Output dir already exists. Removing it.')
         shutil.rmtree(output_dir)
-    os.mkdir(output_dir)
+    output_dir.mkdir()
 
     run_dirs = prepare_sample_inputs(config, output_dir)
     jobs, local_dirs = prepare_job_plan(config, output_dir, run_dirs, run_mode)
 
     prepared_files = {}
-    for path in sorted(Path(output_dir).rglob('*')):
+    for path in sorted(output_dir.rglob('*')):
         if path.is_file():
             prepared_files[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
-    manifest = {'schema_version': 2, 'production_id': uuid.uuid4().hex, 'created_at': datetime.now(timezone.utc).isoformat(),
-                'state': 'prepared', 'config': original_config,
-                'image': image, 'mode': run_mode,
-                'image_identity': 'configured reference; not a verified immutable digest',
-                'jobs': jobs, 'prepared_input_sha256': prepared_files}
+
+    manifest = {
+        'schema_version': 2,
+        'production_id': uuid.uuid4().hex,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'state': 'prepared',
+        'config': original_config,
+        'image': image,
+        'mode': run_mode,
+        'image_identity': 'configured reference; not a verified immutable digest',
+        'jobs': jobs,
+        'prepared_input_sha256': prepared_files
+    }
+
     package_sample_inputs(output_dir, run_dirs, run_mode)
     prepare_wrappers(output_dir, local_dirs, run_mode, config['run'].get('outputs', ['lhe', 'lhco', 'log']))
 
     submit_file = None
-    if run_mode in ('condor', 'jupiter'):
+    if run_mode in RUN_MODE_CONDOR_ALIASES:
         submit_file = prepare_condor_submission(config, output_dir, image, jobs, manifest['production_id'])
     manifest['execution'] = {'submit_file': submit_file}
     manifest['execution_input_sha256'] = {
         str(path.relative_to(output_dir)): file_sha256(path)
-        for path in sorted(Path(output_dir).rglob('*')) if path.is_file()
+        for path in sorted(output_dir.rglob('*')) if path.is_file()
     }
     manifest['plan_sha256'] = plan_sha256(manifest)
 
     write_manifest(output_dir, manifest)
 
-    return PreparedProduction(output_dir, manifest, local_dirs, submit_file)
+    return PreparedProduction(str(output_dir), manifest, local_dirs, submit_file)
 
 
 def prepare_production(config, output, force=False):
@@ -416,6 +426,6 @@ def prepare_production(config, output, force=False):
                 if saved.get('execution_attempt') or saved.get('state') != 'prepared':
                     raise ValueError('Cannot overwrite an attempted production; use a new output directory')
 
-            return _prepare_production(config, str(output_dir), force=True)
+            return _prepare_production(config, output_dir, force=True)
 
-    return _prepare_production(config, str(output_dir), force=force)
+    return _prepare_production(config, output_dir, force=force)
