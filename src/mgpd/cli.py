@@ -48,6 +48,7 @@ def _parser():
     create.add_argument('--level', choices=PROJECT_LEVELS, help='')
     create.add_argument('--mode', choices=RUN_MODES)
     create.add_argument('--image')
+    create.add_argument('--process', help='Inline MadGraph command block; replaces the starter/copied process')
     create.add_argument('--nevents', type=int, help='Events per job')
     create.add_argument('--njobs', type=int)
     create.add_argument('--seed', type=int, help='Fixed starting seed; starter defaults to RANDOM, copy preserves source seed')
@@ -169,7 +170,7 @@ def main(argv=None):
                 return 0
 
             options = {key: getattr(args, key) for key in
-                       ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed')
+                       ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed', 'process')
                        if getattr(args, key) is not None}
             if args.copy is not None:
                 project = copy_project(args.copy, args.directory, **options)

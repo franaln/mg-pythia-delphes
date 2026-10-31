@@ -21,8 +21,20 @@ def _string(dumper, value):
 _Dumper.add_representer(str, _string)
 
 
+def _set_process(config, process):
+    if process is None:
+        return
+    if not isinstance(process, str) or not process.strip():
+        raise ValueError('Process must be a nonempty MadGraph command string')
+    if any(key in config for key in ('input_dir', 'input_dirs', 'input_files')):
+        raise ValueError('Process overrides require a configuration with cards, not complete input directories/files')
+    config['process'] = process
+    # An explicit inline block replaces a process card, which otherwise takes priority.
+    config.get('cards', {}).pop('proc', None)
+
+
 def create_project(directory, *, template, name=None, level='parton', mode='local', image=None,
-                   nevents=100, njobs=1, seed=None):
+                   nevents=100, njobs=1, seed=None, process=None):
     """Copy an SM starter YAML/cards into a NEW directory, without running work.
 
     All cards are editable copies. The bundled param card assumes model sm;
@@ -89,6 +101,7 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
                          njobs=njobs, outputs=output_list)
     config['cards'] = cards_dict
     config['options']['seed'] = 'RANDOM' if seed is None else seed
+    _set_process(config, process)
 
     header = (f'# Created from mgpd template; review physics settings before running.\n'
               '# mgpd run resolves these card paths from this directory.\n')
@@ -123,7 +136,7 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
 
 
 def copy_project(source, directory, *, name=None, level=None, mode=None, image=None,
-                 nevents=None, njobs=None, seed=None, input_validator=None):
+                 nevents=None, njobs=None, seed=None, process=None, input_validator=None):
     """Clone editable project files into a new directory; only explicit overrides apply.
 
     Prepared productions, repository metadata and virtual environments are omitted.
@@ -163,6 +176,7 @@ def copy_project(source, directory, *, name=None, level=None, mode=None, image=N
     validate_config(config, base_directory=source)
 
     config = copy.deepcopy(config)
+    _set_process(config, process)
 
     for key, value in (('name', name), ('mode', mode), ('image', image),
                        ('nevents', nevents), ('njobs', njobs)):

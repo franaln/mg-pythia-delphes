@@ -74,6 +74,14 @@ To reuse an existing project:
 
 Use `create_project(output="another-config", copy_from="my-config",
 name="new-sample", njobs=5)`. Only supplied options override the source.
+Pass `process="generate p p > ta+ ta-"` to create or copy a project with a
+specific process. A complete command block with newline characters is accepted,
+including model imports, definitions and `add process`. Omit `process` to retain
+the starter/copied process. An override replaces any process-card reference;
+complete input-directory/file configurations cannot override their process.
+Models other than `sm` require matching cards. MadGraph syntax is checked when
+MadGraph runs, not during creation.
+
 `template` and `copy_from` are mutually exclusive. Outputs must be new directories
 inside the workspace. Project creation never prepares or submits jobs.
 

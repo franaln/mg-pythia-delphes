@@ -115,11 +115,12 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
                                  level: Literal['parton', 'particle', 'detector'] | None = None,
                                  mode: Literal['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter'] | None = None,
                                  image: str | None = None, nevents: int | None = None,
-                                 njobs: int | None = None, seed: int | None = None) -> CallToolResult:
-            """Create a NEW editable project from the proc starter or copy_from directory, never both. Defaults for a starter: parton/local/100 events/1 job/random seed. Copies retain settings except explicit overrides; prepared productions are omitted. Requires --allow-config-write. Review/edit YAML before preparing; no jobs run. On uncertainty inspect output before retrying."""
+                                 njobs: int | None = None, seed: int | None = None,
+                                 process: str | None = None) -> CallToolResult:
+            """Create a NEW editable project from the proc starter or copy_from directory, never both. Defaults for a starter: parton/local/100 events/1 job/random seed. Copies retain settings except explicit overrides; prepared productions are omitted. process accepts a complete inline MadGraph command block, replacing any process card. Model changes require matching cards; complete input-directory/file configurations cannot override process. Requires --allow-config-write. Review/edit YAML before preparing; no jobs run. On uncertainty inspect output before retrying."""
             return await call('create_project', output=output, template=template, copy_from=copy_from,
                               name=name, level=level, mode=mode, image=image,
-                              nevents=nevents, njobs=njobs, seed=seed)
+                              nevents=nevents, njobs=njobs, seed=seed, process=process)
 
         @server.tool(annotations=config_writes, structured_output=False)
         async def apply_config_change(proposal: dict[str, Any], change_sha256: str) -> CallToolResult:

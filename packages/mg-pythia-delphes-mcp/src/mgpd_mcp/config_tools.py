@@ -8,7 +8,7 @@ def dispatch(workspace, request):
     guard = lambda data, base: workspace.config_inputs(data, Path(base))
     if operation == 'create_project':
         output = workspace.new_output(request['output'])
-        options = {key: request[key] for key in ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed')
+        options = {key: request[key] for key in ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed', 'process')
                    if request.get(key) is not None}
         source = request.get('copy_from')
         if source is not None:

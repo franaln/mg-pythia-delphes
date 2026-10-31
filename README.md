@@ -67,11 +67,24 @@ files in `my-config/cards/` before preparing. These are Standard Model starter
 configurations; adapt the process and cards for your analysis.
 `mgpd prepare my-config` writes to `my-config/production/` by default.
 
+Specify a process directly with `--process`, using either one command or a full
+MadGraph block (Bash example):
+
+```bash
+mgpd create tau-pair --process "generate p p > ta+ ta-" --level detector --mode condor
+mgpd create dileptons --process $'import model sm\ngenerate p p > e+ e-\nadd process p p > mu+ mu-'
+```
+
+The block is saved unchanged in `config.yml`. Models other than `sm` require
+matching cards; creation does not generate model-specific cards or check
+MadGraph syntax.
+
 To copy an existing configuration directory and optionally change its settings:
 
 ```bash
 mgpd create another-config --copy my-config
 mgpd create scan-point --copy my-config --name point-02 --njobs 10 --nevents 1000
+mgpd create tau-copy --copy my-config --process "generate p p > ta+ ta-"
 ```
 
 Only supplied options override the copied configuration. Omitted options preserve
@@ -79,7 +92,10 @@ its name, mode, image, event/job counts and seed. You can also override `--level
 this adjusts shower/detector cards and outputs. Copies include editable files and
 referenced inputs; prepared productions, Git metadata and virtual environments
 are omitted. Symlinks are rejected. The source is unchanged and the destination
-must not exist. Use either `--copy` or `--template`.
+must not exist. Use either `--copy` or `--template`. An explicit `--process`
+replaces the inline process and any `cards.proc` entry; omitting it preserves the
+source process. Process overrides are unavailable for complete input-directory
+or input-file configurations, whose process is already in `run.mg5`.
 
 A minimal configuration uses an existing run card:
 

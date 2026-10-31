@@ -86,6 +86,24 @@ class ProjectTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(result.is_error)
                 self.assertFalse((self.root / 'bad-config').exists())
 
+    async def test_custom_process_creation_copy_and_invalid_process(self):
+        process = 'import model sm\ngenerate p p > ta+ ta-\nadd process p p > mu+ mu-\n'
+        async with self.client(True) as client:
+            for output, options in [('custom', {}), ('copied', {'copy_from': 'custom'})]:
+                result = await client.call_tool('create_project', {'output': output, 'process': process, **options})
+                self.assertFalse(result.is_error, result)
+                self.assertEqual(mgpd.load_project_config(self.root / output)['process'], process)
+            result = await client.call_tool('create_project', {'output': 'changed', 'copy_from': 'custom',
+                                                               'process': 'generate p p > b b~'})
+            self.assertFalse(result.is_error, result)
+            self.assertEqual(mgpd.load_project_config(self.root / 'changed')['process'], 'generate p p > b b~')
+            self.assertEqual(mgpd.load_project_config(self.root / 'custom')['process'], process)
+            for output, options in [('bad', {}), ('bad-copy', {'copy_from': 'custom'})]:
+                result = await client.call_tool('create_project', {'output': output, 'process': '  ', **options})
+                self.assertTrue(result.is_error)
+                self.assertFalse((self.root / output).exists())
+        self.assertFalse(any(self.root.rglob('manifest.json')))
+
     async def test_creation_timeout_is_unknown(self):
         async with self.client(True, timeout=.000001) as client:
             result = await client.call_tool('create_project', {'output': 'uncertain'})

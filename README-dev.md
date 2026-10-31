@@ -928,3 +928,19 @@ under `_mgpd_inputs/`; absolute/internal paths are rebased to the copy. Arbitrar
 paths embedded in MadGraph commands or shell snippets are not rewritten. Copying
 reserializes YAML; the source is never modified. Level overrides require inline
 process/cards configurations. `compat.py` was removed; tests import owning modules.
+
+
+### Custom processes during project creation
+
+CLI `mgpd create ... --process "generate p p > ta+ ta-"` and MCP
+`create_project(..., process="generate p p > ta+ ta-")` share the same core
+parameter for starter creation and copying. Multiline blocks are preserved
+exactly. Omission preserves the template/source process. Empty/non-string values
+are rejected before publication. For copies, an explicit process also removes
+`cards.proc` so the requested inline block takes precedence; complete input
+file/directory configurations refuse this override. Model/card compatibility
+and MadGraph syntax still require a real generation test.
+
+For the Jupiter pilot, create a small tau-pair project with a custom process,
+inspect its YAML and prepared `run.mg5`, then execute and validate it. Repeat
+through MCP and check that copying with a new process leaves the source unchanged.
