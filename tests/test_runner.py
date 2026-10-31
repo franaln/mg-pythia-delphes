@@ -12,7 +12,13 @@ import yaml as yaml_lib
 from unittest.mock import patch
 
 SCRIPT = 'mgpd'
-from mgpd import compat as runner
+from mgpd.cli import main
+from mgpd.config import get_expert_options, load_config, validate_config
+from mgpd.execution import execute_production, load_prepared_production
+from mgpd.models import MAX_SEED
+from mgpd.preparation import allocate_seeds, prepare_production, render_seeded_run
+from mgpd.storage import execution_lock, read_production_manifest, write_manifest
+from mgpd.templates import load_template
 from mgpd import preparation as preparation_module
 
 
@@ -26,14 +32,14 @@ class RunnerTests(unittest.TestCase):
     def test_validation_rejects_missing_cards_and_bad_counts(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.config(Path(tmp))
-            runner.validate_config(config)
+            validate_config(config)
             config['run']['njobs'] = 0
             with self.assertRaises(ValueError):
-                runner.validate_config(config)
+                validate_config(config)
             config['run']['njobs'] = 1
             config['cards']['run'] = str(Path(tmp) / 'absent')
             with self.assertRaises(ValueError):
-                runner.validate_config(config)
+                validate_config(config)
 
     def test_validate_config_does_not_touch_existing_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -46,12 +52,12 @@ class RunnerTests(unittest.TestCase):
             yaml = root / 'config.yml'
             yaml.write_text(yaml_lib.safe_dump(config))
             with patch('sys.argv', [str(SCRIPT), 'validate-config', str(yaml)]):
-                runner.main()
+                main()
             self.assertEqual(marker.read_text(), 'keep')
 
     def test_failed_madgraph_is_reported_by_both_wrappers(self):
-        for template in (runner.template_run_local_script, runner.template_run_condor_script):
-            with self.subTest(condor=template == runner.template_run_condor_script):
+        for template in (load_template('run_mgpd_local.sh'), load_template('run_mgpd_condor.sh')):
+            with self.subTest(condor=template == load_template('run_mgpd_condor.sh')):
                 with tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
                     executable = root / 'mg5_aMC'
@@ -70,21 +76,21 @@ class RunnerTests(unittest.TestCase):
                     self.assertIn('ERROR running MadGraph', result.stderr)
 
     def test_integer_core_count(self):
-        self.assertEqual(runner.get_expert_options({'expert': {'ncores': 2}}), ['set nb_core 2'])
+        self.assertEqual(get_expert_options({'expert': {'ncores': 2}}), ['set nb_core 2'])
 
     def test_seed_allocation_is_unique_reproducible_and_bounded(self):
-        self.assertEqual(runner.allocate_seeds(30080, 3), [30080, 1, 2])
-        seeds = runner.allocate_seeds('RANDOM', 100)
+        self.assertEqual(allocate_seeds(30080, 3), [30080, 1, 2])
+        seeds = allocate_seeds('RANDOM', 100)
         self.assertEqual(len(set(seeds)), 100)
-        self.assertTrue(all(1 <= value <= runner.MAX_SEED for value in seeds))
+        self.assertTrue(all(1 <= value <= MAX_SEED for value in seeds))
         for seed in (-1, True, 30081, 'bad'):
             with self.assertRaises(ValueError):
-                runner.allocate_seeds(seed, 1)
+                allocate_seeds(seed, 1)
         with self.assertRaises(ValueError):
-            runner.allocate_seeds(1, runner.MAX_SEED + 1)
+            allocate_seeds(1, MAX_SEED + 1)
 
     def test_render_seed_replaces_existing_override(self):
-        result = runner.render_seeded_run('launch RUN\nset iseed = 0\nset iseed 23\ndone\n', 17)
+        result = render_seeded_run('launch RUN\nset iseed = 0\nset iseed 23\ndone\n', 17)
         self.assertEqual(result.count('iseed'), 1)
         self.assertTrue(result.endswith('set iseed = 17\ndone\n'))
 
@@ -99,7 +105,7 @@ class RunnerTests(unittest.TestCase):
                 yaml.write_text(yaml_lib.safe_dump(config))
                 output = root / 'production'
                 with patch('sys.argv', [str(SCRIPT), 'prepare', str(yaml), '-o', str(output)]):
-                    runner.main()
+                    main()
                 manifest = json.loads((output / 'manifest.json').read_text())
                 self.assertEqual(manifest['state'], 'prepared')
                 self.assertEqual([job['seed'] for job in manifest['jobs']], [20, 21, 22])
@@ -130,7 +136,7 @@ class RunnerTests(unittest.TestCase):
                                   'touch RUN/Events/run_01/unweighted_events.lhe.gz\n')
             executable.chmod(0o755)
             script = root / 'run.sh'
-            script.write_text(runner.template_run_condor_script)
+            script.write_text(load_template('run_mgpd_condor.sh'))
             env = dict(os.environ, MG_DIR='/unused', PATH=str(root) + ':' + os.environ['PATH'])
             result = subprocess.run(['bash', str(script), 'sample', 'inputs.tar.gz',
                                      'lhe', 'output', 'seeded.mg5'], cwd=root, env=env,
@@ -148,7 +154,7 @@ class RunnerTests(unittest.TestCase):
             output = root / 'production'
             with patch('sys.argv', [str(SCRIPT), 'run', str(yaml), '-o', str(output)]), \
                  patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'docker')):
-                self.assertEqual(runner.main(), 1)
+                self.assertEqual(main(), 1)
             manifest = json.loads((output / 'manifest.json').read_text())
             self.assertEqual(manifest['state'], 'failed')
             self.assertEqual(manifest['failed_job_id'], 'sample_00000')
@@ -163,12 +169,12 @@ class RunnerTests(unittest.TestCase):
             original = copy.deepcopy(config)
             cwd = Path.cwd()
             with patch.object(subprocess, 'run') as launch:
-                production = runner.prepare_production(config, root / 'production')
+                production = prepare_production(config, root / 'production')
                 launch.assert_not_called()
             self.assertEqual(config, original)
             self.assertEqual(Path.cwd(), cwd)
             self.assertEqual([job['seed'] for job in production.manifest['jobs']], [101, 102])
-            self.assertEqual(runner.read_production_manifest(production.output_dir), production.manifest)
+            self.assertEqual(read_production_manifest(production.output_dir), production.manifest)
             self.assertEqual(production.manifest['state'], 'prepared')
 
     def test_programmatic_execution_uses_prepared_commands_and_seeds(self):
@@ -178,12 +184,12 @@ class RunnerTests(unittest.TestCase):
                 config = self.config(root)
                 config['run'].update(mode=mode, njobs=2, image='mg-pythia-delphes-latest')
                 config['options'] = {'seed': 203}
-                production = runner.prepare_production(config, root / 'production')
+                production = prepare_production(config, root / 'production')
                 frozen = {job['run_file']: (Path(production.output_dir) / job['run_file']).read_bytes()
                           for job in production.manifest['jobs']}
                 with patch.object(preparation_module, 'allocate_seeds', side_effect=AssertionError('must not reallocate')), \
                      patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='123.0 - 123.1\n', stderr='')) as launch:
-                    result = runner.execute_production(production)
+                    result = execute_production(production)
                 if mode in ('condor', 'jupiter'):
                     launch.assert_called_once_with(['condor_submit', '-terse', '-maxjobs', '2', production.submit_file],
                                                    cwd=production.output_dir, capture_output=True, text=True, check=True)
@@ -198,7 +204,7 @@ class RunnerTests(unittest.TestCase):
                     for invocation in launch.call_args_list:
                         self.assertEqual(invocation.args[0][0], mode.removeprefix('local-'))
                     self.assertEqual(result['state'], 'execution_finished')
-                    self.assertEqual(runner.read_production_manifest(production.output_dir)['state'],
+                    self.assertEqual(read_production_manifest(production.output_dir)['state'],
                                      'execution_finished')
                 for path, contents in frozen.items():
                     self.assertEqual((Path(production.output_dir) / path).read_bytes(), contents)
@@ -212,11 +218,11 @@ class RunnerTests(unittest.TestCase):
             marker = output / 'keep'
             marker.write_text('preserve')
             with self.assertRaises(FileExistsError):
-                runner.prepare_production(config, output)
+                prepare_production(config, output)
             self.assertEqual(marker.read_text(), 'preserve')
             config['run'].update(mode='condor', image='unsupported')
             with self.assertRaises(ValueError):
-                runner.prepare_production(config, root / 'invalid')
+                prepare_production(config, root / 'invalid')
             self.assertFalse((root / 'invalid').exists())
 
     def test_load_config_applies_mode_override_without_rewriting_yaml(self):
@@ -226,7 +232,7 @@ class RunnerTests(unittest.TestCase):
             source = root / 'config.yml'
             text = yaml_lib.safe_dump(config)
             source.write_text(text)
-            loaded = runner.load_config(source, run_mode='condor')
+            loaded = load_config(source, run_mode='condor')
             self.assertEqual(loaded['run']['mode'], 'condor')
             self.assertEqual(source.read_text(), text)
 
@@ -235,7 +241,7 @@ class RunnerTests(unittest.TestCase):
         config = self.config(root)
         config['run'].update(mode=mode, image='mg-pythia-delphes-latest')
         config['options'] = {'seed': 101}
-        return runner.prepare_production(config, root / 'production')
+        return prepare_production(config, root / 'production')
 
     def test_saved_production_survives_move_and_missing_original_inputs(self):
         for mode in ('condor', 'local-docker'):
@@ -247,9 +253,9 @@ class RunnerTests(unittest.TestCase):
                 (root / 'run card.dat').unlink()
                 with patch.object(preparation_module, 'allocate_seeds', side_effect=AssertionError('must not rebuild')), \
                      patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='123.0\n', stderr='')) as launch:
-                    loaded = runner.load_prepared_production(moved)
+                    loaded = load_prepared_production(moved)
                     launch.assert_not_called()
-                    result = runner.execute_production(loaded)
+                    result = execute_production(loaded)
                 self.assertEqual(result['jobs'][0]['seed'], 101)
                 if mode == 'condor':
                     self.assertEqual(launch.call_args.kwargs['cwd'], str(moved.resolve()))
@@ -269,32 +275,32 @@ class RunnerTests(unittest.TestCase):
                 path.write_bytes(path.read_bytes() + b'changed')
                 with patch.object(subprocess, 'run') as launch:
                     with self.assertRaisesRegex(ValueError, 'missing or changed'):
-                        runner.execute_production(production)
+                        execute_production(production)
                     launch.assert_not_called()
-                self.assertNotIn('execution_attempt', runner.read_production_manifest(production.output_dir))
+                self.assertNotIn('execution_attempt', read_production_manifest(production.output_dir))
 
     def test_changed_plan_metadata_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             production = self.prepared(Path(tmp))
-            changed = runner.read_production_manifest(production.output_dir)
+            changed = read_production_manifest(production.output_dir)
             changed['jobs'][0]['seed'] = 456
-            runner.write_manifest(production.output_dir, changed)
+            write_manifest(production.output_dir, changed)
             with self.assertRaisesRegex(ValueError, 'metadata changed'):
-                runner.load_prepared_production(production.output_dir)
+                load_prepared_production(production.output_dir)
 
     def test_stale_objects_cannot_submit_twice_and_force_cannot_reset_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             production = self.prepared(root)
-            stale = runner.load_prepared_production(production.output_dir)
+            stale = load_prepared_production(production.output_dir)
             with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='123.0\n', stderr='')) as launch:
-                runner.execute_production(production)
+                execute_production(production)
                 with self.assertRaisesRegex(ValueError, 'already been attempted'):
-                    runner.execute_production(stale)
+                    execute_production(stale)
                 self.assertEqual(launch.call_count, 1)
             with self.assertRaisesRegex(ValueError, 'Cannot overwrite an attempted'):
-                runner.prepare_production(self.config(root), production.output_dir, force=True)
-            self.assertEqual(runner.read_production_manifest(production.output_dir)['state'], 'submitted')
+                prepare_production(self.config(root), production.output_dir, force=True)
+            self.assertEqual(read_production_manifest(production.output_dir)['state'], 'submitted')
 
     def test_ambiguous_submission_is_recorded_and_cannot_be_retried(self):
         for error in (subprocess.CalledProcessError(1, 'condor_submit', output='partial submission', stderr='failed'), KeyboardInterrupt()):
@@ -302,39 +308,39 @@ class RunnerTests(unittest.TestCase):
                 production = self.prepared(Path(tmp))
                 with patch.object(subprocess, 'run', side_effect=error):
                     with self.assertRaises(type(error)):
-                        runner.execute_production(production)
-                manifest = runner.read_production_manifest(production.output_dir)
+                        execute_production(production)
+                manifest = read_production_manifest(production.output_dir)
                 self.assertEqual(manifest['state'], 'submission_unknown')
                 self.assertIn('execution_attempt', manifest)
                 with self.assertRaisesRegex(ValueError, 'already been attempted'):
-                    runner.execute_production(production)
+                    execute_production(production)
 
     def test_lock_prevents_overlapping_launches(self):
         with tempfile.TemporaryDirectory() as tmp:
             production = self.prepared(Path(tmp))
-            with runner.execution_lock(production.output_dir), patch.object(subprocess, 'run') as launch:
+            with execution_lock(production.output_dir), patch.object(subprocess, 'run') as launch:
                 with self.assertRaisesRegex(ValueError, 'Another process'):
-                    runner.execute_production(production)
+                    execute_production(production)
                 launch.assert_not_called()
-            self.assertEqual(runner.read_production_manifest(production.output_dir)['state'], 'prepared')
+            self.assertEqual(read_production_manifest(production.output_dir)['state'], 'prepared')
 
     def test_legacy_manifest_requires_new_preparation(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'manifest.json').write_text('{"schema_version": 1}')
             with self.assertRaisesRegex(ValueError, 'prepare a new production'):
-                runner.load_prepared_production(tmp)
+                load_prepared_production(tmp)
 
 
     def test_repreparing_unexecuted_output_invalidates_old_object(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             old = self.prepared(root)
-            replacement = runner.prepare_production(self.config(root), old.output_dir, force=True)
+            replacement = prepare_production(self.config(root), old.output_dir, force=True)
             self.assertNotEqual(old.manifest['production_id'], replacement.manifest['production_id'])
-            runner.load_prepared_production(replacement.output_dir)
+            load_prepared_production(replacement.output_dir)
             with patch.object(subprocess, 'run') as launch:
                 with self.assertRaisesRegex(ValueError, 'replaced after it was loaded'):
-                    runner.execute_production(old)
+                    execute_production(old)
                 launch.assert_not_called()
 
     def test_saved_execution_rejects_preparation_flags(self):
@@ -342,7 +348,7 @@ class RunnerTests(unittest.TestCase):
                       ['--validate-only'], ['--mode', 'condor'], ['-o', 'other']):
             with self.subTest(extra=extra), patch.object(subprocess, 'run') as launch:
                 with self.assertRaises(SystemExit) as error:
-                    runner.main(['execute', 'production', *extra])
+                    main(['execute', 'production', *extra])
                 self.assertEqual(error.exception.code, 2)
                 launch.assert_not_called()
 
@@ -354,13 +360,13 @@ class RunnerTests(unittest.TestCase):
                 response = subprocess.CompletedProcess([], 0, stdout=output, stderr='')
                 with patch.object(subprocess, 'run', return_value=response) as launch:
                     with self.assertRaises(ValueError):
-                        runner.execute_production(production)
+                        execute_production(production)
                     self.assertEqual(launch.call_count, 1)
-                saved = runner.read_production_manifest(production.output_dir)
+                saved = read_production_manifest(production.output_dir)
                 self.assertEqual(saved['state'], 'submission_unknown')
                 self.assertEqual(saved['submission']['stdout'], output)
                 with self.assertRaisesRegex(ValueError, 'already been attempted'):
-                    runner.execute_production(production)
+                    execute_production(production)
 
 
 

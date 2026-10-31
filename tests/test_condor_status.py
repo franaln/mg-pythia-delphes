@@ -7,7 +7,9 @@ import unittest
 from unittest.mock import patch
 
 SCRIPT = 'mgpd'
-from mgpd import compat as runner
+from mgpd.cli import main
+from mgpd.condor import condor_ad_status, parse_condor_job_ids, production_status
+from mgpd.storage import write_manifest
 
 
 class CondorStatusTests(unittest.TestCase):
@@ -17,7 +19,7 @@ class CondorStatusTests(unittest.TestCase):
                  'submission': {'identity_tagged': tagged, 'jobs': [
                      {'job_id': f'sample_{i}', 'sample': 'sample', 'scheduler_id': f'123.{i}'}
                      for i in range(count)]}}
-        runner.write_manifest(root, value)
+        write_manifest(root, value)
         return value
 
     def ad(self, index, status, **extra):
@@ -28,13 +30,13 @@ class CondorStatusTests(unittest.TestCase):
         return subprocess.CompletedProcess([], 0, stdout=json.dumps(records), stderr='')
 
     def test_terse_ranges_count_and_duplicate_checks(self):
-        self.assertEqual(runner.parse_condor_job_ids('12.0 - 12.2\n13.0\n', 4),
+        self.assertEqual(parse_condor_job_ids('12.0 - 12.2\n13.0\n', 4),
                          ['12.0', '12.1', '12.2', '13.0'])
         for stdout in ('', 'warning text', '12.1 - 13.2', '12.2 - 12.0', '12.0\n12.0', '12.0 - 12.100000000'):
             with self.subTest(stdout=stdout), self.assertRaises(ValueError):
-                runner.parse_condor_job_ids(stdout, 2)
+                parse_condor_job_ids(stdout, 2)
         with self.assertRaisesRegex(ValueError, 'Expected 2'):
-            runner.parse_condor_job_ids('12.0', 2)
+            parse_condor_job_ids('12.0', 2)
 
     def test_queue_then_history_only_for_missing_ids_and_no_manifest_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -44,7 +46,7 @@ class CondorStatusTests(unittest.TestCase):
             responses = [self.response([self.ad(0, 2)]),
                          self.response([self.ad(1, 4, ExitBySignal=False, ExitCode=0)])]
             with patch.object(subprocess, 'run', side_effect=responses) as query:
-                result = runner.production_status(root)
+                result = production_status(root)
             self.assertEqual([job['state'] for job in result['jobs']], ['running', 'completed'])
             self.assertEqual([job['source'] for job in result['jobs']], ['queue', 'history'])
             self.assertEqual(result['counts'], {'running': 1, 'completed': 1})
@@ -62,7 +64,7 @@ class CondorStatusTests(unittest.TestCase):
                 responses = [subprocess.CompletedProcess([], 0, stdout=stdout, stderr=''),
                              self.response([self.ad(i, 4, ExitBySignal=False, ExitCode=0) for i in range(2)])]
                 with patch.object(subprocess, 'run', side_effect=responses):
-                    status = runner.production_status(root)
+                    status = production_status(root)
                 self.assertEqual(status['counts'], {'completed': 2})
                 self.assertEqual(status['query_errors'], [])
                 self.assertTrue(all(job['source'] == 'history' for job in status['jobs']))
@@ -72,7 +74,7 @@ class CondorStatusTests(unittest.TestCase):
             root = Path(tmp)
             self.manifest(root)
             with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='', stderr='')):
-                status = runner.production_status(root)
+                status = production_status(root)
             self.assertEqual(status['counts'], {'unknown': 2})
             self.assertEqual(status['query_errors'], [])
 
@@ -82,7 +84,7 @@ class CondorStatusTests(unittest.TestCase):
             self.manifest(root)
             with patch.object(subprocess, 'run', side_effect=[
                     subprocess.CompletedProcess([], 0, stdout='', stderr='scheduler warning'), self.response([])]):
-                status = runner.production_status(root)
+                status = production_status(root)
             self.assertTrue(status['query_errors'])
             self.assertEqual(status['counts'], {'unknown': 2})
 
@@ -98,7 +100,7 @@ class CondorStatusTests(unittest.TestCase):
                  (self.ad(0, True), 'unknown')]
         for ad, expected in cases:
             with self.subTest(ad=ad):
-                self.assertEqual(runner.condor_ad_status(ad), expected)
+                self.assertEqual(condor_ad_status(ad), expected)
 
     def test_missing_history_and_identity_mismatches_are_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,7 +111,7 @@ class CondorStatusTests(unittest.TestCase):
             wrong_production = self.ad(1, 4, ExitBySignal=False, ExitCode=0)
             wrong_production['MGProductionId'] = 'b' * 32
             with patch.object(subprocess, 'run', side_effect=[self.response([wrong_job, wrong_production]), self.response([])]):
-                result = runner.production_status(root)
+                result = production_status(root)
             self.assertEqual(result['state'], 'unknown')
             self.assertEqual(result['counts'], {'unknown': 2})
 
@@ -122,7 +124,7 @@ class CondorStatusTests(unittest.TestCase):
                 root = Path(tmp)
                 self.manifest(root)
                 with patch.object(subprocess, 'run', side_effect=[error, self.response([])]):
-                    result = runner.production_status(root)
+                    result = production_status(root)
                 self.assertEqual(result['counts'], {'unknown': 2})
                 self.assertTrue(result['query_errors'])
 
@@ -132,7 +134,7 @@ class CondorStatusTests(unittest.TestCase):
             self.manifest(root, count=1)
             with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 5, HoldReason='Input transfer failed', HoldReasonCode=13)])) as query:
-                result = runner.production_status(root)
+                result = production_status(root)
             query.assert_called_once()
             self.assertEqual(result['state'], 'held')
             self.assertEqual(result['jobs'][0]['HoldReason'], 'Input transfer failed')
@@ -143,13 +145,13 @@ class CondorStatusTests(unittest.TestCase):
             value = self.manifest(root)
             value['state'] = 'prepared'
             value.pop('submission')
-            runner.write_manifest(root, value)
+            write_manifest(root, value)
             with patch.object(subprocess, 'run') as query:
-                result = runner.production_status(root)
+                result = production_status(root)
                 self.assertEqual(result['state'], 'prepared')
                 value.update(mode='local-apptainer', state='execution_finished')
-                runner.write_manifest(root, value)
-                self.assertEqual(runner.production_status(root)['state'], 'execution_finished')
+                write_manifest(root, value)
+                self.assertEqual(production_status(root)['state'], 'execution_finished')
                 query.assert_not_called()
 
     def test_old_raw_submission_output_can_be_read_without_migration(self):
@@ -157,11 +159,11 @@ class CondorStatusTests(unittest.TestCase):
             root = Path(tmp)
             value = self.manifest(root, tagged=False)
             value['submission'] = {'stdout': '123.0 - 123.1\n'}
-            runner.write_manifest(root, value)
+            write_manifest(root, value)
             before = (root / 'manifest.json').read_bytes()
             with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 1), self.ad(1, 2)])) as query:
-                result = runner.production_status(root)
+                result = production_status(root)
             self.assertEqual(result['counts'], {'pending': 1, 'running': 1})
             self.assertFalse(result['identity_checks_enabled'])
             self.assertNotIn('MGProductionId ==', query.call_args.args[0][-1])
@@ -176,7 +178,7 @@ class CondorStatusTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(subprocess, 'run', return_value=self.response([
                     self.ad(0, 4, ExitBySignal=False, ExitCode=0)])), redirect_stdout(output):
-                code = runner.main(['status', str(root), '--json'])
+                code = main(['status', str(root), '--json'])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output.getvalue())['state'], 'completed')
 

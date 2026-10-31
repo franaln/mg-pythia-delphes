@@ -1,0 +1,24 @@
+# run.mg5
+
+# Config options
+${expert_options}
+
+# Process
+${process}
+
+# Output dir
+output RUN
+launch RUN
+
+# MadSpin/Pythia/Delphes
+${run_madspin}
+${run_pythia}
+${run_delphes}
+
+# Cards
+${cards}
+
+# Run Options
+${options}
+
+done

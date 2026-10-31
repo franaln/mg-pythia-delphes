@@ -13,7 +13,9 @@ import unittest
 from unittest.mock import patch
 
 SCRIPT = 'mgpd'
-from mgpd import compat as runner
+from mgpd.cli import main
+from mgpd.results import validate_production
+from mgpd.storage import write_manifest
 
 
 def lhe(events=2, seed=101, cross=10, closed=True):
@@ -47,7 +49,7 @@ class ResultsTests(unittest.TestCase):
                 directory = root / Path(job['run_file']).parent / 'RUN/Events/run_01'
                 directory.mkdir(parents=True)
                 (directory / 'unweighted_events.lhe.gz').write_bytes(lhe(seed=job['seed']))
-        runner.write_manifest(root, manifest)
+        write_manifest(root, manifest)
         return manifest
 
     def archive(self, root, index=0, contents=None):
@@ -66,7 +68,7 @@ class ResultsTests(unittest.TestCase):
             self.archive(root, 1)
             before = (root / 'manifest.json').read_bytes()
             with patch.object(subprocess, 'run', side_effect=AssertionError('No scheduler calls')):
-                result = runner.validate_production(root)
+                result = validate_production(root)
             self.assertEqual(result['state'], 'valid')
             self.assertEqual(result['samples']['sample']['validated_lhe_events'], 4)
             self.assertEqual([entry['value'] for entry in result['samples']['sample']['cross_sections_pb']], [10, 10])
@@ -76,10 +78,10 @@ class ResultsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest = self.fixture(root, 'condor')
-            self.assertEqual(runner.validate_production(root)['counts'], {'missing': 1})
+            self.assertEqual(validate_production(root)['counts'], {'missing': 1})
             manifest.pop('submission')
-            runner.write_manifest(root, manifest)
-            result = runner.validate_production(root)
+            write_manifest(root, manifest)
+            result = validate_production(root)
             self.assertEqual(result['state'], 'incomplete')
             self.assertEqual(result['counts'], {'unavailable': 1})
 
@@ -87,7 +89,7 @@ class ResultsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.fixture(root, outputs=['lhe', 'root'])
-            result = runner.validate_production(root)
+            result = validate_production(root)
             self.assertEqual(result['state'], 'incomplete')
             self.assertEqual(result['jobs'][0]['metrics']['lhe_events'], 2)
             self.assertEqual(result['jobs'][0]['outputs']['root']['state'], 'missing')
@@ -99,7 +101,7 @@ class ResultsTests(unittest.TestCase):
                 root = Path(tmp)
                 self.fixture(root)
                 (root / 'run_sample_0/RUN/Events/run_01/unweighted_events.lhe.gz').write_bytes(data)
-                self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+                self.assertEqual(validate_production(root)['state'], 'invalid')
 
     def test_relaxed_policy_is_explicit_and_never_allows_nonfinite_cross_sections(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,14 +109,14 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root)
             path = root / 'run_sample_0/RUN/Events/run_01/unweighted_events.lhe.gz'
             path.write_bytes(lhe(events=1, seed=999, cross=-2))
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
-            result = runner.validate_production(root, event_count='nonempty',
+            self.assertEqual(validate_production(root)['state'], 'invalid')
+            result = validate_production(root, event_count='nonempty',
                                                 require_positive_cross_section=False, check_seed=False)
             self.assertEqual(result['state'], 'valid')
             self.assertFalse(result['policy']['check_seed'])
             self.assertEqual(result['jobs'][0]['metrics']['cross_section_pb'], -2)
             path.write_bytes(lhe(cross='nan'))
-            self.assertEqual(runner.validate_production(root, require_positive_cross_section=False)['state'], 'invalid')
+            self.assertEqual(validate_production(root, require_positive_cross_section=False)['state'], 'invalid')
 
     def test_ignore_count_allows_empty_but_well_formed_lhe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,8 +124,8 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root)
             path = root / 'run_sample_0/RUN/Events/run_01/unweighted_events.lhe.gz'
             path.write_bytes(lhe(events=0))
-            self.assertEqual(runner.validate_production(root, event_count='nonempty')['state'], 'invalid')
-            self.assertEqual(runner.validate_production(root, event_count='ignore')['state'], 'valid')
+            self.assertEqual(validate_production(root, event_count='nonempty')['state'], 'invalid')
+            self.assertEqual(validate_production(root, event_count='ignore')['state'], 'valid')
 
     def test_failed_execution_is_distinct_from_valid_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,7 +133,7 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root, 'condor')
             self.archive(root)
             (root / 'job_sample_123_0.log').write_text('Normal termination (return value 0)\nJob was aborted\n')
-            job = runner.validate_production(root)['jobs'][0]
+            job = validate_production(root)['jobs'][0]
             self.assertEqual(job['outputs_state'], 'valid')
             self.assertEqual(job['execution_state'], 'failed')
             self.assertEqual(job['state'], 'invalid')
@@ -142,10 +144,10 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root, 'condor')
             path = root / 'output_sample_123_0.tar.gz'
             path.write_bytes(b'not a tar file')
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+            self.assertEqual(validate_production(root)['state'], 'invalid')
             self.archive(root, contents=[('one/x_unweighted_events.lhe.gz', lhe()),
                                          ('two/x_unweighted_events.lhe.gz', lhe())])
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+            self.assertEqual(validate_production(root)['state'], 'invalid')
 
     def test_hepmc_crc_is_checked_through_end_of_stream(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -154,11 +156,11 @@ class ResultsTests(unittest.TestCase):
             path = root / 'run_sample_0/RUN/Events/run_01/sample_pythia8_events.hepmc.gz'
             data = gzip.compress(b'HepMC::Version 2.06.09\n' + b'E 1\n' * 5000)
             path.write_bytes(data)
-            self.assertEqual(runner.validate_production(root)['state'], 'valid')
+            self.assertEqual(validate_production(root)['state'], 'valid')
             corrupt = bytearray(data)
             corrupt[-8] ^= 1
             path.write_bytes(corrupt)
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+            self.assertEqual(validate_production(root)['state'], 'invalid')
 
     def test_missing_root_dependency_is_unavailable_not_bad_data(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,7 +169,7 @@ class ResultsTests(unittest.TestCase):
             path = root / 'run_sample_0/RUN/Events/run_01/sample_delphes_events.root'
             path.write_bytes(b'placeholder')
             with patch.dict(sys.modules, {'uproot': None}):
-                result = runner.validate_production(root)
+                result = validate_production(root)
             self.assertEqual(result['state'], 'incomplete')
             self.assertEqual(result['counts'], {'unavailable': 1})
 
@@ -182,14 +184,14 @@ class ResultsTests(unittest.TestCase):
             with uproot.recreate(path) as output:
                 tree = output.mktree('Delphes', {'Particle.PT': 'float64'})
                 tree.extend({'Particle.PT': np.array([10., 20.])})
-            result = runner.validate_production(root)
+            result = validate_production(root)
             self.assertEqual(result['state'], 'valid')
             self.assertEqual(result['samples']['sample']['validated_delphes_events'], 2)
             with uproot.recreate(path) as output:
                 output.mktree('Delphes', {'Particle.PT': 'float64'})
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+            self.assertEqual(validate_production(root)['state'], 'invalid')
             path.write_bytes(b'not a ROOT file')
-            self.assertEqual(runner.validate_production(root)['state'], 'invalid')
+            self.assertEqual(validate_production(root)['state'], 'invalid')
 
     def test_madspin_decayed_directory_and_local_logs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,7 +200,7 @@ class ResultsTests(unittest.TestCase):
             base = root / 'run_sample_0/RUN'
             (base / 'Events/run_01').rename(base / 'Events/run_01_decayed_1')
             (base / 'generation.log').write_text('finished')
-            result = runner.validate_production(root)
+            result = validate_production(root)
             self.assertEqual(result['state'], 'valid')
             self.assertEqual(result['jobs'][0]['metrics']['log_files'], 1)
             self.assertIn('run_01_decayed_1', result['jobs'][0]['location'])
@@ -209,11 +211,11 @@ class ResultsTests(unittest.TestCase):
             self.fixture(root)
             output = io.StringIO()
             with redirect_stdout(output):
-                code = runner.main(['validate-results', str(root), '--json'])
+                code = main(['validate-results', str(root), '--json'])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(output.getvalue())['state'], 'valid')
             with self.assertRaises(SystemExit):
-                runner.main(['status', str(root), '--event-count', 'ignore'])
+                main(['status', str(root), '--event-count', 'ignore'])
 
 
 if __name__ == '__main__':

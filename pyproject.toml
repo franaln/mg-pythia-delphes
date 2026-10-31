@@ -34,4 +34,4 @@ where = ["src"]
 version = {attr = "mgpd._version.__version__"}
 
 [tool.setuptools.package-data]
-mgpd = ["data/config_templates/*.yml", "data/cards/*.dat"]
+mgpd = ["data/templates/*", "data/cards/*.dat"]

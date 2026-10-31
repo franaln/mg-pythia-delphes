@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from mgpd.cli import main, parse_args
-from mgpd.projects import create_project
+from mgpd.templates import _resource
+import yaml
 
 
 class CommandTests(unittest.TestCase):
@@ -18,7 +19,17 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.project = self.root / 'project'
-        create_project(self.project, mode='local-apptainer', image='test.sif')
+        (self.project / 'cards').mkdir(parents=True)
+        for name in ('run_card.dat', 'param_card.dat'):
+            (self.project / 'cards' / name).write_bytes(_resource('cards/' + name).read_bytes())
+        config = {
+            'run': {'name': 'project', 'mode': 'local-apptainer', 'image': 'test.sif',
+                    'nevents': 100, 'njobs': 1, 'outputs': ['lhe', 'log']},
+            'process': 'import model sm\ngenerate p p > e+ e-',
+            'cards': {'run': 'cards/run_card.dat', 'param': 'cards/param_card.dat'},
+            'options': {'seed': 101},
+        }
+        (self.project / 'config.yml').write_text(yaml.safe_dump(config))
 
     def call(self, arguments):
         output = io.StringIO()
@@ -65,11 +76,10 @@ class CommandTests(unittest.TestCase):
         self.assertFalse(json.loads(output)['valid'])
         report = {'state': 'invalid', 'recorded_state': 'failed', 'jobs': [], 'samples': {}, 'metadata_errors': []}
         with patch('mgpd.cli.validate_production', return_value=report) as validate:
-            code, output = self.call(['validate-results', 'production', '--json', '--event-count', 'nonempty', '--skip-seed-check'])
+            code, output = self.call(['validate-results', 'production', '--json'])
             self.assertEqual(code, 1)
             self.assertEqual(json.loads(output)['state'], 'invalid')
-            self.assertFalse(validate.call_args.kwargs['check_seed'])
-            self.assertEqual(validate.call_args.kwargs['event_count'], 'nonempty')
+            validate.assert_called_once_with('production')
 
     def test_explicit_input_base_supports_saved_as_configurations(self):
         copied = self.root / 'copied.yml'
@@ -101,6 +111,21 @@ class CommandTests(unittest.TestCase):
                           ['recover', 'production', '--plan', '--job-id', 'sample_00000']):
             with self.assertRaises(SystemExit):
                 self.call(arguments)
+
+    def test_create_dispatches_template_and_level(self):
+        for level in ('parton', 'particle', 'detector'):
+            with self.subTest(level=level), patch('mgpd.cli.create_project', return_value={
+                    'template': 'proc', 'directory': 'new', 'config_path': 'new/config.yml'}) as create:
+                self.assertEqual(self.call(['create', 'new', '--level', level])[0], 0)
+                create.assert_called_once_with('new', template='proc', name=None, level=level,
+                                               mode='local', image=None, nevents=100, njobs=1, seed=None)
+        _, args = parse_args(['create', 'new'])
+        self.assertEqual(args.level, 'parton')
+        with self.assertRaises(SystemExit):
+            self.call(['create', 'new', '--level', 'unknown'])
+        code, output = self.call(['create', '--list-templates'])
+        self.assertEqual(code, 0)
+        self.assertIn('proc:', output)
 
     def test_root_and_each_command_help(self):
         commands = ('create', 'prepare', 'execute', 'run', 'validate-config', 'validate-results', 'recover', 'merge', 'status')

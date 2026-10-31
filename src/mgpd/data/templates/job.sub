@@ -1,0 +1,28 @@
+# MG+Pythia+Delphes - job submission file
+
+universe = container
+container_image = ${container_image}
+
+executable = run_mg_pythia_delphes.sh
+
+input_file = ${input_file}
+job_name = $$(Cluster)_$$(Process)
+output_name = output_$$(run_name)_$$(job_name)
+
+arguments  = ${arguments}
+
+output      = job_$$(run_name)_$$(job_name).out
+error       = job_$$(run_name)_$$(job_name).err
+log         = job_$$(run_name)_$$(job_name).log
+
+${notifications}
+
+should_transfer_files = YES
+transfer_input_files = $$(input_file),$$(seed_file)
+
+transfer_output_files = $$(output_name).tar.gz
+when_to_transfer_output = ON_EXIT
+
+${requirements}
+
+${jobs}

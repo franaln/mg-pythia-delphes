@@ -13,7 +13,7 @@ from .config import resolve_run_mode
 from .execution import load_prepared_production
 from .storage import execution_lock, file_sha256
 from .results import validate_production, result_files, inspect_outputs
-from .merging import merge_outputs, _decompress, DOCKER_IMAGE, APPTAINER_IMAGE
+from .merge import merge_outputs, _decompress, DOCKER_IMAGE, APPTAINER_IMAGE
 
 SUFFIXES = {
     'lhe': '_unweighted_events.lhe.gz',

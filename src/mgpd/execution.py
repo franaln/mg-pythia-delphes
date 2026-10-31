@@ -5,6 +5,7 @@ import shlex
 from pathlib import Path
 from datetime import datetime, timezone
 import socket
+
 from .models import PreparedProduction
 from .storage import (
     execution_lock,
@@ -19,12 +20,15 @@ from .condor import parse_condor_job_ids
 
 def build_local_command(run_mode, image, sample, run_dir):
     """Return argv for the same container command used by the CLI."""
+
     inner = 'source /setup_mg_pythia_delphes.sh && cd /local && '
     inner += shlex.join(['./run_mg_pythia_delphes.sh', sample, f'run_{sample}'])
+
     if run_mode == 'local-docker':
         return ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', image, inner]
     if run_mode == 'local-apptainer':
         return ['apptainer', 'exec', '--bind', f'{run_dir}:/local', image, '/bin/bash', '-l', '-c', inner]
+
     raise ValueError(f'Not a local execution mode: {run_mode}')
 
 
@@ -70,7 +74,9 @@ def execute_production(production):
     and selective recovery remain separate development stages.
     """
     with execution_lock(production.output_dir):
+
         current = load_prepared_production(production.output_dir)
+
         manifest = current.manifest
         if production.manifest.get('plan_sha256') != manifest['plan_sha256']:
             raise ValueError('Production was replaced after it was loaded')
@@ -80,10 +86,12 @@ def execute_production(production):
             # Recovery depends on the plan loader; import only when needed.
             from .recovery import recheck_recovery_parent
             recheck_recovery_parent(current)
+
         mode = manifest['mode']
         manifest['execution_attempt'] = {'started_at': datetime.now(timezone.utc).isoformat()}
         manifest['state'] = 'submitting' if mode in ('condor', 'jupiter') else 'running'
         write_manifest(current.output_dir, manifest)
+
         try:
             if mode in ('condor', 'jupiter'):
                 submitted = subprocess.run(['condor_submit', '-terse', '-maxjobs', str(len(manifest['jobs'])),
@@ -123,7 +131,10 @@ def execute_production(production):
             write_manifest(current.output_dir, manifest)
             raise
         manifest['execution_attempt']['finished_at'] = datetime.now(timezone.utc).isoformat()
+
         write_manifest(current.output_dir, manifest)
+
         production.manifest.clear()
         production.manifest.update(manifest)
+
         return manifest

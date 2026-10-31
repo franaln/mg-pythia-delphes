@@ -13,21 +13,35 @@ from .results import validate_production
 
 def plan_recovery(output_dir, ignore_recovery_id=None, **policy):
     """Read-only recovery selection; unknown/active jobs are never retry candidates."""
+
     production = load_prepared_production(output_dir)
     manifest = production.manifest
+
     validation = validate_production(production.output_dir, **policy)
+
     condor = manifest['mode'] in ('condor', 'jupiter')
+
     status = production_status(production.output_dir) if condor and manifest['state'] == 'submitted' else None
+
     scheduler = {job['job_id']: job for job in status['jobs']} if status else {}
+
     reserved = {}
     for attempt in manifest.get('recoveries', []):
         if attempt['production_id'] == ignore_recovery_id or not attempt.get('blocks_jobs', True):
             continue
         for job_id in attempt['job_ids']:
             reserved[job_id] = attempt['directory']
-    result = {'production_id': manifest['production_id'], 'directory': production.output_dir,
-              'checked_at': datetime.now(timezone.utc).isoformat(), 'policy': validation['policy'],
-              'jobs': [], 'eligible_job_ids': [], 'query_errors': status['query_errors'] if status else []}
+
+    result = {
+        'production_id': manifest['production_id'],
+        'directory': production.output_dir,
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+        'policy': validation['policy'],
+        'jobs': [],
+        'eligible_job_ids': [],
+        'query_errors': status['query_errors'] if status else []
+    }
+
     for job in validation['jobs']:
         observed = scheduler.get(job['job_id'], {}).get('state', 'unknown')
         row = {'job_id': job['job_id'], 'sample': job['sample'], 'outputs_state': job['outputs_state'],
@@ -63,6 +77,7 @@ def plan_recovery(output_dir, ignore_recovery_id=None, **policy):
         if row['state'] == 'eligible':
             result['eligible_job_ids'].append(job['job_id'])
         result['jobs'].append(row)
+
     return result
 
 
@@ -165,4 +180,3 @@ def recheck_recovery_parent(production):
         plan = plan_recovery(parent_dir, ignore_recovery_id=production.manifest['production_id'], **recovery['policy'])
         if set(recovery['job_ids']) - set(plan['eligible_job_ids']):
             raise ValueError('Recovery jobs are no longer eligible; inspect parent status/results')
-

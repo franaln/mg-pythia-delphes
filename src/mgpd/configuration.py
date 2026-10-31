@@ -8,8 +8,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
-
 import yaml
+
 from .config import validate_config
 
 MAX_BYTES = 128 * 1024

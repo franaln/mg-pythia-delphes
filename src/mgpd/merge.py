@@ -76,7 +76,9 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
                           else 'local-docker')
     if backend not in ('local-docker', 'local-apptainer'):
         raise ValueError('Merge backend must be local-docker or local-apptainer')
+
     image = image or (APPTAINER_IMAGE if backend == 'local-apptainer' else DOCKER_IMAGE)
+
     with tempfile.TemporaryDirectory(prefix='.mgpd-merge-', dir=destination.parent) as temporary:
         work = Path(temporary)
         all_dir = work / 'all'
@@ -101,6 +103,7 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
                         raise ValueError(f'Duplicate job output name: {path.name}')
                     identities.add(identity)
                 groups[kind].extend(files)
+
         # Reject partial collections rather than silently losing events in a format.
         for kind, files in groups.items():
             if files and len(files) != len(archives):
@@ -114,13 +117,18 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
             if not expected.is_file() or expected.stat().st_size == 0:
                 raise ValueError(f'Merge command produced no output: {expected.name}')
 
+        ## LHE
         if groups['lhe']:
             target = merged / 'merged_unweighted_events.lhe.gz'
             run(['/mg_pythia_delphes/MG5_aMC/Template/LO/bin/internal/merge.pl',
                  *map(relative, groups['lhe']), relative(target), 'banner.txt'], target)
+
+        ## ROOT
         if groups['root']:
             target = merged / 'merged_delphes_events.root'
             run(['hadd', relative(target), *map(relative, groups['root'])], target)
+
+        ## LHCO
         if groups['lhco']:
             root = merged / 'merged_delphes_events.root'
             if not groups['root']:
@@ -128,6 +136,7 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
                 run(['lhco2root', relative(root), *map(relative, groups['lhco'])], root)
             target = merged / 'merged_delphes_events.lhco'
             run(['root2lhco', relative(root), relative(target)], target)
+
         if extract_lhe:
             for path in merged.glob('*.lhe.gz'):
                 _decompress(path)
@@ -136,6 +145,7 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
                     _decompress(path)
         if keep_all:
             shutil.move(str(all_dir), str(merged / 'all'))
+
         # Reserve the destination without clobbering another caller's output.
         if str(destination).endswith('.tar.gz'):
             staged = work / 'result.tar.gz'
@@ -152,48 +162,3 @@ def merge_outputs(inputs, output, *, backend=None, image=None,
                 shutil.rmtree(destination)
                 raise
     return str(destination)
-
-
-def configure_parser(parser):
-    parser.add_argument('inputs', nargs='+', help='One production directory, or explicit job output archives (.tar.gz)')
-    parser.add_argument('-o', '--output', help='New output; default for a production: DIRECTORY/merged')
-    parser.add_argument('--sample', action='append', help='Select a production sample; repeat as needed')
-    parser.add_argument('--allow-partial', action='store_true', help='Explicitly permit omitted invalid/missing jobs')
-    parser.add_argument('--event-count', choices=['exact', 'nonempty', 'ignore'], default='exact')
-    parser.add_argument('--allow-nonpositive-cross-section', action='store_true')
-    parser.add_argument('--skip-seed-check', action='store_true')
-    parser.add_argument('-e', '--extract-lhe', action='store_true')
-    parser.add_argument('-k', '--keep-all', action='store_true', help='Retain extracted inputs under all/')
-    parser.add_argument('--backend', choices=['local-docker', 'local-apptainer'],
-                        help='Default: Apptainer on jupiter, Docker elsewhere')
-    parser.add_argument('--image', help='Override the container image/reference')
-    return parser
-
-
-def merge_from_args(args, parser):
-    try:
-        if len(args.inputs) == 1 and Path(args.inputs[0]).is_dir():
-            from .production_merging import merge_production
-            result = merge_production(args.inputs[0], args.output, samples=args.sample,
-                                      allow_partial=args.allow_partial, backend=args.backend, image=args.image,
-                                      extract_lhe=args.extract_lhe, keep_all=args.keep_all,
-                                      event_count=args.event_count,
-                                      require_positive_cross_section=not args.allow_nonpositive_cross_section,
-                                      check_seed=not args.skip_seed_check)
-        else:
-            if not args.output:
-                parser.error('Explicit archive merging requires --output')
-            if args.sample or args.allow_partial or args.event_count != 'exact' or args.allow_nonpositive_cross_section or args.skip_seed_check:
-                parser.error('Sample selection, partial merging and validation policies require a production directory')
-            result = merge_outputs(args.inputs, args.output, backend=args.backend, image=args.image,
-                                   extract_lhe=args.extract_lhe, keep_all=args.keep_all)
-    except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as exc:
-        print(f'Error: {exc}', file=sys.stderr)
-        return 1
-    print(f'Merged outputs: {result}')
-    return 0
-
-
-def main(argv=None):
-    parser = configure_parser(argparse.ArgumentParser(description='Merge a managed production directory or explicit job archives'))
-    return merge_from_args(parser.parse_args(argv), parser)

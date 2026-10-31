@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from mgpd.merging import merge_outputs, build_merge_command, main
+from mgpd.merge import merge_outputs, build_merge_command
 
 
 class MergingTests(unittest.TestCase):
@@ -50,7 +50,7 @@ class MergingTests(unittest.TestCase):
             f'job{i}_delphes_events.root': b'root',
             f'job{i}_delphes_events.lhco': b'lhco'}) for i in range(2)]
         originals = [p.read_bytes() for p in inputs]
-        with patch('mgpd.merging.subprocess.run', side_effect=self.fake_run) as run:
+        with patch('mgpd.merge.subprocess.run', side_effect=self.fake_run) as run:
             merge_outputs(inputs, self.base / 'result', backend='local-apptainer',
                           image='/images/test.sif', extract_lhe=True, keep_all=True)
         self.assertEqual(run.call_count, 3)
@@ -60,7 +60,7 @@ class MergingTests(unittest.TestCase):
 
     def test_lhco_only_converts_through_temporary_root(self):
         source = self.archive('a.tar.gz', {'job_delphes_events.lhco': b'lhco'})
-        with patch('mgpd.merging.subprocess.run', side_effect=self.fake_run) as run:
+        with patch('mgpd.merge.subprocess.run', side_effect=self.fake_run) as run:
             merge_outputs([source], self.base / 'result.tar.gz', backend='local-docker')
         self.assertEqual(run.call_count, 2)
         with tarfile.open(self.base / 'result.tar.gz') as result:
@@ -68,7 +68,7 @@ class MergingTests(unittest.TestCase):
 
     def test_failure_does_not_publish_output_or_leave_workspace(self):
         source = self.archive('a.tar.gz', {'job_delphes_events.root': b'root'})
-        with patch('mgpd.merging.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'hadd')):
+        with patch('mgpd.merge.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'hadd')):
             with self.assertRaises(subprocess.CalledProcessError):
                 merge_outputs([source], self.base / 'result')
         self.assertFalse((self.base / 'result').exists())
@@ -76,7 +76,7 @@ class MergingTests(unittest.TestCase):
 
     def test_missing_command_output_is_failure(self):
         source = self.archive('a.tar.gz', {'job_delphes_events.root': b'root'})
-        with patch('mgpd.merging.subprocess.run'):
+        with patch('mgpd.merge.subprocess.run'):
             with self.assertRaisesRegex(ValueError, 'no output'):
                 merge_outputs([source], self.base / 'result')
 
@@ -109,24 +109,22 @@ class MergingTests(unittest.TestCase):
 
     def test_backend_arguments_and_quoted_paths(self):
         source = self.archive('a.tar.gz', {'job with spaces_delphes_events.root': b'root'})
-        with patch('mgpd.merging.subprocess.run', side_effect=self.fake_run) as run:
+        with patch('mgpd.merge.subprocess.run', side_effect=self.fake_run) as run:
             merge_outputs([source], self.base / 'result', backend='local-docker')
         self.assertIn("'all/00000/job with spaces_delphes_events.root'", run.call_args.args[0][-1])
         with self.assertRaises(ValueError):
             build_merge_command('/tmp', 'true', 'condor', 'image')
 
-    def test_legacy_helpers_help(self):
-        root = Path(__file__).resolve().parents[1]
-        for command in ([sys.executable, str(root / 'scripts/merge_mg_pythia_delphes_output.py'), '--help'],
-                        ['bash', str(root / 'scripts/merge_mg_pythia_delphes_output.sh'), '--help']):
-            result = subprocess.run(command, cwd=self.base, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('usage:', result.stdout)
+    def test_merge_command_help(self):
+        result = subprocess.run([sys.executable, '-m', 'mgpd', 'merge', '--help'],
+                                cwd=self.base, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('usage:', result.stdout)
 
     def test_cli_dispatch_and_error(self):
         from mgpd.cli import main as cli_main
-        with patch('mgpd.merging.merge_outputs', return_value='out') as merge:
+        with patch('mgpd.cli.merge_outputs', return_value='out') as merge:
             self.assertEqual(cli_main(['merge', 'in.tar.gz', '-o', 'out', '--backend', 'local-apptainer']), 0)
             self.assertEqual(merge.call_args.kwargs['backend'], 'local-apptainer')
-        with patch('mgpd.merging.merge_outputs', side_effect=ValueError('bad input')):
-            self.assertEqual(main(['in.tar.gz', '-o', 'out']), 1)
+        with patch('mgpd.cli.merge_outputs', side_effect=ValueError('bad input')):
+            self.assertEqual(cli_main(['merge', 'in.tar.gz', '-o', 'out']), 1)

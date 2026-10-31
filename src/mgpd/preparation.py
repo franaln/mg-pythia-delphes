@@ -11,12 +11,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 import uuid
-from .templates import (
-    template_job_desc,
-    template_run_condor_script,
-    template_run_local_script,
-    template_run_mg,
-)
+from .templates import create_file_from_template, create_file_from_script_template
 from .models import MAX_SEED, PreparedProduction
 from .storage import (
     execution_lock,
@@ -212,21 +207,17 @@ def prepare_sample_inputs(config, output_dir):
 
             options += config_options
 
-            template = string.Template(template_run_mg)
-            run_mg_str = template.substitute(
-                {
-                    'process': process_str,
-                    'run_madspin': 'madspin=ON' if run_madspin else '', #madspin=OFF',
-                    'run_pythia': 'shower=Pythia8' if run_pythia else 'shower=OFF',
-                    'run_delphes': 'detector=Delphes' if run_delphes else '',
-                    'cards': cards_str,
-                    'options': '\n'.join(options),
-                    'expert_options': '\n'.join(expert_options) if expert_options else ''
-                }
-            )
+            replace_dict = {
+                'process': process_str,
+                'run_madspin': 'madspin=ON' if run_madspin else '', #madspin=OFF',
+                'run_pythia': 'shower=Pythia8' if run_pythia else 'shower=OFF',
+                'run_delphes': 'detector=Delphes' if run_delphes else '',
+                'cards': cards_str,
+                'options': '\n'.join(options),
+                'expert_options': '\n'.join(expert_options) if expert_options else ''
+            }
 
-            with open(f'{run_dir}/run.mg5', 'w') as f:
-                f.write(run_mg_str)
+            create_file_from_template('run.mg5', f'{run_dir}/run.mg5', replace_dict)
 
 
     return run_dirs
@@ -239,8 +230,10 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
     run_nevents = config['run'].get('nevents', 10_000)
     run_outputs = config['run'].get('outputs', ['lhe', 'lhco', 'log'])
     seeds = iter(allocate_seeds(config.get('options', {}).get('seed'), len(run_dirs) * run_njobs))
+
     planned_jobs = []
     local_dirs = {}
+
     for sample, directory in run_dirs.items():
         text = (Path(directory) / 'run.mg5').read_text()
         for index in range(run_njobs):
@@ -259,12 +252,15 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
                 local_dirs[job_id] = (sample, job_directory)
                 seed_path = Path(job_directory) / 'run.mg5'
             seed_path.write_text(seeded_text)
+
             planned_jobs.append({'job_id': job_id, 'sample': sample, 'index': index,
                                  'seed': seed, 'nevents': run_nevents, 'outputs': outputs or ['log'],
                                  'run_file': str(seed_path.relative_to(output_dir))})
+
     if local_dirs and run_njobs > 1:
         for directory in run_dirs.values():
             shutil.rmtree(directory)
+
     return planned_jobs, local_dirs
 
 
@@ -282,23 +278,21 @@ def package_sample_inputs(output_dir, run_dirs, run_mode):
 
 def prepare_wrappers(output_dir, local_dirs, run_mode, outputs=None):
     """Write executable wrappers without starting containers or submitting jobs."""
-    # -----------
-    # Run script
-    # -----------
+
     if run_mode in ('condor', 'jupiter'):
         script_path = f'{output_dir}/run_mg_pythia_delphes.sh'
         print(f'- Preparing run script: {script_path}')
-        with open(script_path, 'w') as f:
-            f.write(template_run_condor_script)
+        create_file_from_script_template('run_mgpd_condor.sh', script_path)
         os.chmod(script_path, 0o755)
     elif run_mode in ('local-docker', 'local-apptainer'):
         for name, run_dir in local_dirs.values():
             script_path = f'{run_dir}/run_mg_pythia_delphes.sh'
             print(f'- Preparing run script: {script_path}')
-            with open(script_path, 'w') as f:
-                f.write(template_run_local_script.replace(
-                    '# MGPD_LOCAL_OUTPUTS',
-                    'outputs=' + shlex.quote(' '.join(outputs or []))))
+            create_file_from_script_template(
+                'run_mgpd_local.sh',
+                script_path,
+                { '# MGPD_LOCAL_OUTPUTS': 'outputs=' + shlex.quote(' '.join(outputs or [])) }
+            )
             os.chmod(script_path, 0o755)
 
 
@@ -341,13 +335,10 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
 
     # Save job.sub file
     job_file = f'job_{run_name}.sub'
+    output_path = f'{output_dir}/{job_file}'
 
-    template = string.Template(template_job_desc)
-    job_desc = template.substitute(job_replace_dict)
-
-    print(f'- Saving job submission description in {output_dir}/{job_file}')
-    with open(f'{output_dir}/{job_file}', 'w') as f:
-        f.write(job_desc)
+    print(f'- Saving job submission description in {output_path}')
+    create_file_from_template('job.sub', output_path, job_replace_dict)
 
     return job_file
 
