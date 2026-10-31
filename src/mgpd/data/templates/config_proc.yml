@@ -1,0 +1,24 @@
+run:
+  name: name
+  mode: mode
+  nevents: nevents
+  njobs: njobs
+  outputs: outputs
+
+process: |
+  import model sm
+  generate p p > e+ e-
+
+cards:
+  run: run_card
+  param: param_card
+  pythia: pythia_card
+  delphes: delphes_card
+
+options:
+  seed: RANDOM
+  use_syst: false
+
+expert:
+  mode: single
+  ncores: 1
