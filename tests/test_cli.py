@@ -117,15 +117,26 @@ class CommandTests(unittest.TestCase):
             with self.subTest(level=level), patch('mgpd.cli.create_project', return_value={
                     'template': 'proc', 'directory': 'new', 'config_path': 'new/config.yml'}) as create:
                 self.assertEqual(self.call(['create', 'new', '--level', level])[0], 0)
-                create.assert_called_once_with('new', template='proc', name=None, level=level,
-                                               mode='local', image=None, nevents=100, njobs=1, seed=None)
+                create.assert_called_once_with('new', template='proc', level=level)
         _, args = parse_args(['create', 'new'])
-        self.assertEqual(args.level, 'parton')
+        self.assertIsNone(args.level)
         with self.assertRaises(SystemExit):
             self.call(['create', 'new', '--level', 'unknown'])
         code, output = self.call(['create', '--list-templates'])
         self.assertEqual(code, 0)
         self.assertIn('proc:', output)
+
+    def test_copy_dispatch_preserves_omitted_options(self):
+        with patch('mgpd.cli.copy_project', return_value={
+                'template': 'copy', 'directory': 'new', 'config_path': 'new/config.yml'}) as clone:
+            self.assertEqual(self.call(['create', 'new', '--copy', self.project])[0], 0)
+            clone.assert_called_once_with(str(self.project), 'new')
+            clone.reset_mock()
+            self.assertEqual(self.call(['create', 'new', '--copy', self.project,
+                                        '--name', 'new-name', '--njobs', '1', '--nevents', '100'])[0], 0)
+            clone.assert_called_once_with(str(self.project), 'new', name='new-name', njobs=1, nevents=100)
+        with self.assertRaises(SystemExit):
+            self.call(['create', 'new', '--copy', self.project, '--template', 'proc'])
 
     def test_root_and_each_command_help(self):
         commands = ('create', 'prepare', 'execute', 'run', 'validate-config', 'validate-results', 'recover', 'merge', 'status')

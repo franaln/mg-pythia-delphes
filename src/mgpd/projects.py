@@ -32,6 +32,7 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
 
     if template != 'proc':
         raise ValueError(f'Unknown template {template!r}; choose proc')
+
     if level not in ('parton', 'particle', 'detector'):
         raise ValueError(f'Unknown level {level!r}; choose parton, particle or detector')
 
@@ -45,7 +46,6 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
     if any((ancestor / 'manifest.json').exists() for ancestor in destination.parents):
         raise ValueError('Cannot create projects inside prepared productions')
 
-    ######
     if name is None:
         name = re.sub(r'[^A-Za-z0-9_.-]', '_', destination.name)
         if not name or not name[0].isalnum():
@@ -119,6 +119,158 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
         'config_path': str(destination / 'config.yml'),
         # 'config': config,
         # 'files': ['config.yml', *sorted(config['cards'].values())]
+    }
+
+
+def copy_project(source, directory, *, name=None, level=None, mode=None, image=None,
+                 nevents=None, njobs=None, seed=None, input_validator=None):
+    """Clone editable project files into a new directory; only explicit overrides apply.
+
+    Prepared productions, repository metadata and virtual environments are omitted.
+    Referenced external input files/directories are copied and their paths rebased.
+    Symlinks and special files are refused rather than followed.
+    """
+
+    raw = Path(directory).expanduser().absolute()
+    if raw.exists() or raw.is_symlink():
+        raise FileExistsError(f'Project directory already exists: {raw}')
+    destination = raw.resolve()
+
+    source = Path(source).expanduser().resolve(strict=True)
+    if not source.is_dir():
+        raise ValueError('Copy source must be a project directory')
+
+    if destination.is_relative_to(source):
+        raise ValueError('Copy destination must be outside the source project')
+
+    if not destination.parent.is_dir():
+        raise FileNotFoundError('Project parent directory must exist')
+
+    for path in (source, destination.parent):
+        if any((ancestor / 'manifest.json').exists() for ancestor in (path, *path.parents)):
+            raise ValueError('Cannot copy projects from or into prepared productions')
+
+    if any((source / name).is_symlink() for name in ('config.yml', 'config.yaml')):
+        raise ValueError('Project configuration cannot be a symlink')
+
+    config_path = project_config_path(source)
+    config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    if not isinstance(config, dict):
+        raise ValueError('Configuration must contain a mapping')
+    if input_validator:
+        input_validator(config, source)
+
+    validate_config(config, base_directory=source)
+
+    config = copy.deepcopy(config)
+
+    for key, value in (('name', name), ('mode', mode), ('image', image),
+                       ('nevents', nevents), ('njobs', njobs)):
+        if value is not None:
+            config['run'][key] = value
+
+    if image is not None and (not isinstance(image, str) or not image.strip()):
+        raise ValueError('Image must be a nonempty string')
+
+    if seed is not None:
+        config.setdefault('options', {})['seed'] = seed
+
+    if level is not None and level not in ('parton', 'particle', 'detector'):
+        raise ValueError('Unknown level; choose parton, particle or detector')
+
+    if level is not None and any(key in config for key in ('input_dir', 'input_dirs', 'input_files')):
+        raise ValueError('Level overrides require an inline-process configuration with cards')
+
+    omitted = {'.git', '.venv', '__pycache__', '.pytest_cache'}
+    def copy_tree(src, dst):
+        if src.is_symlink():
+            raise ValueError(f'Project copies do not follow symlinks: {src}')
+        if src.is_dir():
+            if (src / 'manifest.json').exists() or (src / 'pyvenv.cfg').exists():
+                raise ValueError(f'Referenced input is a production or virtual environment: {src}')
+            dst.mkdir()
+            for child in src.iterdir():
+                if child.name in omitted or child.name.startswith('.mgpd'):
+                    continue
+                if not child.is_symlink() and child.is_dir() and (
+                        (child / 'manifest.json').exists() or (child / 'pyvenv.cfg').exists()):
+                    continue
+                copy_tree(child, dst / child.name)
+        elif src.is_file():
+            shutil.copy2(src, dst)
+        else:
+            raise ValueError(f'Unsupported project input: {src}')
+
+    with tempfile.TemporaryDirectory(prefix='.mgpd-copy-', dir=destination.parent) as temporary:
+        staged = Path(temporary) / 'project'
+
+        copy_tree(source, staged)
+
+        external = {}
+
+        def relocate(value):
+            path = Path(value).expanduser()
+            path = path if path.is_absolute() else source / path
+            resolved = path.resolve(strict=True)
+            if resolved.is_relative_to(source):
+                relative = resolved.relative_to(source)
+                if not (staged / relative).exists():
+                    raise ValueError(f'Referenced input was excluded from the copy: {path}')
+            else:
+                if resolved not in external:
+                    # Use a private namespace without clobbering copied project files.
+                    folder = staged / '_mgpd_inputs'
+                    if not external:
+                        folder.mkdir()
+                    relative = Path('_mgpd_inputs') / f'{len(external):04d}' / resolved.name
+                    (staged / relative).parent.mkdir()
+                    copy_tree(path, staged / relative)
+                    external[resolved] = relative
+                relative = external[resolved]
+            return str(relative)
+
+        for key in ('cards', 'input_dirs'):
+            if key in config:
+                config[key] = {key: ({sample: relocate(item) for sample, item in value.items()}
+                                    if isinstance(value, dict) else relocate(value))
+                               for key, value in config[key].items()}
+        if 'input_dir' in config:
+            config['input_dir'] = relocate(config['input_dir'])
+        if 'input_files' in config:
+            config['input_files'] = [relocate(value) for value in config['input_files']]
+        if level is not None:
+            cards = config['cards']
+            for key in ('pythia', 'delphes'):
+                if level == 'parton' or key == 'delphes' and level == 'particle':
+                    cards.pop(key, None)
+            for key, filename in (('pythia', 'pythia8_card.dat'), ('delphes', 'delphes_card_ATLAS.dat')):
+                if key not in cards and (level == 'detector' or key == 'pythia' and level == 'particle'):
+                    folder = staged / '_mgpd_cards'
+                    folder.mkdir(exist_ok=True)
+                    target = folder / filename
+                    if target.exists():
+                        raise FileExistsError(f'Bundled card destination already exists: {target}')
+                    target.write_bytes(_resource('cards/' + filename).read_bytes())
+                    cards[key] = str(target.relative_to(staged))
+            config['run']['outputs'] = {'parton': ['lhe', 'log'], 'particle': ['lhe', 'log', 'hepmc'],
+                                        'detector': ['lhe', 'log', 'root', 'lhco']}[level]
+
+        validate_config(config, base_directory=staged)
+
+        (staged / config_path.name).write_text(yaml.dump(config, Dumper=_Dumper, sort_keys=False), encoding='utf-8')
+
+        destination.mkdir()
+        try:
+            for child in staged.iterdir():
+                shutil.move(str(child), str(destination / child.name))
+        except BaseException:
+            shutil.rmtree(destination)
+            raise
+
+    return {
+        'template': 'copy',
+        'directory': str(destination),
+        'config_path': str(destination / config_path.name)
     }
 
 

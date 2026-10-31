@@ -9,7 +9,7 @@ import tarfile
 import yaml
 
 from ._version import __version__
-from .projects import create_project, load_project_config, prepare_project, project_config_path
+from .projects import copy_project, create_project, load_project_config, prepare_project, project_config_path
 from .execution import execute_production, load_prepared_production
 from .condor import production_status
 from .results import validate_production
@@ -44,13 +44,13 @@ def _parser():
     create.add_argument('directory', nargs='?', help='New project directory')
     create.add_argument('--template', choices=sorted(PROJECT_TEMPLATES))
     create.add_argument('--list-templates', action='store_true')
-    create.add_argument('--name', help='Sample name; defaults to the directory name')
-    create.add_argument('--level', default='parton', choices=PROJECT_LEVELS, help='')
-    create.add_argument('--mode', choices=RUN_MODES, default='local')
+    create.add_argument('--name', help='Sample name; starter defaults to directory name, copy preserves source name')
+    create.add_argument('--level', choices=PROJECT_LEVELS, help='')
+    create.add_argument('--mode', choices=RUN_MODES)
     create.add_argument('--image')
-    create.add_argument('--nevents', type=int, default=100, help='Events per job')
-    create.add_argument('--njobs', type=int, default=1)
-    create.add_argument('--seed', type=int, help='Fixed starting seed; default: RANDOM')
+    create.add_argument('--nevents', type=int, help='Events per job')
+    create.add_argument('--njobs', type=int)
+    create.add_argument('--seed', type=int, help='Fixed starting seed; starter defaults to RANDOM, copy preserves source seed')
     create.add_argument('--copy', help='Copy from another config directory into another')
 
     # Prepare and execute production
@@ -114,6 +114,8 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == 'create':
+        if args.list_templates and args.copy:
+            parser.error('--list-templates cannot be combined with --copy')
         if args.list_templates and args.directory:
             parser.error('--list-templates cannot be combined with a destination')
         if not args.list_templates and not args.directory:
@@ -166,31 +168,13 @@ def main(argv=None):
                     print(f"{template_name}: {template_description}")
                 return 0
 
+            options = {key: getattr(args, key) for key in
+                       ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed')
+                       if getattr(args, key) is not None}
             if args.copy is not None:
-                # project = copy_project(args.directory,
-                #                      args.template,
-                #                      name=args.name,
-                #                      mode=args.mode,
-                #                      image=args.image,
-                #                      nevents=args.nevents,
-                #                      njobs=args.njobs,
-                #                      seed=args.seed)
-                pass
-
+                project = copy_project(args.copy, args.directory, **options)
             else:
-
-                template = args.template if args.template is not None else 'proc'
-
-                project = create_project(args.directory,
-                                         template=template,
-                                         name=args.name,
-                                         level=args.level,
-                                         mode=args.mode,
-                                         image=args.image,
-                                         nevents=args.nevents,
-                                         njobs=args.njobs,
-                                         seed=args.seed
-                                     )
+                project = create_project(args.directory, template=args.template or 'proc', **options)
 
             print(f"Created {project['template']} project: {project['directory']}")
             print(f"Edit {project['config_path']} and cards/ before running.")

@@ -6,6 +6,24 @@ import mgpd
 def dispatch(workspace, request):
     operation = request['operation']
     guard = lambda data, base: workspace.config_inputs(data, Path(base))
+    if operation == 'create_project':
+        output = workspace.new_output(request['output'])
+        options = {key: request[key] for key in ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed')
+                   if request.get(key) is not None}
+        source = request.get('copy_from')
+        if source is not None:
+            if request.get('template') is not None:
+                raise ValueError('copy_from cannot be combined with template')
+            source = workspace.path(source)
+            guard_copy = lambda data, base: workspace.preparation_inputs(data, base, output)
+            project = mgpd.copy_project(source, output, input_validator=guard_copy, **options)
+        else:
+            project = mgpd.create_project(output, template=request.get('template') or 'proc', **options)
+        config = mgpd.load_project_config(project['config_path'])
+        return {**project, 'directory': str(output.relative_to(workspace.root)),
+                'config_path': str(Path(project['config_path']).relative_to(workspace.root)),
+                'base_directory': str(output.relative_to(workspace.root)),
+                'run': config['run'], 'review_required': True, 'submitted': False}
     if operation == 'apply_config_change':
         proposal = request['proposal']
         if not isinstance(proposal, dict):

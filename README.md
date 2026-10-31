@@ -58,13 +58,28 @@ Create a configuration directory with editable cards from a template:
 
 ```bash
 mgpd create --list-templates
-mgpd create my-config --template delphes --mode condor
+mgpd create my-config --template proc --level detector --mode condor
 ```
 
-Choose `parton`, `pythia`, or `delphes`. Edit `my-config/config.yml` and the
+Choose `--level parton`, `particle`, or `detector` (default: `parton`).
+The `proc` template contains an inline Standard Model process. Edit `my-config/config.yml` and the
 files in `my-config/cards/` before preparing. These are Standard Model starter
 configurations; adapt the process and cards for your analysis.
 `mgpd prepare my-config` writes to `my-config/production/` by default.
+
+To copy an existing configuration directory and optionally change its settings:
+
+```bash
+mgpd create another-config --copy my-config
+mgpd create scan-point --copy my-config --name point-02 --njobs 10 --nevents 1000
+```
+
+Only supplied options override the copied configuration. Omitted options preserve
+its name, mode, image, event/job counts and seed. You can also override `--level`;
+this adjusts shower/detector cards and outputs. Copies include editable files and
+referenced inputs; prepared productions, Git metadata and virtual environments
+are omitted. Symlinks are rejected. The source is unchanged and the destination
+must not exist. Use either `--copy` or `--template`.
 
 A minimal configuration uses an existing run card:
 

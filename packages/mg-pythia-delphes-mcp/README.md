@@ -1,6 +1,6 @@
 # mg-pythia-delphes-mcp
 
-Use an MCP-compatible assistant to prepare productions, submit to HTCondor,
+Use an MCP-compatible assistant to create and edit configurations, prepare productions, submit to HTCondor,
 monitor jobs, validate results, recover selected jobs and merge outputs.
 Requires Python 3.11+. Local production execution is available through the
 [CLI](../../README.md), not through MCP.
@@ -32,7 +32,7 @@ args = [
   "-T", "-o", "BatchMode=yes", "jupiter",
   "/home/USER/mg-pythia-delphes/.venv-mcp/bin/mgpd-mcp",
   "--workspace", "/home/USER/mg-pythia-delphes",
-  "--allow-prepare", "--allow-execute", "--allow-merge"
+  "--allow-config-write", "--allow-prepare", "--allow-execute", "--allow-merge"
 ]
 startup_timeout_sec = 30
 tool_timeout_sec = 150
@@ -51,13 +51,44 @@ you need:
 
 | Flag | Actions |
 | --- | --- |
+| `--allow-config-write` | Create/copy projects and save reviewed YAML edits |
 | `--allow-prepare` | Prepare productions and selected recoveries |
 | `--allow-execute` | Submit prepared productions to Condor |
 | `--allow-merge` | Merge validated outputs |
 
+## Create and edit configurations
+
+With `--allow-config-write`, ask for example:
+
+> Create a detector-level project in my-config using Condor, with two jobs
+> of 100 events. Show its configuration before preparing anything.
+
+`create_project(output="my-config", level="detector", mode="condor", njobs=2)`
+copies editable Standard Model cards and YAML. Levels are `parton` (default),
+`particle`, and `detector`; the supported starter template is `proc`.
+
+To reuse an existing project:
+
+> Copy my-config to another-config, change the sample name to new-sample
+> and use five jobs. Keep all other settings.
+
+Use `create_project(output="another-config", copy_from="my-config",
+name="new-sample", njobs=5)`. Only supplied options override the source.
+`template` and `copy_from` are mutually exclusive. Outputs must be new directories
+inside the workspace. Project creation never prepares or submits jobs.
+
+Inspect YAML with `inspect_config(path="config.yml", base_directory="my-config")`.
+For edits, use `plan_config_change` with the same paths, review its returned diff,
+then save the complete proposal with `apply_config_change` and its
+`change_sha256`. YAML paths resolve from `base_directory`; card contents can be
+edited separately. After a timeout or unknown creation/save outcome, inspect the
+output before retrying.
+
 ## End-to-end example
 
 With the repository root as the workspace, use the existing parton-level example.
+Alternatively, create a project as above and use `my-config` as `base_directory`
+with `path="config.yml"` for validation and preparation.
 Choose a new production directory for each run. These requests can be written
 in your own words; tool names are included to make the steps explicit.
 

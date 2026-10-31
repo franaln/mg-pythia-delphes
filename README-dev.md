@@ -3,7 +3,7 @@
 For users, see [README.md](README.md) and the [example catalog](examples/README.md).
 This guide contains development setup, automated and live tests, release checks,
 and shared deployment. The implementation roadmap is maintained locally.
-CLI usage below follows 0.3 development; use the guide at `v0.2.0` for its older
+CLI usage below follows 0.3.0; use the guide at `v0.2.0` for its older
 CLI. Deployment examples explicitly pinned to 0.2.0 still build that release.
 
 ## Development environment
@@ -321,7 +321,6 @@ original image, configuration and seeds.
 | `merging` | Merge explicit output archives and dispatch merge CLI |
 | `production_merging` | Validate/select recovery attempts and merge per sample with provenance |
 | `cli` | Parse arguments and coordinate public operations |
-| `compat` | Historical script function/template exports |
 
 With the development environment active and the regression suite passing:
 
@@ -588,7 +587,7 @@ and Condor credentials remain per-user. Installation uses sudo; servers and jobs
 run as each normal SSH user. No shared daemon or HTTP service is installed.
 
 For 0.2.0 the action flags are `--allow-prepare`, `--allow-execute` and
-`--allow-merge`. Configuration writes belong to the 0.3 development version.
+`--allow-merge`. Project creation and configuration writes are enabled by `--allow-config-write` in 0.3.0.
 Reconnect clients after selecting a new environment. Existing detached workers
 keep their original interpreter and must retain access to that environment.
 
@@ -702,11 +701,12 @@ reference `user_cuts.f = custom_fcts` from the run card. `expert.ncores` control
 MadGraph; automatic matching of Condor resource requests is not implemented.
 
 
-## Configuration editing development (0.3.0a1)
+## Configuration editing (0.3.0)
 
-This milestone creates new YAML configurations from existing files and edits
-existing YAML. It does not create templates from scratch, edit card contents or
-prepare/execute productions. Core and adapter development versions are 0.3.0a1;
+Configuration editing creates new YAML configurations from existing files and
+edits existing YAML. Project creation/copying is available separately through
+the CLI and MCP. Card contents are edited separately. Core and adapter versions
+are 0.3.0;
 the stable 0.2.0 tag remains separate. User READMEs are maintained by the user and
 must not be modified without explicit instructions.
 
@@ -799,7 +799,7 @@ existing physics cards and production directories unchanged.
 
 Configuration milestone verification: 129 core tests pass on Python 3.9 without
 the MCP SDK; 33 adapter tests pass using real stdio, both against source and
-installed 0.3.0a1 wheels outside the checkout. Dependency checks pass and wheel
+installed 0.3.0 wheels outside the checkout. Dependency checks pass and wheel
 runtime files match source. New YAML files were only created in temporary test
 directories. No JUPITER deployment or live configuration edit was performed.
 
@@ -810,7 +810,7 @@ intentionally retained after successful writes; OS locks release when the worker
 exits. Do not unlink lock files while another writer may be using them.
 
 
-## Project templates and create/run commands (0.3 development)
+## Project templates and create/run commands (0.3.0)
 
 The CLI has explicit `create`, `prepare`, `execute`, `run`, `validate-config`,
 `validate-results`, `recover`, `merge` and `status` commands. Previous root flags
@@ -821,7 +821,7 @@ User READMEs must remain untouched unless their owner requests an edit.
 
 ```bash
 mgpd create --list-templates
-mgpd create my-config --template delphes --mode condor --nevents 100 --njobs 2
+mgpd create my-config --template proc --level detector --mode condor --nevents 100 --njobs 2
 # Edit my-config/config.yml and its cards/ copies.
 mgpd validate-config my-config
 mgpd prepare my-config
@@ -846,16 +846,15 @@ production; `validate-results DIRECTORY` checks saved job outputs. Both support
 JSON and return nonzero on invalid results/configurations. Status query errors
 also remain nonzero. `recover DIRECTORY --plan` reports eligibility without
 reservation; `recover DIRECTORY -o CHILD [--job-id ID ...]` prepares a child but
-never executes it. Review and use `execute CHILD` separately. Policy flags are
-shared by result validation, recovery and merging.
+never executes it. Review and use `execute CHILD` separately. The CLI uses default validation policies for result validation and recovery;
+merging and the Python/MCP APIs also expose policy overrides.
 
-Core API: `list_config_templates()`, `create_project(...)`,
+Core API: `create_project(...)`, `copy_project(...)`,
 `load_project_config(...)` and `prepare_project(...)`. Loading/preparing projects
 resolves known card/input paths without changing cwd or modifying source YAML.
-Arbitrary paths embedded in MadGraph commands are not rewritten. The MCP can
-reuse these APIs; this milestone does not add a separate MCP project-create tool.
+Arbitrary paths embedded in MadGraph commands are not rewritten. MCP exposes creation/copying through `create_project` with `--allow-config-write`.
 
-The three bundled templates are `parton`, `pythia`, and `delphes`, all using the
+The `proc` starter supports levels `parton`, `particle`, and `detector`, all using the
 SM dielectron process and an SM param card. They copy the repository's existing
 run/param/Pythia/ATLAS Delphes cards into `cards/` as appropriate. These files
 live under `src/mgpd/data/` and are explicitly included as package data, so
@@ -863,7 +862,7 @@ installed wheels do not depend on examples or the source checkout. They are
 editable starter physics settings, not model-independent default cards: changing
 the model requires corresponding process/param cards.
 
-Create options: `--template`, `--name`, `--mode`, `--image`, `--nevents`,
+Create options: `--template`, `--copy`, `--level`, `--name`, `--mode`, `--image`, `--nevents`,
 `--njobs`, `--seed`. Default sample names derive from the directory name (unsafe
 characters replaced by underscores), mode is `local`, events/job is 100, jobs
 is 1 and seed is RANDOM. Images are selected for the resolved backend, with an
@@ -899,3 +898,33 @@ boundary tests cover removed syntax, prepare/execute/run separation, validator
 JSON/exit codes, explicit input bases, recovery safety and every command's help.
 The live-test drivers use the new commands; scheduler/container interactions in
 these automated checks are simulated. No real JUPITER jobs were submitted.
+
+
+## 0.3.0 Jupiter acceptance check
+
+Build the core and MCP wheels from this checkout as a normal user using
+`python scripts/deploy_shared.py --build --with-mcp --version 0.3.0 --outdir dist/0.3.0`.
+Stage the matching wheels with `--deploy-venv --version 0.3.0 --wheel CORE_WHEEL
+--mcp-wheel MCP_WHEEL`, without `--update-current`. Test using the staged venv's
+absolute `mgpd` and `mgpd-mcp` paths before selecting it as current.
+
+1. Create a Condor project with `mgpd create smoke-030 --level detector --mode condor
+   --nevents 10 --njobs 2`. Validate its configuration and review the cards.
+2. Copy with `mgpd create smoke-copy-030 --copy smoke-030 --name smoke-copy --njobs 1`.
+   Verify that other settings and card contents were retained and the source is unchanged.
+3. Prepare, execute, monitor, validate results and merge from the staged CLI.
+   Check a selective recovery with `scripts/test_condor_workflow.py` as described above.
+4. Connect MCP to the staged executable with `--allow-config-write`; create a new
+   project, copy it with explicit overrides, inspect/edit/review/save its YAML,
+   then prepare it with `path="config.yml"` and its project `base_directory`.
+   Enable preparation/execution/merge separately when testing those actions.
+5. Verify creation refuses existing destinations and paths outside the workspace.
+   Confirm `create_project` is absent without configuration-write capability.
+
+Project copying excludes child directories containing `manifest.json` or
+`pyvenv.cfg`, `.git`, `.venv`, caches, and `.mgpd*` sidecar state. Other regular
+project files are copied. External inputs referenced by YAML are materialized
+under `_mgpd_inputs/`; absolute/internal paths are rebased to the copy. Arbitrary
+paths embedded in MadGraph commands or shell snippets are not rewritten. Copying
+reserializes YAML; the source is never modified. Level overrides require inline
+process/cards configurations. `compat.py` was removed; tests import owning modules.

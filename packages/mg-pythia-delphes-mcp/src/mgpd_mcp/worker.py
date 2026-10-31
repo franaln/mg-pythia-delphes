@@ -10,7 +10,7 @@ import yaml
 from .paths import PathError, Workspace
 
 WRITE_OPERATIONS = {'prepare_production', 'prepare_recovery'}
-OPERATIONS = {'inspect_config', 'plan_config_change', 'apply_config_change', 'execute_production', 'operation_status', 'plan_merge', 'merge_production', 'merge_report'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
+OPERATIONS = {'inspect_config', 'plan_config_change', 'apply_config_change', 'create_project', 'execute_production', 'operation_status', 'plan_merge', 'merge_production', 'merge_report'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'}
 
 
 def error(code, message):
@@ -41,8 +41,8 @@ def dispatch(request):
         raise ValueError('Unsupported operation')
     if operation in WRITE_OPERATIONS and not request.get('allow_prepare', False):
         return error('PREPARATION_DISABLED', 'Server preparation capability is disabled')
-    if operation in ('inspect_config', 'plan_config_change', 'apply_config_change'):
-        if operation == 'apply_config_change' and not request.get('allow_config_write', False):
+    if operation in ('inspect_config', 'plan_config_change', 'apply_config_change', 'create_project'):
+        if operation in ('apply_config_change', 'create_project') and not request.get('allow_config_write', False):
             return error('CONFIG_WRITE_DISABLED', 'Server configuration writes are disabled')
         from . import config_tools
         data = config_tools.dispatch(workspace, request)
