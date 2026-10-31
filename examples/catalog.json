@@ -120,8 +120,5 @@
       "jobs_per_sample": 2,
       "smoke": true
     }
-  ],
-  "manual_only": {
-    "example0_sub": "Standalone historical submit-file example; does not exercise the YAML runner."
-  }
+  ]
 }

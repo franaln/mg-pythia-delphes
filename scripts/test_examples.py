@@ -43,7 +43,7 @@ def check_prepared(output, entry):
             raise ValueError(f"Seed mismatch for {job['job_id']}")
         if hashlib.sha256(path.read_bytes()).hexdigest() != manifest['prepared_input_sha256'][job['run_file']]:
             raise ValueError(f'Input checksum mismatch: {path}')
-    wrappers = list(output.rglob('run_mg_pythia_delphes.sh'))
+    wrappers = list(output.rglob('run_mgpd_condor.sh' if manifest['mode'] in ('condor', 'jupiter') else 'run_mgpd_local.sh'))
     for wrapper in wrappers:
         subprocess.run(['bash', '-n', str(wrapper)], check=True, capture_output=True, text=True)
     if manifest['mode'] in ('condor', 'jupiter'):

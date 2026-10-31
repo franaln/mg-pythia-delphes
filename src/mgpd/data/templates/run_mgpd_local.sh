@@ -4,7 +4,7 @@ run_name=$1
 run_dir=$2
 # MGPD_LOCAL_OUTPUTS
 
-echo -e ">>> Running run_mg_pythia_delphes.sh with the following configuration:\n"
+echo -e ">>> Running run_mgpd_local.sh with the following configuration:\n"
 echo "date          = "$(date)
 echo "hostname      = "$HOSTNAME
 echo "current dir   = "$PWD
