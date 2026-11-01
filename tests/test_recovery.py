@@ -109,7 +109,7 @@ class RecoveryTests(unittest.TestCase):
                 child = prepare_recovery(parent.output_dir, root / 'retry')
             self.assertEqual([job['job_id'] for job in child.manifest['jobs']], ['sample_00001'])
             self.assertEqual(child.manifest['jobs'][0]['seed'], 102)
-            for relative in ('run_sample.tar.gz', 'sample_00001.mg5', 'run_mg_pythia_delphes.sh'):
+            for relative in ('run_sample.tar.gz', 'sample_00001.mg5', 'run_mgpd_condor.sh'):
                 self.assertEqual(Path(child.output_dir, relative).read_bytes(), Path(parent.output_dir, relative).read_bytes())
             submission = Path(child.output_dir, child.submit_file).read_text()
             self.assertEqual(submission.count('queue 1'), 1)

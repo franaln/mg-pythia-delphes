@@ -58,7 +58,7 @@ def load_prepared_production(output_dir):
     elif mode in ('local-docker', 'local-apptainer'):
         for job in manifest['jobs']:
             run_file = production_path(output_dir, job['run_file'])
-            wrapper = str(Path(job['run_file']).parent / 'run_mgpd_condor.sh')
+            wrapper = str(Path(job['run_file']).parent / 'run_mgpd_local.sh')
             if job['run_file'] not in hashes or wrapper not in hashes:
                 raise ValueError('Missing job-input/wrapper integrity record')
             local_dirs[job['job_id']] = (job['sample'], str(run_file.parent))

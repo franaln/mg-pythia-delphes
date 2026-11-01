@@ -27,7 +27,7 @@ class LocalLhcoTests(unittest.TestCase):
             tool.chmod(0o755)
         prepare_wrappers(root, {'job': ('sample', str(job))}, 'local-apptainer', outputs)
         env = dict(os.environ, MG_DIR='/unused', PATH=str(tools) + ':/usr/bin:/bin')
-        result = subprocess.run(['bash', str(job / 'run_mg_pythia_delphes.sh'), 'sample', 'unused'],
+        result = subprocess.run(['bash', str(job / 'run_mgpd_local.sh'), 'sample', 'unused'],
                                 cwd=job, env=env, capture_output=True, text=True)
         return result, job / 'RUN/Events' / run
 

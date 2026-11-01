@@ -39,6 +39,9 @@ def _parser():
     parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__}')
     commands = parser.add_subparsers(dest='command', required=True)
 
+    completion = commands.add_parser('completion', help='Print Bash or Zsh completion setup')
+    completion.add_argument('shell', choices=('bash', 'zsh'))
+
     # Create project
     create = commands.add_parser('create', help='Create editable YAML/cards from a template')
     create.add_argument('directory', nargs='?', help='New project directory')
@@ -162,6 +165,11 @@ def main(argv=None):
 
     parser, args = parse_args(arguments)
     try:
+
+        if args.command == 'completion':
+            from .completion import shell_completion
+            print(shell_completion(parser, args.shell), end='')
+            return 0
 
         if args.command == 'create':
             if args.list_templates:

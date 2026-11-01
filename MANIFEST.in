@@ -5,3 +5,7 @@ recursive-include examples *.md *.yml *.yaml *.json *.dat *.mg5 *.sh *.sub *.tcl
 include examples/example0_sub/input_test_ttbb.tar.gz
 recursive-include scripts *.py *.sh
 recursive-include dockerfiles *.Dockerfile
+
+recursive-include images *.Dockerfile *.py *.sh fetch-source *.json
+recursive-include data *.py *.patch WeightContainer.cc WeightContainer.h *.tar.gz
+include .dockerignore

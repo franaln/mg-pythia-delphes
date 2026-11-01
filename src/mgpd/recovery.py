@@ -122,7 +122,7 @@ def prepare_recovery(output_dir, output, job_ids=None, **policy):
             if mode in ('condor', 'jupiter'):
                 for sample in {job['sample'] for job in jobs}:
                     copy_input(f'run_{sample}.tar.gz')
-                copy_input('run_mg_pythia_delphes.sh')
+                copy_input('run_mgpd_condor.sh')
                 for job in jobs:
                     copy_input(job['run_file'])
             else:

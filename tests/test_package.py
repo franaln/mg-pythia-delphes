@@ -1,4 +1,4 @@
-"""Installed package entry points, legacy compatibility and public API checks."""
+"""Installed package entry points, saved-plan requirements and public API checks."""
 import importlib.metadata
 import json
 import os
@@ -98,14 +98,16 @@ options:
                 self.assertEqual(manifest['jobs'][0]['seed'], 101)
                 self.assertNotIn('execution_attempt', manifest)
 
-    def test_prepackage_schema2_fixture_is_still_loadable(self):
+    def test_old_wrapper_names_require_new_preparation(self):
+        from unittest.mock import patch
         fixture = REPO / 'tests/fixtures/legacy_schema2'
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / 'production'
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'production'
             shutil.copytree(fixture, output)
-            production = mgpd.load_prepared_production(output)
-            self.assertEqual(production.manifest['jobs'][0]['seed'], 101)
-            self.assertEqual(production.manifest['state'], 'prepared')
+            with patch('mgpd.execution.subprocess.run') as run:
+                with self.assertRaisesRegex(ValueError, 'wrapper integrity record'):
+                    mgpd.load_prepared_production(output)
+                run.assert_not_called()
 
 
 if __name__ == '__main__':

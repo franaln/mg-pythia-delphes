@@ -68,10 +68,10 @@ Path('executed.mg5').write_bytes(Path('run.mg5').read_bytes())
         if mode == 'condor':
             work = root / 'worker'
             work.mkdir()
-            for relative in (f'run_{job["sample"]}.tar.gz', job['run_file'], 'run_mg_pythia_delphes.sh'):
+            for relative in (f'run_{job["sample"]}.tar.gz', job['run_file'], 'run_mgpd_condor.sh'):
                 source = Path(loaded.output_dir) / relative
                 shutil.copyfile(source, work / source.name)
-            command = ['bash', str(work / 'run_mg_pythia_delphes.sh'), job['sample'],
+            command = ['bash', str(work / 'run_mgpd_condor.sh'), job['sample'],
                        f'run_{job["sample"]}.tar.gz', ' '.join(job['outputs']),
                        'output_sample_123_0', Path(job['run_file']).name]
             result = subprocess.run(command, cwd=work, env=env, capture_output=True, text=True)
@@ -79,7 +79,7 @@ Path('executed.mg5').write_bytes(Path('run.mg5').read_bytes())
         # Bypass only the container boundary. Run the generated wrapper via the
         # actual saved-plan executor, including checksum and attempt guards.
         def native(mode, image, sample, directory):
-            return ['bash', '-c', 'cd ' + shlex.quote(directory) + ' && exec bash ./run_mg_pythia_delphes.sh ' + shlex.quote(sample) + ' unused']
+            return ['bash', '-c', 'cd ' + shlex.quote(directory) + ' && exec bash ./run_mgpd_local.sh ' + shlex.quote(sample) + ' unused']
         with patch('mgpd.execution.build_local_command', side_effect=native), patch.dict(os.environ, env):
             try:
                 mgpd.execute_production(loaded)

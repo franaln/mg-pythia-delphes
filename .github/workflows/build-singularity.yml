@@ -1,65 +1,56 @@
-name: Build and Upload Singularity Image
+name: Build and Upload Container Images
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - 'dockerfiles/**.Dockerfile'
+      - 'images/**'
+      - 'data/**'
+      - 'scripts/create_images.py'
+      - '.dockerignore'
+      - '.github/workflows/build-singularity.yml'
   workflow_dispatch:
 
 jobs:
   build-singularity:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
       packages: write
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
+      - uses: actions/checkout@v4
+      - name: Require reviewed source lock
         run: |
-          docker build -t ghcr.io/franaln/mg-pythia-delphes:3.5.6 -f dockerfiles/mg-pythia-delphes-3.5.6.Dockerfile .
-
-      - name: Install Apptainer (Singularity)
+          test -s images/sources.lock.json || {
+            echo '::error::Generate, review and commit images/sources.lock.json before running this workflow.'
+            exit 1
+          }
+      - uses: docker/setup-buildx-action@v3
+      - name: Install Apptainer
         run: |
           sudo add-apt-repository -y ppa:apptainer/ppa
           sudo apt-get update
           sudo apt-get install -y apptainer apptainer-suid
-
-      - name: Convert Docker image to Singularity .sif
+      - name: Build and check OCI and SIF images
         run: |
-          mkdir -p output
-          apptainer build output/image.sif docker-daemon://ghcr.io/franaln/mg-pythia-delphes:3.5.6
-
-      - name: Upload .sif to GitHub Packages
-        uses: actions/upload-artifact@v4
+          python3 scripts/create_images.py --version 3.5.6 --engine docker \
+            --repository ghcr.io/franaln/mg-pythia-delphes --build --sif --check
+      - uses: actions/upload-artifact@v4
         with:
-          name: singularity-image
-          path: output/image.sif
-
-      # Optional: also push the Docker image to GHCR
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+          name: mgpd-3.5.6-images
+          path: dist/images/mg-pythia-delphes-3.5.6.sif*
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push Docker image to GHCR
+      - name: Publish checked OCI image
         run: |
-          docker push ghcr.io/franaln/mg-pythia-delphes:3.5.6
-
-      - name: Create Release and Upload .sif
-        uses: softprops/action-gh-release@v2
+          python3 scripts/create_images.py --version 3.5.6 --engine docker \
+            --repository ghcr.io/franaln/mg-pythia-delphes --check --push
+      - uses: softprops/action-gh-release@v2
         with:
-          files: output/image.sif
-          tag_name: v${{ github.run_number }}
+          files: dist/images/mg-pythia-delphes-3.5.6.sif*
+          tag_name: image-3.5.6-${{ github.run_number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

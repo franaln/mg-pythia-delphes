@@ -3,7 +3,7 @@
 universe = container
 container_image = ${container_image}
 
-executable = run_mg_pythia_delphes.sh
+executable = run_mgpd_condor.sh
 
 input_file = ${input_file}
 job_name = $$(Cluster)_$$(Process)

@@ -121,7 +121,7 @@ class RunnerTests(unittest.TestCase):
                     for job in manifest['jobs']:
                         self.assertIn(job['run_file'], submission)
                 else:
-                    self.assertEqual(len(list(output.glob('run_*/run_mg_pythia_delphes.sh'))), 3)
+                    self.assertEqual(len(list(output.glob('run_*/run_mgpd_local.sh'))), 3)
 
     def test_condor_worker_uses_prepared_seed_and_lhe_only_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,9 +264,9 @@ class RunnerTests(unittest.TestCase):
 
     def test_changed_execution_inputs_are_rejected_before_launch(self):
         cases = [('condor', 'sample_00000.mg5'), ('condor', 'run_sample.tar.gz'),
-                 ('condor', 'job_sample.sub'), ('condor', 'run_mg_pythia_delphes.sh'),
+                 ('condor', 'job_sample.sub'), ('condor', 'run_mgpd_condor.sh'),
                  ('local-docker', 'run_sample/cards/run_card.dat'),
-                 ('local-docker', 'run_sample/run_mg_pythia_delphes.sh')]
+                 ('local-docker', 'run_sample/run_mgpd_local.sh')]
         for mode, relative in cases:
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
