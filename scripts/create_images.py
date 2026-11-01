@@ -112,28 +112,6 @@ def publish_file(source, destination, replace=False, expected_sha256=None):
         temporary.unlink(missing_ok=True)
 
 
-def parser():
-
-    result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument('--version', choices=VERSIONS, action='append', required=True,
-                        help='MadGraph version; repeat to process both supported versions')
-    result.add_argument('--revision', help='Optional image revision, e.g. r1 (tag becomes 3.5.6-r1)')
-    result.add_argument('--engine', choices=('podman', 'docker'), default='podman')
-    result.add_argument('--build-jobs', type=int, help='Parallel compilation jobs')
-    result.add_argument('--source-lock', default='images/sources.lock.json', help='Reviewed download lock relative to build context')
-    result.add_argument('--source', type=Path, default=REPOSITORY, help='Repository/build context')
-    result.add_argument('--output-dir', type=Path, default=REPOSITORY / 'dist/images')
-    result.add_argument('--repository', default='franaln/mg-pythia-delphes', help='Destination OCI repository')
-    result.add_argument('--build', action='store_true', help='Build a new local candidate')
-    result.add_argument('--sif', action='store_true', help='Convert the exact local image using a temporary Docker archive')
-    result.add_argument('--check', action='store_true', help='Check tools, ROOT import and two common PDF sets; no event generation')
-    result.add_argument('--push', action='store_true', help='Publish checked OCI image; requires --check in this invocation')
-    result.add_argument('--install-dir', type=Path, help='Install a checked SIF and metadata into an existing shared directory')
-    result.add_argument('--replace', action='store_true', help='Allow replacing output SIF/shared installed files')
-    result.add_argument('--no-cache', action='store_true', help='Disable build cache (requires --build)')
-    result.add_argument('--dry-run', action='store_true', help='Print selected actions without commands, writes or tool requirements')
-
-    return result
 
 
 def dockerfile_path(args, version):
@@ -142,6 +120,7 @@ def dockerfile_path(args, version):
 
 
 def validate(args):
+
     if not any((args.build, args.sif, args.check, args.push, args.install_dir)):
         raise ValueError('Select --build, --sif, --check, --push or --install-dir')
     if args.build_jobs is not None and (args.build_jobs < 1 or not args.build):
@@ -156,8 +135,10 @@ def validate(args):
         raise ValueError('Invalid repository')
     if ':' in args.repository.rsplit('/', 1)[-1]:
         raise ValueError('Repository must not include an image tag')
+
     args.source = args.source.expanduser().resolve()
     args.output_dir = args.output_dir.expanduser().resolve()
+
     if args.build:
         lock = (args.source / args.source_lock).resolve()
         if not lock.is_relative_to(args.source.resolve()) or not lock.is_file():
@@ -220,6 +201,7 @@ def process(args, version):
         metadata.update(saved)
         if metadata['tag'] != tag or metadata['reference'] != reference:
             raise ValueError('Existing SIF metadata belongs to another image reference')
+
     candidate = None
     candidate_built = False
     check = check_script(version)
@@ -273,6 +255,7 @@ def process(args, version):
                 publish_file(staged, sif, args.replace)
             metadata['sif_sha256'] = sha256(sif)
             metadata['sif_image_id'] = image_id
+
         elif args.check and sif.is_file():
             if metadata.get('sif_sha256') != sha256(sif):
                 raise ValueError('SIF checksum does not match metadata; rebuild with --sif')
@@ -281,15 +264,19 @@ def process(args, version):
             metadata['sif_check'] = run(['apptainer', 'exec', '--cleanenv', sif,
                                         '/bin/bash', '-e', '-o', 'pipefail', '-c', check], capture=True)[-32000:]
             metadata['sif_checked_sha256'] = sha256(sif)
+
         if args.build:
             run([args.engine, 'tag', image_id, reference])
+
         if args.push:
             # Retag the checked immutable ID immediately before publishing.
             run([args.engine, 'tag', image_id, reference])
             run([args.engine, 'push', reference])
+
         if needs_engine:
             metadata['updated_at'] = datetime.now(timezone.utc).isoformat()
             write_json(metadata_path, metadata)
+
         if args.install_dir:
             if metadata.get('sif_checked_sha256') != sha256(sif):
                 raise ValueError('Install requires a checked, unchanged SIF; first run --sif --check')
@@ -297,6 +284,7 @@ def process(args, version):
             publish_file(sif, destination, args.replace, expected_sha256=metadata['sif_checked_sha256'])
             publish_file(metadata_path, destination.with_name(destination.name + '.json'), args.replace)
             print(f'Installed {destination}; SHA256 {metadata["sif_checked_sha256"]}')
+
     finally:
         if candidate_built:
             # Cleanup must not mask a failed build/check or alter the published tag.
@@ -308,7 +296,25 @@ def process(args, version):
 
 def main(argv=None):
 
-    arguments = parser()
+    arguments = argparse.ArgumentParser(description=__doc__)
+    arguments.add_argument('--version', choices=VERSIONS, action='append', required=True,
+                        help='MadGraph version; repeat to process both supported versions')
+    arguments.add_argument('--revision', help='Optional image revision, e.g. r1 (tag becomes 3.5.6-r1)')
+    arguments.add_argument('--engine', choices=('podman', 'docker'), default='podman')
+    arguments.add_argument('--build-jobs', type=int, help='Parallel compilation jobs')
+    arguments.add_argument('--source-lock', default='images/sources.lock.json', help='Reviewed download lock relative to build context')
+    arguments.add_argument('--source', type=Path, default=REPOSITORY, help='Repository/build context')
+    arguments.add_argument('--output-dir', type=Path, default=REPOSITORY / 'dist/images')
+    arguments.add_argument('--repository', default='franaln/mg-pythia-delphes', help='Destination OCI repository')
+    arguments.add_argument('--build', action='store_true', help='Build a new local candidate')
+    arguments.add_argument('--sif', action='store_true', help='Convert the exact local image using a temporary Docker archive')
+    arguments.add_argument('--check', action='store_true', help='Check tools, ROOT import and two common PDF sets; no event generation')
+    arguments.add_argument('--push', action='store_true', help='Publish checked OCI image; requires --check in this invocation')
+    arguments.add_argument('--install-dir', type=Path, help='Install a checked SIF and metadata into an existing shared directory')
+    arguments.add_argument('--replace', action='store_true', help='Allow replacing output SIF/shared installed files')
+    arguments.add_argument('--no-cache', action='store_true', help='Disable build cache (requires --build)')
+    arguments.add_argument('--dry-run', action='store_true', help='Print selected actions without commands, writes or tool requirements')
+
     args = arguments.parse_args(argv)
 
     try:

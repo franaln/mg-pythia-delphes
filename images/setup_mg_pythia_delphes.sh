@@ -91,7 +91,7 @@ if [ -n "${PYTHONHOME:-}" ] ; then
 fi
 
 # ROOT
-. "$MG_DIR/root/bin/thisroot.sh" || { return 1 2>/dev/null || exit 1; }
+(cd "$MG_DIR/root" && . "$MG_DIR/root/bin/thisroot.sh") || { return 1 2>/dev/null || exit 1; }
 
 # PYTHONPATH
 _OLD_VIRTUAL_PYTHONPATH="${PYTHONPATH:-}"
