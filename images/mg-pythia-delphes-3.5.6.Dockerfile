@@ -167,7 +167,7 @@ RUN mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://gitlab.com/Pythia8/releases/-/archive/pythia${PYTHIA_VERSION}/releases-pythia${PYTHIA_VERSION}.tar.gz" "pythia${PYTHIA_VERSION}.tgz" && \
     tar xvfz pythia${PYTHIA_VERSION}.tgz && \
-    cd pythia${PYTHIA_VERSION} && \
+    cd releases-pythia${PYTHIA_VERSION} && \
     cp ${INSTALL_DIR}/MG5_aMC/Template/NLO/MCatNLO/Scripts/JetMatching.h include/Pythia8Plugins/JetMatching.h && \
     source /setup_build.sh && \
     ./configure \
@@ -191,12 +191,11 @@ RUN mkdir ${TMP_DIR} && \
 
 # Install Delphes
 ARG DELPHES_VERSION=3.5.0
-RUN fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES_VERION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
-    tar -zxf Delphes-${DELPHES_VERSION}.tar.gz -C ${INSTALL_DIR} && \
-    rm -rf Delphes-${DELPHES_VERSION}.tar.gz && \
-    cd ${INSTALL_DIR} && \
-    mv Delphes-${DELPHES_VERSION} Delphes && \
-    cd Delphes && \
+RUN fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES_VERSION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
+    mkdir -p "${INSTALL_DIR}/Delphes" && \
+    tar -zxf "Delphes-${DELPHES_VERSION}.tar.gz" --strip-components=1 -C "${INSTALL_DIR}/Delphes" && \
+    rm "Delphes-${DELPHES_VERSION}.tar.gz" && \
+    cd "${INSTALL_DIR}/Delphes" && \
     source /setup_build.sh && \
     make -j"${BUILD_JOBS}"
 

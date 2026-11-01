@@ -106,6 +106,36 @@ class CheckedImageTests(unittest.TestCase):
                 self.assertEqual(name, 'pythia8306.tgz')
                 self.assertEqual(url, sources.catalog(version)[name])
 
+    def test_delphes_url_and_extraction_do_not_depend_on_archive_root_name(self):
+        for version in ('3.3.2', '3.5.6'):
+            recipe = (CHECKED / f'mg-pythia-delphes-{version}.Dockerfile').read_text()
+            joined = '\n'.join(line for line in recipe.splitlines() if not line.lstrip().startswith('#')).replace('\\\n', '')
+            command = next(line[4:] for line in joined.splitlines() if line.startswith('RUN ') and 'fetch-source' in line and 'Delphes-${DELPHES_VERSION}.tar.gz' in line)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                archive = root / 'source.tar.gz'
+                with tarfile.open(archive, 'w:gz') as tar:
+                    data = b'fixture'
+                    member = tarfile.TarInfo('delphes-3.5.0/Makefile'); member.size = len(data)
+                    tar.addfile(member, io.BytesIO(data))
+                tools = root / 'tools'; tools.mkdir()
+                fetch = tools / 'fetch-source'
+                fetch.write_text('#!/bin/bash\ncp "$DELPHES_TEST_ARCHIVE" "$2"\nprintf "%s" "$1" > "$DELPHES_TEST_URL"\n')
+                fetch.chmod(0o755)
+                make = tools / 'make'
+                make.write_text('#!/bin/bash\ntest -f Makefile || exit 1\npwd > build-directory.txt\n')
+                make.chmod(0o755)
+                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', command.replace('source /setup_build.sh', 'true')],
+                    cwd=root, env={**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
+                                   'DELPHES_VERSION': '3.5.0', 'BUILD_JOBS': '2', 'INSTALL_DIR': str(root/'install'),
+                                   'DELPHES_TEST_ARCHIVE': str(archive), 'DELPHES_TEST_URL': str(root/'url')},
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root/'url').read_text(), sources.catalog(version)['Delphes-3.5.0.tar.gz'])
+                self.assertEqual((root/'install/Delphes/Makefile').read_bytes(), b'fixture')
+                self.assertEqual(Path((root/'install/Delphes/build-directory.txt').read_text().strip()).resolve(),
+                                 (root/'install/Delphes').resolve())
+
     def test_catalog_pdf_names_match_recipes_and_do_not_mutate_tools(self):
         original = copy.deepcopy(sources.TOOLS)
         for version in ('3.3.2', '3.5.6'):
