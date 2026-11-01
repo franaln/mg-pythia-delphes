@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -161,6 +162,11 @@ def validate(args):
         lock = (args.source / args.source_lock).resolve()
         if not lock.is_relative_to(args.source.resolve()) or not lock.is_file():
             raise ValueError('Checked build requires a source lock inside the build context; run images/sources.py lock first')
+        helper = args.source / 'images/sources.py'
+        spec = importlib.util.spec_from_file_location('_mgpd_build_sources', helper)
+        sources = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sources)
+        sources.check_lock(lock, args.version)
     if args.install_dir is not None:
         args.install_dir = args.install_dir.expanduser().resolve(strict=True)
         if not args.install_dir.is_dir():

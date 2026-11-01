@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 import subprocess
@@ -28,7 +29,14 @@ class ImageTests(unittest.TestCase):
         (self.context / 'images').mkdir(parents=True)
         for version in builder.VERSIONS:
             (self.context / 'images' / f'mg-pythia-delphes-{version}.Dockerfile').write_text('FROM ubuntu:20.04')
-        (self.context / 'images/sources.lock.json').write_text(json.dumps({'schema_version': 1, 'files': {}}))
+        helper = SCRIPT.parents[1] / 'images/sources.py'
+        shutil.copy2(helper, self.context / 'images/sources.py')
+        spec = importlib.util.spec_from_file_location('test_source_catalog', helper)
+        sources = importlib.util.module_from_spec(spec); spec.loader.exec_module(sources)
+        entries = {}
+        for version in builder.VERSIONS:
+            entries.update({name: {'url': url, 'sha256': 'a'*64} for name, url in sources.catalog(version).items()})
+        (self.context / 'images/sources.lock.json').write_text(json.dumps({'schema_version': 1, 'files': entries}))
 
     def fake_run(self, command, cwd=None, capture=False):
         command = [str(item) for item in command]
@@ -191,7 +199,7 @@ elif Path(sys.argv[0]).name=='apptainer' and args[0]=='build':
 
     def test_checked_recipe_requires_lock_and_passes_build_jobs(self):
         lock = self.root / 'sources.lock.json'
-        lock.write_text(json.dumps({'schema_version': 1, 'files': {}}))
+        lock.write_bytes((self.context / 'images/sources.lock.json').read_bytes())
         # The source lock must live inside the selected build context.
         with self.assertRaises(ValueError):
             self.args('--build', '--source-lock', str(lock))
@@ -205,6 +213,15 @@ elif Path(sys.argv[0]).name=='apptainer' and args[0]=='build':
         self.assertIn(str((context / 'images/mg-pythia-delphes-3.5.6.Dockerfile').resolve()), command)
         self.assertIn('BUILD_JOBS=2', command)
         self.assertIn('SOURCE_LOCK=sources.lock.json', command)
+
+    def test_source_lock_mismatch_fails_before_any_engine_command(self):
+        lock = self.context / 'images/sources.lock.json'
+        data = json.loads(lock.read_text())
+        data['files']['pythia8306.tgz']['url'] = 'https://another.example/pythia8306.tgz'
+        lock.write_text(json.dumps(data))
+        with patch.object(builder, 'run', side_effect=AssertionError('Build must not start')):
+            with self.assertRaisesRegex(ValueError, 'URL mismatch for pythia8306.tgz'):
+                self.args('--build')
 
     def test_publication_never_overwrites_or_follows_symlinks(self):
         source = self.root / 'source'; source.write_bytes(b'new')

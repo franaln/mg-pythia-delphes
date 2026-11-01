@@ -343,6 +343,19 @@ an update. Builds require the lock inside the build context and reject changed
 bytes before extraction. HTTP/error pages are not silently accepted. A failed
 HTTPS endpoint requires review of a replacement URL.
 
+Before compiling, check the reviewed lock offline:
+
+```bash
+python images/sources.py check --version 3.5.6 --lock images/sources.lock.json
+```
+
+The constructor runs this validation automatically before starting Podman/Docker.
+Missing entries, URL differences and malformed SHA256 values are reported
+separately. If a lock is out of date, capture a new file with `lock --output
+images/sources-new.lock.json` using the existing cache, review its diff and use
+`--source-lock images/sources-new.lock.json` for a test build. Do not edit a
+checksum merely to bypass a failed verification.
+
 ### Build and check candidates
 
 ```bash

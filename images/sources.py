@@ -101,14 +101,37 @@ def download(url, output, expected=None):
             temporary.unlink(missing_ok=True)
 
 
-def fetch(lock_path, filename, url, output):
+def lock_entries(lock_path):
     lock = json.loads(lock_path.read_text())
-    if lock.get('schema_version') != 1:
-        raise ValueError('Unsupported source lock')
-    entry = lock['files'].get(filename)
-    if not entry or entry['url'] != url or not re.fullmatch('[a-f0-9]{64}', entry['sha256']):
-        raise ValueError(f'Missing/mismatching source lock entry: {filename}')
-    return download(url, output, entry['sha256'])
+    if not isinstance(lock, dict) or lock.get('schema_version') != 1 or not isinstance(lock.get('files'), dict):
+        raise ValueError(f'Unsupported source lock: {lock_path}')
+    return lock['files']
+
+
+def checked_entry(entries, filename, url):
+    if filename not in entries:
+        raise ValueError(f'Source lock is missing entry: {filename}')
+    entry = entries[filename]
+    if not isinstance(entry, dict):
+        raise ValueError(f'Invalid source lock entry: {filename}; expected url and sha256')
+    if entry.get('url') != url:
+        raise ValueError(f'Source lock URL mismatch for {filename}: requested {url!r}; lock contains {entry.get("url")!r}')
+    checksum = entry.get('sha256')
+    if not isinstance(checksum, str) or not re.fullmatch('[a-f0-9]{64}', checksum):
+        raise ValueError(f'Invalid SHA256 in source lock for {filename}; expected 64 lowercase hexadecimal characters')
+    return checksum
+
+
+def check_lock(lock_path, versions):
+    entries = lock_entries(lock_path)
+    for version in versions:
+        for filename, url in catalog(version).items():
+            checked_entry(entries, filename, url)
+
+
+def fetch(lock_path, filename, url, output):
+    checksum = checked_entry(lock_entries(lock_path), filename, url)
+    return download(url, output, checksum)
 
 
 def main(argv=None):
@@ -121,6 +144,10 @@ def main(argv=None):
     lock.add_argument('--output', type=Path, required=True)
     lock.add_argument('--cache', type=Path, required=True)
 
+    checker = commands.add_parser('check', help='Validate the complete lock offline before building')
+    checker.add_argument('--version', choices=('3.3.2', '3.5.6'), action='append', required=True)
+    checker.add_argument('--lock', type=Path, required=True)
+
     fetcher = commands.add_parser('fetch')
     fetcher.add_argument('--lock', type=Path, required=True)
     fetcher.add_argument('--file', required=True)
@@ -130,7 +157,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     try:
-        if args.command == 'fetch':
+        if args.command == 'check':
+            check_lock(args.lock, args.version)
+            print('Source lock matches the requested versions')
+        elif args.command == 'fetch':
             fetch(args.lock, args.file, args.url, args.output)
         else:
             if args.output.exists():
