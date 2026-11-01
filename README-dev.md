@@ -321,7 +321,10 @@ code; workspace checks are not a Unix execution sandbox.
 The active recipes and helpers are in `images/`; `create_images.sh`, `dockerfiles/`
 and their old helpers are retained until real-image validation is complete.
 Use Python 3.9+ for `scripts/create_images.py`. Podman is the default engine;
-select `--engine docker` elsewhere. The recipes use x86_64 ROOT binaries, so
+select `--engine docker` elsewhere. Podman builds explicitly use `--format docker`
+so the Dockerfile `SHELL` instruction is preserved. If building directly with
+Podman, pass the same flag; OCI-format cached layers may have lost the Bash
+configuration, so use `--no-cache` once when retrying a build affected by this. The recipes use x86_64 ROOT binaries, so
 build on Jupiter. Supported MadGraph versions are 3.3.2 and 3.5.6; do not use
 `latest`.
 

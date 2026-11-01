@@ -67,6 +67,17 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(data['sif_image_id'], IMAGE_ID)
         self.assertFalse(list(self.output.glob('.mgpd-image-*')))
 
+    def test_podman_build_preserves_dockerfile_shell_and_docker_gets_no_format_flag(self):
+        for engine in ('podman', 'docker'):
+            self.calls.clear()
+            with self.subTest(engine=engine):
+                self.execute('--build', '--engine', engine)
+                command = self.calls[0]
+                if engine == 'podman':
+                    self.assertEqual(command[command.index('--format') + 1], 'docker')
+                else:
+                    self.assertNotIn('--format', command)
+
     def test_install_only_uses_checked_bytes_without_engine_or_apptainer(self):
         self.execute('--sif', '--check')
         self.calls.clear()
@@ -81,9 +92,10 @@ class ImageTests(unittest.TestCase):
             raise subprocess.CalledProcessError(1, command)
         with patch.object(builder, 'run', side_effect=fail), \
                 patch.object(builder.shutil, 'which', return_value='/fake/tool'), \
-                patch.object(builder.subprocess, 'run'):
+                patch.object(builder.subprocess, 'run') as cleanup:
             with self.assertRaises(subprocess.CalledProcessError):
                 builder.process(self.args('--build', '--check', '--push'), '3.5.6')
+            cleanup.assert_not_called()
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.calls[0][1], 'build')
         self.assertEqual(list(self.install.iterdir()), [])
@@ -152,6 +164,9 @@ from pathlib import Path
 args=sys.argv[1:]
 with Path(os.environ['IMAGE_TEST_LOG']).open('a') as stream:
     stream.write(json.dumps([Path(sys.argv[0]).name, *args])+'\\n')
+if args and args[0]=='build' and Path(sys.argv[0]).name=='podman':
+    if '--format' not in args or args[args.index('--format')+1]!='docker':
+        raise SystemExit(33)
 if 'inspect' in args:
     print('sha256:'+'a'*64)
 elif 'save' in args:

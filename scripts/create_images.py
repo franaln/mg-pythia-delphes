@@ -215,6 +215,7 @@ def process(args, version):
         if metadata['tag'] != tag or metadata['reference'] != reference:
             raise ValueError('Existing SIF metadata belongs to another image reference')
     candidate = None
+    candidate_built = False
     check = check_script(version)
     try:
         if needs_engine:
@@ -222,7 +223,11 @@ def process(args, version):
             if args.build:
                 candidate = f'localhost/mgpd-build:{uuid.uuid4().hex}'
                 dockerfile = dockerfile_path(args, version)
-                command = [args.engine, 'build', '--tag', candidate, '--file', dockerfile]
+                command = [args.engine, 'build']
+                if args.engine == 'podman':
+                    # OCI format drops Dockerfile SHELL metadata on affected Podman/Buildah versions.
+                    command += ['--format', 'docker']
+                command += ['--tag', candidate, '--file', dockerfile]
                 command += ['--build-arg', 'SOURCE_LOCK=' + args.source_lock]
                 if args.build_jobs is not None:
                     command += ['--build-arg', f'BUILD_JOBS={args.build_jobs}']
@@ -230,6 +235,7 @@ def process(args, version):
                 if args.no_cache:
                     command.append('--no-cache')
                 run([*command, args.source], cwd=args.source)
+                candidate_built = True
                 local_reference = candidate
                 metadata['dockerfile_sha256'] = sha256(dockerfile)
             image_id = run([args.engine, 'image', 'inspect', '--format', '{{.Id}}', local_reference], capture=True).strip()
@@ -286,7 +292,7 @@ def process(args, version):
             publish_file(metadata_path, destination.with_name(destination.name + '.json'), args.replace)
             print(f'Installed {destination}; SHA256 {metadata["sif_checked_sha256"]}')
     finally:
-        if candidate:
+        if candidate_built:
             # Cleanup must not mask a failed build/check or alter the published tag.
             try:
                 subprocess.run([args.engine, 'image', 'rm', candidate], check=False)
