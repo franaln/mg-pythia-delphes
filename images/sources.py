@@ -17,9 +17,12 @@ TOOLS = {
         'HepMC-HEPMC_02_06_09.tar.gz': 'https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_02_06_09/HepMC-HEPMC_02_06_09.tar.gz',
         'fastjet-3.3.4.tar.gz': 'https://fastjet.fr/repo/fastjet-3.3.4.tar.gz',
         'LHAPDF-6.3.0.tar.gz': 'https://lhapdf.hepforge.org/downloads/?f=LHAPDF-6.3.0.tar.gz',
-        'pythia8306.tgz': 'https://pythia.org/download/pythia83/pythia8306.tgz',
-        'Delphes-3.5.0.tar.gz': 'https://cp3.irmp.ucl.ac.be/downloads/Delphes-3.5.0.tar.gz',
-        'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
+        # 'pythia8306.tgz': 'https://pythia.org/download/pythia83/pythia8306.tgz',
+        'pythia8306.tgz': 'https://gitlab.com/Pythia8/releases/-/archive/pythia8306/releases-pythia8306.tar.gz',
+        # 'Delphes-3.5.0.tar.gz': 'http://cp3.irmp.ucl.ac.be/downloads/Delphes-3.5.0.tar.gz',
+        'Delphes-3.5.0.tar.gz': 'https://github.com/delphes/delphes/archive/refs/tags/3.5.0.tar.gz',
+        # 'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
+        'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
     },
 
     '3.5.6': {
@@ -28,9 +31,12 @@ TOOLS = {
         'HepMC-HEPMC_02_06_09.tar.gz': 'https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_02_06_09/HepMC-HEPMC_02_06_09.tar.gz',
         'fastjet-3.4.2.tar.gz': 'https://fastjet.fr/repo/fastjet-3.4.2.tar.gz',
         'LHAPDF-6.5.1.tar.gz': 'https://lhapdf.hepforge.org/downloads/?f=LHAPDF-6.5.1.tar.gz',
-        'pythia8306.tgz': 'https://pythia.org/download/pythia83/pythia8306.tgz',
-        'Delphes-3.5.0.tar.gz': 'https://cp3.irmp.ucl.ac.be/downloads/Delphes-3.5.0.tar.gz',
-        'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
+        # 'pythia8306.tgz': 'https://pythia.org/download/pythia83/pythia8306.tgz',
+        'pythia8306.tgz': 'https://gitlab.com/Pythia8/releases/-/archive/pythia8306/releases-pythia8306.tar.gz',
+        # 'Delphes-3.5.0.tar.gz': 'http://cp3.irmp.ucl.ac.be/downloads/Delphes-3.5.0.tar.gz',
+        'Delphes-3.5.0.tar.gz': 'https://github.com/delphes/delphes/archive/refs/tags/3.5.0.tar.gz',
+        # 'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
+        'MG5aMC_PY8_interface_V1.3.tar.gz': 'https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V1.3.tar.gz',
         'TAUOLA.1.1.9-LHC.tar.gz': 'https://tauolapp.web.cern.ch/resources/TAUOLA.1.1.9/TAUOLA.1.1.9-LHC.tar.gz',
     }
 }
