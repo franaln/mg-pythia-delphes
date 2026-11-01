@@ -165,7 +165,7 @@ RUN mkdir ${TMP_DIR} && \
 ARG PYTHIA_VERSION=8306
 RUN mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
-    fetch-source "https://pythia.org/download/pythia${PYTHIA_VERSION:0:2}/pythia${PYTHIA_VERSION}.tgz" "pythia${PYTHIA_VERSION}.tgz" && \
+    fetch-source "https://gitlab.com/Pythia8/releases/-/archive/pythia${PYTHIA_VERSION}/releases-pythia${PYTHIA_VERSION}.tar.gz" "pythia${PYTHIA_VERSION}.tgz" && \
     tar xvfz pythia${PYTHIA_VERSION}.tgz && \
     cd pythia${PYTHIA_VERSION} && \
     cp ${INSTALL_DIR}/MG5_aMC/Template/NLO/MCatNLO/Scripts/JetMatching.h include/Pythia8Plugins/JetMatching.h && \
@@ -191,7 +191,7 @@ RUN mkdir ${TMP_DIR} && \
 
 # Install Delphes
 ARG DELPHES_VERSION=3.5.0
-RUN fetch-source "https://cp3.irmp.ucl.ac.be/downloads/Delphes-${DELPHES_VERSION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
+RUN fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES_VERION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
     tar -zxf Delphes-${DELPHES_VERSION}.tar.gz -C ${INSTALL_DIR} && \
     rm -rf Delphes-${DELPHES_VERSION}.tar.gz && \
     cd ${INSTALL_DIR} && \
@@ -202,7 +202,7 @@ RUN fetch-source "https://cp3.irmp.ucl.ac.be/downloads/Delphes-${DELPHES_VERSION
 
 # Install MG-Pythia8 interface
 ARG MG5aMC_PY8_INTERFACE_VERSION=1.3
-RUN fetch-source "https://madgraph.phys.ucl.ac.be/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" "MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" && \
+RUN fetch-source "https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" "MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" && \
     mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     mkdir -p ${TMP_DIR}/MG5aMC_PY8_interface && \
