@@ -75,6 +75,37 @@ class CheckedImageTests(unittest.TestCase):
             self.assertEqual(sources.main(['lock', '--version', '3.3.2', '--cache', str(cache),
                                           '--output', str(lock)]), 1)
 
+    def test_lock_diagnostics_distinguish_missing_url_and_checksum(self):
+        filename = 'pythia8306.tgz'
+        url = sources.catalog('3.5.6')[filename]
+        for entries, message in [({}, 'missing entry'),
+                ({filename: {'url': 'https://other.example/file', 'sha256': 'a'*64}}, 'URL mismatch'),
+                ({filename: {'url': url, 'sha256': None}}, 'Invalid SHA256')]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                sources.checked_entry(entries, filename, url)
+        entries = {name: {'url': address, 'sha256': 'a'*64}
+                   for name, address in sources.catalog('3.5.6').items()}
+        with tempfile.TemporaryDirectory() as temporary:
+            lock = Path(temporary) / 'lock.json'; lock.write_text(json.dumps({'schema_version': 1, 'files': entries}))
+            with patch.object(sources, 'urlopen', side_effect=AssertionError('Check is offline')):
+                self.assertEqual(sources.main(['check', '--version', '3.5.6', '--lock', str(lock)]), 0)
+
+    def test_pythia_run_expands_to_catalog_url_in_both_recipes(self):
+        for version in ('3.3.2', '3.5.6'):
+            recipe = (CHECKED / f'mg-pythia-delphes-{version}.Dockerfile').read_text()
+            joined = '\n'.join(line for line in recipe.splitlines() if not line.lstrip().startswith('#')).replace('\\\n', '')
+            command = next(line[4:] for line in joined.splitlines() if line.startswith('RUN ') and 'fetch-source' in line and 'pythia${PYTHIA_VERSION}.tgz' in line)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fake = root / 'fetch-source'; fake.write_text('#!/bin/bash\nprintf "%s\\n" "$1" "$2"\nexit 42\n'); fake.chmod(0o755)
+                result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', command],
+                    env={**os.environ, 'PATH': str(root)+os.pathsep+os.environ['PATH'],
+                         'TMP_DIR': str(root/'build'), 'PYTHIA_VERSION': '8306'}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 42, result.stderr)
+                url, name = result.stdout.splitlines()
+                self.assertEqual(name, 'pythia8306.tgz')
+                self.assertEqual(url, sources.catalog(version)[name])
+
     def test_catalog_pdf_names_match_recipes_and_do_not_mutate_tools(self):
         original = copy.deepcopy(sources.TOOLS)
         for version in ('3.3.2', '3.5.6'):
