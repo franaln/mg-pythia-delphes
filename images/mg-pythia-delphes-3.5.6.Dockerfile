@@ -88,7 +88,7 @@ RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source
 # Install MG
 ARG MG_VERSION=3.5.6
 ARG MG_URL=https://launchpad.net/mg5amcnlo/3.0/3.5.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
-COPY data/six.py ${INSTALL_DIR}/python
+COPY images/six.py ${INSTALL_DIR}/python
 RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
     mkdir ${INSTALL_DIR}/MG5_aMC && \
     tar -xzvf MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=${INSTALL_DIR}/MG5_aMC && \
@@ -96,7 +96,7 @@ RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source
 
 # Install HepMC
 ARG HEPMC_VERSION=02_06_09
-COPY data/WeightContainer* ${DATA_TMP_DIR}
+COPY images/WeightContainer* ${DATA_TMP_DIR}
 RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_${HEPMC_VERSION}/HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" "HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" && \
@@ -269,15 +269,16 @@ RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes
 # RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
 #     make
 
-# # Install loop_qcd_qed_sm model
-# COPY data/loop_qcd_qed_sm.tar.gz /
-# RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-#     rm /loop_qcd_qed_sm.tar.gz
+# Install extra models
+COPY images/models/*.tar.gz /tmp/models/
 
-# # Install model invisibleBA_UFO
-# COPY data/invisibleBA_UFO.tar.gz /
-# RUN tar -xvzf invisibleBA_UFO.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-#     rm /invisibleBA_UFO.tar.gz
+RUN mkdir -p "${INSTALL_DIR}/MG5_aMC/models" && \
+    for archive in /tmp/models/*.tar.gz; do \
+        tar -xzf "$archive" \
+            -C "${INSTALL_DIR}/MG5_aMC/models" || exit 1; \
+    done && \
+    rm -rf /tmp/models
+
 
 # Download PDFs
 # 230000: NNPDF23_nlo_as_0119
@@ -323,17 +324,11 @@ RUN echo source /setup_mg_pythia_delphes.sh >> ${bashrc}
 
 RUN rm -rf ${DATA_TMP_DIR} /setup_build.sh
 
-# COPY data/entrypoint.sh /usr/local/bin/
-# RUN chmod +x /usr/local/bin/entrypoint.sh
-
-#RUN chown -R a+rwx ${INSTALL_DIR}
-#RUN chmod -R a+rwX ${INSTALL_DIR}
 
 ENV HOME=/home/docker
 USER docker
 WORKDIR ${HOME}/work
 
-# ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 RUN source /setup_mg_pythia_delphes.sh && \
     python -c 'import ROOT; print(ROOT.gROOT.GetVersion())' && \
     command -v mg5_aMC && command -v hadd && command -v root2lhco && command -v lhco2root && \
