@@ -70,7 +70,7 @@ class ImageTests(unittest.TestCase):
         return validate.call_args.args[0]
 
     def args(self, *extra):
-        args = self.parse_args(['--version', '3.5.6', '--source', str(self.context), '--output-dir', str(self.output), *extra])
+        args = self.parse_args(['--version', '3.5.6', '--source', str(self.context), '--output-dir', str(self.output), '--install-dir', str(self.install), *extra])
         builder.validate(args)
         return args
 
@@ -81,11 +81,11 @@ class ImageTests(unittest.TestCase):
             builder.process(self.args(*extra), '3.5.6')
 
     def test_recommend_installed_sif_updates_alias_and_preserves_old_revision(self):
-        self.execute('--sif', '--check', '--revision', 'r1', '--install-dir', str(self.install), '--recommend')
+        self.execute('--sif', '--check', '--revision', 'r1', '--install', '--install-dir', str(self.install), '--recommend')
         alias = self.install / 'mg-pythia-delphes-3.5.6.sif'
         first = alias.resolve()
         self.assertEqual(first.name, 'mg-pythia-delphes-3.5.6-r1.sif')
-        self.execute('--sif', '--check', '--revision', 'r2', '--install-dir', str(self.install), '--recommend')
+        self.execute('--sif', '--check', '--revision', 'r2', '--install', '--install-dir', str(self.install), '--recommend')
         self.assertTrue(first.is_file())
         self.assertEqual(alias.resolve().name, 'mg-pythia-delphes-3.5.6-r2.sif')
 
@@ -93,22 +93,25 @@ class ImageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'revision'):
             self.args('--recommend')
         self.execute('--sif', '--revision', 'r1')
+        for path in self.output.iterdir():
+            shutil.copy2(path, self.install / path.name)
         with self.assertRaisesRegex(ValueError, 'checked'):
             self.execute('--recommend', '--revision', 'r1')
-        self.execute('--sif', '--check', '--revision', 'r2')
-        alias = self.output / 'mg-pythia-delphes-3.5.6.sif'
+        self.execute('--sif', '--check', '--revision', 'r2', '--install')
+        alias = self.install / 'mg-pythia-delphes-3.5.6.sif'
         alias.write_bytes(b'keep')
         with self.assertRaisesRegex(FileExistsError, 'ordinary file'):
             self.execute('--recommend', '--revision', 'r2')
         self.assertEqual(alias.read_bytes(), b'keep')
 
     def test_recommend_can_promote_previous_checked_sif_without_engine(self):
-        self.execute('--sif', '--check', '--revision', 'r1')
+        self.execute('--sif', '--check', '--revision', 'r1', '--install')
+        shutil.rmtree(self.output)
         self.calls.clear()
-        with patch.object(builder.shutil, 'which', return_value=None):
+        with patch.object(builder.shutil, 'which', side_effect=AssertionError('No engine required')):
             builder.process(self.args('--recommend', '--revision', 'r1'), '3.5.6')
         self.assertFalse(self.calls)
-        self.assertTrue((self.output / 'mg-pythia-delphes-3.5.6.sif').is_symlink())
+        self.assertTrue((self.install / 'mg-pythia-delphes-3.5.6.sif').is_symlink())
 
     def test_recommend_pushed_version_uses_checked_id_for_both_tags(self):
         self.execute('--check', '--push', '--revision', 'r1', '--recommend')
@@ -116,8 +119,34 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(pushes, ['franaln/mg-pythia-delphes:3.5.6-r1', 'franaln/mg-pythia-delphes:3.5.6'])
         self.assertTrue(all(cmd[-2] == IMAGE_ID for cmd in self.calls if cmd[1] == 'tag'))
 
+    def test_install_dir_is_only_configuration_not_an_action(self):
+        defaults = self.parse_args(['--version', '3.5.6'])
+        self.assertEqual(defaults.install_dir, Path('/mnt/R5/images'))
+        self.assertFalse(defaults.install)
+        with self.assertRaisesRegex(ValueError, 'Select'):
+            self.args('--install-dir', str(self.install))
+        unavailable = self.root / 'not-mounted'
+        self.execute('--sif', '--check', '--install-dir', str(unavailable))
+        self.assertFalse(unavailable.exists())
+        self.assertFalse(list(self.install.iterdir()))
+
+    def test_recommend_checks_installed_metadata_and_bytes_not_output_copy(self):
+        self.execute('--sif', '--check', '--revision', 'r1', '--install')
+        installed = self.install / 'mg-pythia-delphes-3.5.6-r1.sif'
+        metadata = installed.with_name(installed.name + '.json')
+        original = metadata.read_text()
+        data = json.loads(original); data['tag'] = '3.5.6-r2'
+        metadata.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, 'another image'):
+            self.execute('--recommend', '--revision', 'r1')
+        metadata.write_text(original)
+        installed.write_bytes(b'changed installed image')
+        with self.assertRaisesRegex(ValueError, 'unchanged installed'):
+            self.execute('--recommend', '--revision', 'r1')
+        self.assertFalse((self.install / 'mg-pythia-delphes-3.5.6.sif').exists())
+
     def test_build_check_convert_and_install_without_registry(self):
-        self.execute('--build', '--sif', '--check', '--install-dir', str(self.install))
+        self.execute('--build', '--sif', '--check', '--install', '--install-dir', str(self.install))
         saves = [cmd for cmd in self.calls if 'save' in cmd]
         self.assertIn('docker-archive', saves[0])
         self.assertEqual(saves[0][-1], IMAGE_ID)
@@ -146,7 +175,7 @@ class ImageTests(unittest.TestCase):
         self.execute('--sif', '--check')
         self.calls.clear()
         with patch.object(builder.shutil, 'which', side_effect=AssertionError('Install must not require tools')):
-            builder.process(self.args('--install-dir', str(self.install)), '3.5.6')
+            builder.process(self.args('--install', '--install-dir', str(self.install)), '3.5.6')
         self.assertEqual(self.calls, [])
         self.assertTrue((self.install / 'mg-pythia-delphes-3.5.6.sif').is_file())
 
@@ -180,7 +209,7 @@ class ImageTests(unittest.TestCase):
     def test_unchecked_tampered_or_wrong_image_sif_is_refused(self):
         self.execute('--sif')
         with self.assertRaisesRegex(ValueError, 'checked'):
-            builder.process(self.args('--install-dir', str(self.install)), '3.5.6')
+            builder.process(self.args('--install', '--install-dir', str(self.install)), '3.5.6')
         self.execute('--sif', '--check', '--replace')
         sif = self.output / 'mg-pythia-delphes-3.5.6.sif'
         metadata = sif.with_name(sif.name + '.json')
@@ -190,7 +219,7 @@ class ImageTests(unittest.TestCase):
             self.execute('--check')
         sif.write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError, 'checked'):
-            builder.process(self.args('--install-dir', str(self.install)), '3.5.6')
+            builder.process(self.args('--install', '--install-dir', str(self.install)), '3.5.6')
 
     def test_push_checks_and_uses_exact_id(self):
         self.execute('--check', '--push')
@@ -216,9 +245,9 @@ class ImageTests(unittest.TestCase):
         self.execute('--sif', '--check')
         with self.assertRaises(FileExistsError):
             self.args('--sif')
-        self.execute('--install-dir', str(self.install))
+        self.execute('--install', '--install-dir', str(self.install))
         with self.assertRaises(FileExistsError):
-            self.args('--install-dir', str(self.install))
+            self.args('--install', '--install-dir', str(self.install))
 
     def test_real_cli_with_fake_executables_from_another_directory(self):
         tools = self.root / 'tools'; tools.mkdir()

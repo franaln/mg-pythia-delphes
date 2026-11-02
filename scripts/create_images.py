@@ -129,6 +129,23 @@ def recommend_sif(sif, version):
     print(f'Recommended {alias} -> {sif.name}')
 
 
+def recommend_installed(args, version):
+    """Promote only installed, checked bytes; no output cache or engine required."""
+    tag = version + '-' + args.revision
+    sif = args.install_dir / f'mg-pythia-delphes-{tag}.sif'
+    metadata_path = sif.with_name(sif.name + '.json')
+    if sif.is_symlink() or metadata_path.is_symlink():
+        raise ValueError('Installed revision and metadata must not be symlinks')
+    metadata = json.loads(metadata_path.read_text())
+    if (not isinstance(metadata, dict) or metadata.get('schema_version') != 1
+            or metadata.get('tag') != tag or metadata.get('madgraph_version') != version
+            or metadata.get('reference') != f'{args.repository}:{tag}'):
+        raise ValueError('Installed SIF metadata belongs to another image reference')
+    if metadata.get('sif_checked_sha256') != sha256(sif):
+        raise ValueError('Recommendation requires a checked, unchanged installed SIF')
+    recommend_sif(sif, version)
+
+
 def dockerfile_path(args, version):
     folder = args.source / 'images'
     return folder / f'mg-pythia-delphes-{version}.Dockerfile'
@@ -136,8 +153,8 @@ def dockerfile_path(args, version):
 
 def validate(args):
 
-    if not any((args.build, args.sif, args.check, args.push, args.install_dir, args.recommend)):
-        raise ValueError('Select --build, --sif, --check, --push or --install-dir')
+    if not any((args.build, args.sif, args.check, args.push, args.install, args.recommend)):
+        raise ValueError('Select --build, --sif, --check, --push, --install or --recommend')
     if args.recommend and not args.revision:
         raise ValueError('--recommend requires an explicit --revision')
     if args.build_jobs is not None and (args.build_jobs < 1 or not args.build):
@@ -169,8 +186,9 @@ def validate(args):
             raise ValueError('--source-cache must be an existing directory inside the build context')
         args.source_cache = str(cache.relative_to(args.source))
         sources.check_lock(lock, args.version, cache)
-    if args.install_dir is not None:
-        args.install_dir = args.install_dir.expanduser().resolve(strict=True)
+    args.install_dir = args.install_dir.expanduser().resolve()
+    if args.install or args.recommend and (not args.push or args.sif):
+        args.install_dir = args.install_dir.resolve(strict=True)
         if not args.install_dir.is_dir():
             raise ValueError('Install destination must be a directory')
     for version in args.version:
@@ -182,7 +200,7 @@ def validate(args):
             raise ValueError('Image metadata must not be a symlink')
         if args.sif and ((args.output_dir / name).exists() or (args.output_dir / name).is_symlink()) and not args.replace:
             raise FileExistsError(f'Output already exists: {name}; use --replace')
-        if args.install_dir:
+        if args.install:
             for filename in (name, name + '.json'):
                 destination = args.install_dir / filename
                 if destination.is_symlink() or destination.exists() and not args.replace:
@@ -199,25 +217,29 @@ def process(args, version):
     metadata_path = sif.with_name(sif.name + '.json')
     if args.dry_run:
         actions = [name for name in ('build', 'sif', 'check', 'push') if getattr(args, name)]
-        if args.install_dir:
+        if args.install:
             actions.append('install')
         if args.recommend:
             actions.append('recommend')
         print(f'{reference}: {", ".join(actions)}; engine={args.engine}; SIF={sif}')
-        if args.install_dir:
+        if args.install:
             print(f'  install -> {args.install_dir / sif.name}')
         if args.recommend:
             if args.push:
                 print(f'  recommend -> {args.repository}:{version}')
-            if not args.push or args.sif or args.install_dir:
-                print(f'  recommend -> {(args.install_dir or args.output_dir) / ("mg-pythia-delphes-" + version + ".sif")}')
+            if not args.push or args.sif or args.install:
+                print(f'  recommend -> {args.install_dir / ("mg-pythia-delphes-" + version + ".sif")}')
+        return
+
+    if args.recommend and not any((args.build, args.sif, args.check, args.push, args.install)):
+        recommend_installed(args, version)
         return
 
     needs_engine = args.build or args.sif or args.push or args.check
     for tool in ([args.engine] if needs_engine else []) + (['apptainer'] if args.sif or args.check and sif.exists() else []):
         if not shutil.which(tool):
             raise FileNotFoundError(f'Required tool unavailable: {tool}')
-    if args.install_dir and not args.sif and not sif.is_file():
+    if args.install and not args.sif and not sif.is_file():
         raise FileNotFoundError(f'Build the SIF first: {sif}')
     if args.check or args.sif or args.build:
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -310,7 +332,7 @@ def process(args, version):
             metadata['updated_at'] = datetime.now(timezone.utc).isoformat()
             write_json(metadata_path, metadata)
 
-        if args.install_dir:
+        if args.install:
             if metadata.get('sif_checked_sha256') != sha256(sif):
                 raise ValueError('Install requires a checked, unchanged SIF; first run --sif --check')
             destination = args.install_dir / sif.name
@@ -318,11 +340,8 @@ def process(args, version):
             publish_file(metadata_path, destination.with_name(destination.name + '.json'), args.replace)
             print(f'Installed {destination}; SHA256 {metadata["sif_checked_sha256"]}')
 
-        if args.recommend and (not args.push or args.sif or args.install_dir):
-            selected = (args.install_dir / sif.name) if args.install_dir else sif
-            if metadata.get('sif_checked_sha256') != sha256(selected):
-                raise ValueError('Recommendation requires a checked, unchanged SIF')
-            recommend_sif(selected, version)
+        if args.recommend and (not args.push or args.sif or args.install):
+            recommend_installed(args, version)
 
     finally:
         if candidate_built:
@@ -350,7 +369,8 @@ def main(argv=None):
     arguments.add_argument('--sif', action='store_true', help='Convert the exact local image using a temporary Docker archive')
     arguments.add_argument('--check', action='store_true', help='Check tools, ROOT import and two common PDF sets; no event generation')
     arguments.add_argument('--push', action='store_true', help='Publish checked OCI image; requires --check in this invocation')
-    arguments.add_argument('--install-dir', type=Path, help='Install a checked SIF and metadata into an existing shared directory')
+    arguments.add_argument('--install', action='store_true', help='Install a checked SIF and metadata into install-dir')
+    arguments.add_argument('--install-dir', type=Path, default='/mnt/R5/images', help='Shared image directory for --install and SIF --recommend (default: /mnt/R5/images)')
     arguments.add_argument('--recommend', action='store_true', help='Promote a checked revision: update the SIF version symlink and/or the pushed Docker version tag')
     arguments.add_argument('--replace', action='store_true', help='Allow replacing output SIF/shared installed files')
     arguments.add_argument('--no-cache', action='store_true', help='Disable build cache (requires --build)')

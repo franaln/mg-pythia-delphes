@@ -414,7 +414,7 @@ After the real acceptance tests:
 ```bash
 python scripts/create_images.py --version 3.5.6 --revision r1 --check --push
 sudo python3 scripts/create_images.py --version 3.5.6 --revision r1 \
-  --output-dir "$PWD/dist/images" --install-dir /opt/images --recommend
+  --output-dir "$PWD/dist/images" --install --recommend
 ```
 
 Authenticate with the engine beforehand; `--repository` changes the registry
@@ -422,19 +422,22 @@ repository. `--push` requires checks in the same invocation and retags the exact
 checked image ID. Install-only needs neither engine nor Apptainer/rootless-store
 access; it verifies checked SIF bytes and publishes complete temporary copies.
 The SIF and metadata are published individually, so inspect both after an
-interruption. The destination must exist. No synchronization between
-`/mnt/R5/images` and `/opt/images` is assumed. Keep metadata with its SIF.
+interruption. The destination defaults to `/mnt/R5/images` and must exist. Use
+`--install-dir /opt/images` to choose another directory. Setting `--install-dir`
+alone does not install anything; installation requires `--install`. No
+synchronization between `/mnt/R5/images` and `/opt/images` is assumed. Keep metadata with its SIF.
 
 Use `--recommend` with an explicit revision to select the validated default.
 For a SIF it atomically updates `mg-pythia-delphes-VERSION.sif` to a relative
-symlink targeting the revision in the install directory (or output directory
-without `--install-dir`). An ordinary file at the alias is never overwritten;
+symlink targeting the revision in `--install-dir` (default `/mnt/R5/images`).
+Recommendation does not require `--install` if the checked revision and its
+metadata are already installed; no build output or engine is needed. An ordinary file at the alias is never overwritten;
 move it to a revision name first. Previous revision files remain available.
 A previously checked SIF can also be promoted without engines or rebuilding:
 
 ```bash
 python scripts/create_images.py --version 3.5.6 --revision r1 \
-  --output-dir /opt/images --recommend
+  --install-dir /mnt/R5/images --recommend
 ```
 
 With `--check --push --recommend`, both `:VERSION-REVISION` and `:VERSION` are
