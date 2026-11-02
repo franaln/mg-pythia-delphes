@@ -72,6 +72,7 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'run_card.dat').write_text('')
+            (root / 'placeholder.sif').write_bytes(b'synthetic SIF')
             (root / 'config.yml').write_text('''run:
   name: package_test
   mode: local-apptainer

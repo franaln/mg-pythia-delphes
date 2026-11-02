@@ -80,6 +80,42 @@ class ImageTests(unittest.TestCase):
                 patch.object(builder.subprocess, 'run'):
             builder.process(self.args(*extra), '3.5.6')
 
+    def test_recommend_installed_sif_updates_alias_and_preserves_old_revision(self):
+        self.execute('--sif', '--check', '--revision', 'r1', '--install-dir', str(self.install), '--recommend')
+        alias = self.install / 'mg-pythia-delphes-3.5.6.sif'
+        first = alias.resolve()
+        self.assertEqual(first.name, 'mg-pythia-delphes-3.5.6-r1.sif')
+        self.execute('--sif', '--check', '--revision', 'r2', '--install-dir', str(self.install), '--recommend')
+        self.assertTrue(first.is_file())
+        self.assertEqual(alias.resolve().name, 'mg-pythia-delphes-3.5.6-r2.sif')
+
+    def test_recommend_requires_checked_revision_and_never_overwrites_real_file(self):
+        with self.assertRaisesRegex(ValueError, 'revision'):
+            self.args('--recommend')
+        self.execute('--sif', '--revision', 'r1')
+        with self.assertRaisesRegex(ValueError, 'checked'):
+            self.execute('--recommend', '--revision', 'r1')
+        self.execute('--sif', '--check', '--revision', 'r2')
+        alias = self.output / 'mg-pythia-delphes-3.5.6.sif'
+        alias.write_bytes(b'keep')
+        with self.assertRaisesRegex(FileExistsError, 'ordinary file'):
+            self.execute('--recommend', '--revision', 'r2')
+        self.assertEqual(alias.read_bytes(), b'keep')
+
+    def test_recommend_can_promote_previous_checked_sif_without_engine(self):
+        self.execute('--sif', '--check', '--revision', 'r1')
+        self.calls.clear()
+        with patch.object(builder.shutil, 'which', return_value=None):
+            builder.process(self.args('--recommend', '--revision', 'r1'), '3.5.6')
+        self.assertFalse(self.calls)
+        self.assertTrue((self.output / 'mg-pythia-delphes-3.5.6.sif').is_symlink())
+
+    def test_recommend_pushed_version_uses_checked_id_for_both_tags(self):
+        self.execute('--check', '--push', '--revision', 'r1', '--recommend')
+        pushes = [cmd[-1] for cmd in self.calls if cmd[1] == 'push']
+        self.assertEqual(pushes, ['franaln/mg-pythia-delphes:3.5.6-r1', 'franaln/mg-pythia-delphes:3.5.6'])
+        self.assertTrue(all(cmd[-2] == IMAGE_ID for cmd in self.calls if cmd[1] == 'tag'))
+
     def test_build_check_convert_and_install_without_registry(self):
         self.execute('--build', '--sif', '--check', '--install-dir', str(self.install))
         saves = [cmd for cmd in self.calls if 'save' in cmd]

@@ -18,8 +18,10 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        self.image = self.root / 'fixture-r1.sif'
+        self.image.write_bytes(b'synthetic SIF')
         (self.root / 'card.dat').write_text('')
-        config = {'run': {'name': 'smoke', 'mode': 'condor', 'image': 'mg-pythia-delphes-3.5.6',
+        config = {'run': {'name': 'smoke', 'mode': 'condor', 'image': str(self.image),
                           'njobs': 2, 'nevents': 2, 'outputs': ['lhe']},
                   'cards': {'run': str(self.root / 'card.dat')},
                   'process': 'generate p p > e+ e-', 'options': {'seed': 101}}
@@ -73,7 +75,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_mode_and_symlink_state_are_rejected(self):
         config = dict(self.production.manifest['config'])
-        config['run'] = {**config['run'], 'mode': 'local-apptainer', 'image': 'test.sif'}
+        config['run'] = {**config['run'], 'mode': 'local-apptainer', 'image': str(self.image)}
         with redirect_stdout(io.StringIO()):
             local = mgpd.prepare_production(config, self.root / 'local')
         async with self.client() as client:

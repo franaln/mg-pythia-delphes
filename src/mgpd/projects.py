@@ -331,11 +331,16 @@ def load_project_config(path, mode=None, base_directory=None):
         config['input_dir'] = absolute(config['input_dir'])
     if 'input_files' in config:
         config['input_files'] = [absolute(value) for value in config['input_files']]
+    image = config['run'].get('image')
+    if image and resolve_run_mode(config['run'].get('mode', 'local')) != 'local-docker':
+        image_path = Path(image).expanduser()
+        if image.endswith('.sif') or '/' in image:
+            config['run']['image'] = str((base / image_path).absolute())
     return config
 
 
 def prepare_project(path, output=None, *, mode=None, force=False, base_directory=None):
-    """Prepare a project without running engines or submitting jobs."""
+    """Prepare a project, inspecting the installed image without running containers or submitting jobs."""
     source = project_config_path(path)
     config = load_project_config(source, mode, base_directory)
     destination = Path(output).expanduser().resolve() if output is not None else source.parent / 'production'

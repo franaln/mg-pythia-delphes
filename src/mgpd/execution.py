@@ -16,6 +16,7 @@ from .storage import (
     write_manifest,
 )
 from .condor import parse_condor_job_ids
+from .images import verify_image
 
 
 def build_local_command(run_mode, image, sample, run_dir):
@@ -86,6 +87,8 @@ def execute_production(production):
             # Recovery depends on the plan loader; import only when needed.
             from .recovery import recheck_recovery_parent
             recheck_recovery_parent(current)
+
+        verify_image(manifest['image'], manifest.get('image_identity'))
 
         mode = manifest['mode']
         manifest['execution_attempt'] = {'started_at': datetime.now(timezone.utc).isoformat()}

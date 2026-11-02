@@ -14,8 +14,11 @@ from mgpd.cli import main, PROJECT_TEMPLATES, PROJECT_LEVELS
 from mgpd.projects import create_project, load_project_config, prepare_project
 
 
+from image_fixtures import installed_image
+
 class ProjectTests(unittest.TestCase):
     def setUp(self):
+        installed_image(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -104,7 +107,8 @@ class ProjectTests(unittest.TestCase):
 
     def test_create_and_run_cli_subprocess_without_source_cwd(self):
         project = self.root / 'cli'
-        commands = [(['create', str(project), '--template', 'proc', '--level', 'detector', '--mode', 'condor', '--seed', '101'], None),
+        image = self.root / 'fixture.sif'; image.write_bytes(b'SIF')
+        commands = [(['create', str(project), '--image', str(image), '--template', 'proc', '--level', 'detector', '--mode', 'condor', '--seed', '101'], None),
                     (['validate-config', str(project)], None),
                     (['prepare', str(project)], project / 'production'),
                     (['prepare', str(project / 'config.yml'), '-o', str(self.root / 'explicit')], self.root / 'explicit')]

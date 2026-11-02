@@ -99,9 +99,9 @@ python scripts/test_examples.py --execute --mode condor \
 ```
 
 `condor_submit` and `condor_wait` must be available. The selected named image
-must exist under `/opt/images/` on the workers. Condor currently accepts its
-supported image names; arbitrary revision names/SIF paths are not supported by
-the image-name catalog. Do not substitute the nonfunctional `latest` image.
+must exist under `/opt/images/` on the workers. Version selectors (including revisions) and explicit SIF paths are supported.
+Preparation resolves symlinks and records the actual SIF path and SHA256; that
+exact file must remain available to every worker. Do not substitute the nonfunctional `latest` image.
 
 Select `example9_smoke_madspin` to test decayed output directories. Real execution
 requires explicit examples and defaults to at most eight jobs per example;
@@ -402,8 +402,8 @@ recorded checksum/identity. `--replace` explicitly permits replacing outputs.
 
 These checks do not generate events. Run the local full-chain and merge tests
 above against the candidate SIF as a normal user. Test Condor before replacing
-the cluster image: revision tags are not yet accepted by its fixed image-name
-catalog. Do not overwrite the stable image merely to perform an initial test.
+the recommended cluster alias. Use an explicit revision or candidate SIF path
+for acceptance tests before promotion.
 The image inventory/lock is under `/mg_pythia_delphes/share/mgpd-image/`; this
 lock does not pin apt/pip packages or internal MadGraph installer downloads.
 
@@ -414,7 +414,7 @@ After the real acceptance tests:
 ```bash
 python scripts/create_images.py --version 3.5.6 --revision r1 --check --push
 sudo python3 scripts/create_images.py --version 3.5.6 --revision r1 \
-  --output-dir "$PWD/dist/images" --install-dir /opt/images
+  --output-dir "$PWD/dist/images" --install-dir /opt/images --recommend
 ```
 
 Authenticate with the engine beforehand; `--repository` changes the registry
@@ -424,6 +424,48 @@ access; it verifies checked SIF bytes and publishes complete temporary copies.
 The SIF and metadata are published individually, so inspect both after an
 interruption. The destination must exist. No synchronization between
 `/mnt/R5/images` and `/opt/images` is assumed. Keep metadata with its SIF.
+
+Use `--recommend` with an explicit revision to select the validated default.
+For a SIF it atomically updates `mg-pythia-delphes-VERSION.sif` to a relative
+symlink targeting the revision in the install directory (or output directory
+without `--install-dir`). An ordinary file at the alias is never overwritten;
+move it to a revision name first. Previous revision files remain available.
+A previously checked SIF can also be promoted without engines or rebuilding:
+
+```bash
+python scripts/create_images.py --version 3.5.6 --revision r1 \
+  --output-dir /opt/images --recommend
+```
+
+With `--check --push --recommend`, both `:VERSION-REVISION` and `:VERSION` are
+published from the same checked image ID. Omit `--recommend` to publish a
+candidate without moving the default. Keep published revision names unchanged.
+
+### Discover and freeze production images
+
+```bash
+mgpd images                         # Apptainer on jupiter; Docker elsewhere
+mgpd images --backend local-apptainer --directory /opt/images --json
+mgpd images --backend local-docker  # Locally installed Docker tags
+mgpd images --remote                # Published Docker Hub tags; needs network
+```
+
+The version aliases are the recommended images, rather than the highest
+revision discovered. `run.image` may select `3.5.6`, `3.5.6-r1`, a SIF path, or
+an explicit Docker reference appropriate to the backend. Preparation requires
+an installed image: pull Docker images beforehand with `docker pull REFERENCE`.
+Docker preparation inspects metadata only and pins a repository digest, or the
+local content ID for images without a repository digest. Locally cached tags
+are used as installed; pull again explicitly to refresh a moved remote alias.
+SIF preparation resolves the real path and hashes the file. Hashing large SIFs
+adds preparation time. Execution checks the SIF again before running/submitting.
+Updating a recommended alias affects future preparations, not saved plans or
+recoveries. Keep the referenced revision files available and unchanged.
+
+Old prepared plans without an immutable image identity remain inspectable,
+but must be prepared again before execution. Discovery and validation do not
+pull images, launch containers or submit jobs. Docker Hub listing uses
+`--repository namespace/name` (default `franaln/mg-pythia-delphes`).
 
 The GitHub workflow uses this same constructor with Docker and requires a
 reviewed `images/sources.lock.json` committed before running. It publishes image

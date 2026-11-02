@@ -22,7 +22,12 @@ from mgpd.templates import load_template
 from mgpd import preparation as preparation_module
 
 
+from image_fixtures import installed_image
+
 class RunnerTests(unittest.TestCase):
+    def setUp(self):
+        installed_image(self)
+
     def config(self, directory):
         card = directory / 'run card.dat'
         card.write_text('')

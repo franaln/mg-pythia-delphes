@@ -1,11 +1,11 @@
 """YAML loading, validation and container-reference resolution."""
-import os
 import socket
 import yaml
 import re
 from pathlib import Path
-import copy
+
 from .models import MAX_SEED
+from .images import apptainer_reference, docker_reference
 
 
 def resolve_run_mode(mode):
@@ -144,51 +144,10 @@ def load_config(config_file, run_mode=None):
 
 def resolve_container_image(config_run, run_mode):
     """Resolve a configured image without modifying the caller's configuration."""
-    config_run = copy.deepcopy(config_run)
-    available_images = [
-        'mg-pythia-delphes-3.3.2',
-        'mg-pythia-delphes-3.5.6',
-        'mg-pythia-delphes-latest',
-    ]
 
-    ## Docker/Apptainer image
-    if run_mode in ('condor', 'jupiter'):
-
-        image_dir = '/opt/images'
-
-        if 'image' not in config_run:
-            print('- No image was configured. Using latest: mg-pythia-delphes-latest')
-            container_image = 'mg-pythia-delphes-latest'
-        else:
-            if ':' in config_run['image']:
-                config_run['image'] = config_run['image'].replace(':', '-')
-
-            if config_run['image'] not in available_images:
-                raise ValueError(f'Image {config_run["image"]} is not available; choose from {available_images}')
-            else:
-                container_image = config_run["image"]
-
-        container_image_path = f'{image_dir}/{container_image}.sif'
-        print(f'- Running with condor using image: {container_image_path}')
-
-    elif run_mode == 'local-docker':
-        if 'image' in config_run:
-            container_image_path = config_run['image']
-        else:
-            container_image_path = 'franaln/mg-pythia-delphes:latest'
-
-        print(f'- Running locally with docker using image: {container_image_path}')
-
-    elif run_mode == 'local-apptainer':
-
-        if 'image' in config_run:
-            if config_run['image'] in available_images and os.path.exists(f'/opt/images/{config_run["image"]}.sif'):
-                container_image_path = f'/opt/images/{config_run["image"]}.sif'
-            else:
-                container_image_path = config_run['image']
-        else:
-            raise ValueError('No default Apptainer image is available')
-
-        print(f'- Running locally with apptainer using image: {container_image_path}')
-
-    return container_image_path
+    reference = config_run.get('image')
+    if run_mode == 'local-docker':
+        return docker_reference(reference or '3.5.6')
+    if run_mode in ('condor', 'jupiter', 'local-apptainer'):
+        return apptainer_reference(reference or '3.5.6')
+    raise ValueError(f'Unsupported execution mode: {run_mode}')

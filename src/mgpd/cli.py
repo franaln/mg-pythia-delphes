@@ -16,6 +16,8 @@ from .results import validate_production
 from .recovery import plan_recovery, prepare_recovery
 from .merge import merge_outputs
 from .production_merging import merge_production
+from .config import resolve_run_mode
+from .images import list_sif_images, list_docker_images
 
 RUN_MODES = ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']
 
@@ -41,6 +43,13 @@ def _parser():
 
     completion = commands.add_parser('completion', help='Print Bash or Zsh completion setup')
     completion.add_argument('shell', choices=('bash', 'zsh'))
+
+    images = commands.add_parser('images', help='List installed images or published Docker Hub tags')
+    images.add_argument('--backend', choices=('local-apptainer', 'local-docker'))
+    images.add_argument('--directory', type=Path, default=Path('/opt/images'), help='SIF directory')
+    images.add_argument('--repository', default='franaln/mg-pythia-delphes')
+    images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
+    images.add_argument('--json', action='store_true', dest='json_output')
 
     # Create project
     create = commands.add_parser('create', help='Create editable YAML/cards from a template')
@@ -169,6 +178,26 @@ def main(argv=None):
         if args.command == 'completion':
             from .completion import shell_completion
             print(shell_completion(parser, args.shell), end='')
+            return 0
+
+        if args.command == 'images':
+
+            backend = args.backend or ('local-docker' if args.remote else resolve_run_mode('local'))
+            if args.remote and backend != 'local-docker':
+                raise ValueError('--remote requires the Docker backend')
+            entries = (list_sif_images(args.directory) if backend == 'local-apptainer' else
+                       list_docker_images(args.repository, remote=args.remote))
+            if args.json_output:
+                print(json.dumps({'backend': backend, 'remote': args.remote, 'images': entries}, indent=2))
+            else:
+                for entry in entries:
+                    suffix = ' [recommended]' if entry['recommended'] else ''
+                    if not entry.get('available', True):
+                        suffix += ' [missing target]'
+                    target = entry.get('target') or entry.get('digest')
+                    print(entry['reference'] + suffix + (f' -> {target}' if target else ''))
+                if not entries:
+                    print('No images found')
             return 0
 
         if args.command == 'create':

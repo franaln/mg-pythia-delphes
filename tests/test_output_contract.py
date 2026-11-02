@@ -20,7 +20,12 @@ import mgpd
 from mgpd.results import result_files
 
 
+from image_fixtures import installed_image
+
 class OutputContractTests(unittest.TestCase):
+    def setUp(self):
+        installed_image(self)
+
     def production(self, root, mode, outputs, *, decayed=False, missing=None, converter='ok'):
         tools = root / 'tools'
         tools.mkdir()

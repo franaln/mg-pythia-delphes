@@ -26,7 +26,12 @@ def lhe(seed):
                           '<event>\n</event>\n<event>\n</event>\n</LesHouchesEvents>\n').encode())
 
 
+from image_fixtures import installed_image
+
 class RecoveryTests(unittest.TestCase):
+    def setUp(self):
+        installed_image(self)
+
     def fixture(self, root, mode='local-apptainer', count=2, good_first=True):
         card = root / 'run_card.dat'
         card.write_text('')

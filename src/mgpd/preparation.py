@@ -10,6 +10,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 import uuid
+from .images import pin_image
 from .templates import create_file_from_template, create_file_from_script_template
 from .models import MAX_SEED, PreparedProduction
 from .storage import (
@@ -359,7 +360,7 @@ def _prepare_production(config, output, force=False):
     run_mode = resolve_run_mode(config['run'].get('mode', 'local'))
     config['run']['mode'] = run_mode
 
-    image = resolve_container_image(config['run'], run_mode)
+    image, image_identity = pin_image(resolve_container_image(config['run'], run_mode), run_mode)
 
     output_dir = Path(output).expanduser().absolute()
 
@@ -387,7 +388,7 @@ def _prepare_production(config, output, force=False):
         'config': original_config,
         'image': image,
         'mode': run_mode,
-        'image_identity': 'configured reference; not a verified immutable digest',
+        'image_identity': image_identity,
         'jobs': jobs,
         'prepared_input_sha256': prepared_files
     }

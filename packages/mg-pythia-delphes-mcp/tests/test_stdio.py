@@ -26,8 +26,10 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        self.image = self.root / 'fixture-r1.sif'
+        self.image.write_bytes(b'synthetic SIF')
         card = self.root / 'run.dat'; card.write_text('')
-        config = {'run': {'name': 'sample', 'mode': 'local-apptainer', 'image': 'image.sif',
+        config = {'run': {'name': 'sample', 'mode': 'local-apptainer', 'image': str(self.image),
                           'njobs': 2, 'nevents': 2, 'outputs': ['lhe']},
                   'cards': {'run': str(card)}, 'process': 'generate p p > e+ e-', 'options': {'seed': 101}}
         with redirect_stdout(io.StringIO()):

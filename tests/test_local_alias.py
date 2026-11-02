@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -21,7 +22,12 @@ driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)
 
 
+from image_fixtures import installed_image
+
 class LocalAliasTests(unittest.TestCase):
+    def setUp(self):
+        installed_image(self)
+
     def test_hostname_matrix_and_explicit_modes(self):
         for host, expected in [('jupiter', 'local-apptainer'),
                                ('JUPITER.iflp.unlp.edu.ar.', 'local-apptainer'),
@@ -62,9 +68,14 @@ class LocalAliasTests(unittest.TestCase):
         for host, expected in [('jupiter', 'local-apptainer'), ('laptop', 'local-docker')]:
             for flag in ([], ['--mode', 'local']):
                 with self.subTest(host=host, flag=flag), tempfile.TemporaryDirectory() as temporary:
-                    output = Path(temporary) / 'results'
-                    argv = ['test_examples.py', *flag, '--example', 'example7_parton_only', '--output', str(output)]
-                    with patch('sys.argv', argv), patch('mgpd.config.socket.gethostname', return_value=host), \
+                    root = Path(temporary)
+                    output = root / 'results'
+                    image = root / 'fixture.sif'; image.write_bytes(b'SIF')
+                    docker = root / 'docker'
+                    docker.write_text("#!/bin/sh\necho '[{\"Id\":\"sha256:" + 'a' * 64 + "\",\"RepoDigests\":[]}]'\n")
+                    docker.chmod(0o755)
+                    argv = ['test_examples.py', '--image', str(image), *flag, '--example', 'example7_parton_only', '--output', str(output)]
+                    with patch.dict('os.environ', {'PATH': str(root) + ':' + os.environ['PATH']}), patch('sys.argv', argv), patch('mgpd.config.socket.gethostname', return_value=host), \
                             redirect_stdout(io.StringIO()):
                         self.assertEqual(driver.main(), 0)
                     report = json.loads((output / 'report.json').read_text())

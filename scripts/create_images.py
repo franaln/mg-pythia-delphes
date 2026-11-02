@@ -115,6 +115,20 @@ def publish_file(source, destination, replace=False, expected_sha256=None):
 
 
 
+def recommend_sif(sif, version):
+    """Atomically move the version alias; never replace an ordinary file."""
+    alias = sif.parent / f'mg-pythia-delphes-{version}.sif'
+    if alias.exists() and not alias.is_symlink():
+        raise FileExistsError(f'Recommended alias is an ordinary file: {alias}; move it aside first')
+    temporary = alias.with_name('.' + alias.name + '.' + uuid.uuid4().hex)
+    try:
+        temporary.symlink_to(sif.name)
+        os.replace(temporary, alias)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(f'Recommended {alias} -> {sif.name}')
+
+
 def dockerfile_path(args, version):
     folder = args.source / 'images'
     return folder / f'mg-pythia-delphes-{version}.Dockerfile'
@@ -122,8 +136,10 @@ def dockerfile_path(args, version):
 
 def validate(args):
 
-    if not any((args.build, args.sif, args.check, args.push, args.install_dir)):
+    if not any((args.build, args.sif, args.check, args.push, args.install_dir, args.recommend)):
         raise ValueError('Select --build, --sif, --check, --push or --install-dir')
+    if args.recommend and not args.revision:
+        raise ValueError('--recommend requires an explicit --revision')
     if args.build_jobs is not None and (args.build_jobs < 1 or not args.build):
         raise ValueError('--build-jobs requires --build and a positive integer')
     if args.push and not args.check:
@@ -185,9 +201,16 @@ def process(args, version):
         actions = [name for name in ('build', 'sif', 'check', 'push') if getattr(args, name)]
         if args.install_dir:
             actions.append('install')
+        if args.recommend:
+            actions.append('recommend')
         print(f'{reference}: {", ".join(actions)}; engine={args.engine}; SIF={sif}')
         if args.install_dir:
             print(f'  install -> {args.install_dir / sif.name}')
+        if args.recommend:
+            if args.push:
+                print(f'  recommend -> {args.repository}:{version}')
+            if not args.push or args.sif or args.install_dir:
+                print(f'  recommend -> {(args.install_dir or args.output_dir) / ("mg-pythia-delphes-" + version + ".sif")}')
         return
 
     needs_engine = args.build or args.sif or args.push or args.check
@@ -278,6 +301,10 @@ def process(args, version):
             # Retag the checked immutable ID immediately before publishing.
             run([args.engine, 'tag', image_id, reference])
             run([args.engine, 'push', reference])
+            if args.recommend:
+                recommended = f'{args.repository}:{version}'
+                run([args.engine, 'tag', image_id, recommended])
+                run([args.engine, 'push', recommended])
 
         if needs_engine:
             metadata['updated_at'] = datetime.now(timezone.utc).isoformat()
@@ -290,6 +317,12 @@ def process(args, version):
             publish_file(sif, destination, args.replace, expected_sha256=metadata['sif_checked_sha256'])
             publish_file(metadata_path, destination.with_name(destination.name + '.json'), args.replace)
             print(f'Installed {destination}; SHA256 {metadata["sif_checked_sha256"]}')
+
+        if args.recommend and (not args.push or args.sif or args.install_dir):
+            selected = (args.install_dir / sif.name) if args.install_dir else sif
+            if metadata.get('sif_checked_sha256') != sha256(selected):
+                raise ValueError('Recommendation requires a checked, unchanged SIF')
+            recommend_sif(selected, version)
 
     finally:
         if candidate_built:
@@ -318,6 +351,7 @@ def main(argv=None):
     arguments.add_argument('--check', action='store_true', help='Check tools, ROOT import and two common PDF sets; no event generation')
     arguments.add_argument('--push', action='store_true', help='Publish checked OCI image; requires --check in this invocation')
     arguments.add_argument('--install-dir', type=Path, help='Install a checked SIF and metadata into an existing shared directory')
+    arguments.add_argument('--recommend', action='store_true', help='Promote a checked revision: update the SIF version symlink and/or the pushed Docker version tag')
     arguments.add_argument('--replace', action='store_true', help='Allow replacing output SIF/shared installed files')
     arguments.add_argument('--no-cache', action='store_true', help='Disable build cache (requires --build)')
     arguments.add_argument('--dry-run', action='store_true', help='Print selected actions without commands, writes or tool requirements')

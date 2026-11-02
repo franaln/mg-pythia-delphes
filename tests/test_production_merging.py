@@ -23,8 +23,11 @@ def lhe(seed, events=2):
                           + '<event>\n</event>\n' * events + '</LesHouchesEvents>\n').encode())
 
 
+from image_fixtures import installed_image
+
 class ProductionMergingTests(unittest.TestCase):
     def setUp(self):
+        installed_image(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)

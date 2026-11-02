@@ -18,6 +18,20 @@ spec.loader.exec_module(driver)
 
 
 class ExampleTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.image = root / 'fixture.sif'
+        self.image.write_bytes(b'synthetic SIF')
+        docker = root / 'docker'
+        docker.write_text("#!/bin/sh\necho '[{\"Id\":\"sha256:" + 'a' * 64 + "\",\"RepoDigests\":[]}]'\n")
+        docker.chmod(0o755)
+        from unittest.mock import patch
+        patched = patch.dict(os.environ, {'PATH': str(root) + os.pathsep + os.environ['PATH']})
+        patched.start()
+        self.addCleanup(patched.stop)
+
     def test_every_yaml_example_is_registered(self):
         registered = {entry['config'] for entry in driver.catalog()}
         actual = {str(path.relative_to(driver.EXAMPLES)) for pattern in ('*.yml', '*.yaml')
@@ -28,7 +42,7 @@ class ExampleTests(unittest.TestCase):
         for mode in ('condor', 'local-docker', 'local-apptainer'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 output = Path(tmp) / 'results'
-                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', mode,
+                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--image', str(self.image), '--mode', mode,
                                          '--output', str(output)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 report = json.loads((output / 'report.json').read_text())
@@ -73,7 +87,7 @@ Generation details
                 driver.parse_lhe_init(block)
 
     def test_live_mode_requires_explicit_example(self):
-        result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute', '--output', '/unused'],
+        result = subprocess.run([sys.executable, '-B', str(DRIVER), '--image', str(self.image), '--mode', 'condor', '--execute', '--output', '/unused'],
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('explicit --example', result.stderr)
@@ -129,7 +143,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
                 if fail:
                     env['MG_TEST_FAIL_WAIT'] = '1'
                 output = root / 'results'
-                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute',
+                result = subprocess.run([sys.executable, '-B', str(DRIVER), '--image', str(self.image), '--mode', 'condor', '--execute',
                                          '--example', 'example7_parton_only', '--output', str(output),
                                          '--remove-on-failure', '--timeout', '10'], env=env,
                                         capture_output=True, text=True)
@@ -160,7 +174,7 @@ print(json.dumps([dict(ClusterId=123, ProcId=i, JobStatus=4, ExitBySignal=False,
             root = Path(tmp)
             env = self.fake_condor(root)
             output = root / 'results'
-            result = subprocess.run([sys.executable, '-B', str(DRIVER), '--mode', 'condor', '--execute',
+            result = subprocess.run([sys.executable, '-B', str(DRIVER), '--image', str(self.image), '--mode', 'condor', '--execute',
                                      '--example', 'example7_parton_only', '--output', str(output),
                                      '--timeout', '10'], env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
