@@ -16,7 +16,7 @@ Core requires Python 3.9+; use Python 3.11+ to develop/test the MCP adapter too.
 Physics programs, container engines and HTCondor are external dependencies.
 
 ```bash
-python3.11 -m venv .venv-dev
+python3.12 -m venv .venv-dev
 source .venv-dev/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e '.[dev]' -e packages/mg-pythia-delphes-mcp
@@ -53,8 +53,7 @@ python -m unittest discover -s tests -p test_checked_images.py -v
 ```bash
 python scripts/test_examples.py --list
 python scripts/test_examples.py --mode condor --output test-results/preparation-condor
-python scripts/test_examples.py --mode local-docker --output test-results/preparation-docker
-python scripts/test_examples.py --mode local-apptainer --output test-results/preparation-apptainer
+python scripts/test_examples.py --mode local  --output test-results/preparation-local
 ```
 
 These validate/prepare the examples in `examples/catalog.json`, checking job and
@@ -74,28 +73,14 @@ interpreter running the test scripts. Use images available on the execution
 host/workers. Jupiter uses Apptainer locally and under Condor; Docker is for
 external hosts. Local execution is sequential.
 
-### Local full-chain test
+### Full-chain test
+
 
 ```bash
-python scripts/test_examples.py --execute --mode local-apptainer \
-  --example example8_smoke_full \
-  --image /opt/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/apptainer-full-01
+python scripts/test_examples.py --execute --mode local --example example8_smoke_full --output test-results/apptainer-full-01
 ```
-
-For an external Docker host, use `--mode local-docker` and
-`--image franaln/mg-pythia-delphes:3.5.6`. For a candidate SIF, pass its absolute
-path instead. `--timeout` covers the complete local example.
-
-### Condor parton/full-chain tests
-
 ```bash
-python scripts/test_examples.py --execute --mode condor \
-  --example example7_parton_only --image mg-pythia-delphes-3.5.6 \
-  --output test-results/condor-parton-01 --timeout 1800
-python scripts/test_examples.py --execute --mode condor \
-  --example example8_smoke_full --image mg-pythia-delphes-3.5.6 \
-  --output test-results/condor-full-01 --timeout 1800
+python scripts/test_examples.py --execute --mode condor --example example8_smoke_full --output test-results/condor-full-01 --timeout 1800
 ```
 
 `condor_submit` and `condor_wait` must be available. The selected named image
@@ -122,14 +107,8 @@ removes only the recorded test job IDs and requires `condor_rm`. Inspect
 Generate two full-chain jobs, then merge their outputs in the real container:
 
 ```bash
-python scripts/test_examples.py --execute --mode local-apptainer \
-  --example example11_merge_smoke \
-  --image /opt/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/merge-production-01
-python scripts/test_merging.py \
-  --production test-results/merge-production-01/example11_merge_smoke/production \
-  --backend local-apptainer --image /opt/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/merge-check-01
+python scripts/test_examples.py --execute --mode local --example example11_merge_smoke --output test-results/merge-production-01
+python scripts/test_merging.py  --production test-results/merge-production-01/example11_merge_smoke/production --backend local-apptainer --output test-results/merge-check-01
 ```
 
 The checker requires two valid jobs from one sample. It checks merged LHE,
@@ -315,6 +294,111 @@ outcomes, inspect checksums, directories and scheduler records before retrying.
 Do not unlink active lock files or reset attempt/ownership guards. Increase
 client/server timeouts for large validations. Card contents remain user-supplied
 code; workspace checks are not a Unix execution sandbox.
+
+
+### Copyable MCP acceptance-test prompt
+
+Connect the client to the candidate 0.3.0 MCP installation on Jupiter, with the
+four capability flags above enabled. Use an existing workspace with enough
+space for disposable projects and productions; the selected image must also be
+available to Condor workers. Replace `mgpd_jupiter` below with the configured
+server name and, if necessary, replace the SIF path with an installed revision.
+The test submits two small detector-level jobs and runs a real merge.
+
+Paste this prompt into the MCP client:
+
+```text
+Test the candidate mgpd 0.3.0 MCP server named mgpd_jupiter on Jupiter.
+Use this image: /opt/images/mg-pythia-delphes-3.5.6.sif.
+
+Use only that server's MCP tools/resources for this test. Do not fall back to
+SSH commands, shell tools, direct Python calls or direct file edits to bypass a
+missing or failing MCP feature. Report unsupported checks as NOT TESTED.
+
+Read mgpd://capabilities first. Report the server version, workspace and enabled
+capabilities. Stop if configuration writing, preparation, execution or merging
+is unavailable, or if this is not the intended candidate installation.
+
+Choose a unique prefix such as mcp03-YYYYMMDD-HHMMSS. Create the following as
+separate direct children of the configured workspace, using that prefix:
+-original, -copy and -production. Never reuse or overwrite an existing path.
+Do not modify any unrelated project, production, image, alias or server setting.
+
+1. Create an original project with create_project:
+   template=proc, level=detector, mode=condor, name=mcp03_original,
+   nevents=10, njobs=1, seed=101 and the image above.
+   Use this explicit process block:
+   import model sm
+   generate p p > e+ e-
+   Inspect and validate the resulting config with path=config.yml and the
+   returned project base_directory. For every config operation, resolve path
+   relative to that base; do not prepend the project directory twice. Record
+   its checksum, settings and validation result.
+
+2. Use create_project with copy_from pointing to the original project, without
+   template, to create the copy. Override name=mcp03_copy, njobs=2 and seed=201.
+   Leave process, level, image and nevents unspecified so they are inherited.
+   Inspect/validate both configs. Verify that the original checksum has not
+   changed and that the copy retains the process and 10 events per job.
+
+3. Plan an in-place change to the copied YAML using plan_config_change:
+   changes={"run.nevents": 20}. Use the copy's returned base_directory.
+   Show the diff, validation and change_sha256, then WAIT for my approval.
+   After approval, apply that exact proposal with apply_config_change.
+   Reinspect/validate the copy and confirm nevents=20, njobs=2 and seed=201.
+   Confirm once more that the original config checksum has not changed.
+
+4. Prepare the copy into the new -production directory with prepare_production.
+   Inspect the saved production. Show production_id, plan_sha256, resolved
+   image, mode, samples, outputs and every job's seed and event count.
+   Expect two Condor jobs, 20 events each, distinct seeds 201 and 202, and
+   detector outputs including LHE, ROOT and LHCO. Do not execute if the plan
+   differs or validation fails. Preparation alone must not submit jobs.
+   Show the exact plan to execute and WAIT for my approval to submit it.
+
+5. After approval, call execute_production with that exact saved plan_sha256.
+   Record operation_id. Use operation_status to observe submission and
+   production_status for the scheduler state. Report scheduler IDs and errors.
+   Poll at reasonable intervals; do not busy-loop. If waiting is interrupted,
+   return the production path and operation ID so I can ask you to continue.
+   Never create another production or resubmit to compensate for a timeout or
+   unknown outcome. Submission success alone does not mean the jobs completed.
+
+6. When both jobs have completed successfully, call validate_results with
+   event_count=exact, check_seed=true and require_positive_cross_section=true.
+   Require valid requested outputs for both jobs, 20 LHE events per job and
+   40 total. Report ROOT/LHCO validation metrics when returned by the tools.
+   Call plan_recovery and expect no eligible jobs for this healthy production.
+   Do not prepare a recovery or remove/rename outputs in this smoke test.
+
+7. Call plan_merge on the original -production directory, using its default
+   merged output, backend=local-apptainer, extract_lhe=true and
+   allow_partial=false. Inspect the selected sample/jobs, omissions and
+   selection_sha256. Expect both logical jobs exactly once and no omissions.
+   Show the merge plan and WAIT for my approval to execute it.
+   After approval, call merge_production with that exact selection_sha256 and
+   identical options. Record operation_id, poll operation_status and inspect
+   merge_report. Require successful completion and 40 merged LHE events;
+   also report the ROOT/LHCO results and provenance exposed by the report.
+
+At any unexpected failure, stop the dependent steps and report the tool name,
+arguments, error, known state and available log/operation references. Preserve
+all test files and jobs for inspection. Do not loosen validation, permit a
+partial merge, fabricate missing evidence, cancel jobs or clean up automatically.
+
+Finish with a PASS / FAIL / NOT TESTED checklist for creation, copying,
+configuration editing, preparation, submission, scheduler completion, result
+validation, recovery planning and merging. Include project/production paths,
+checksums, operation/scheduler IDs, pinned image information when exposed,
+event totals and any remaining uncertainty.
+```
+
+Approve each proposed change/plan only after reviewing it. To resume after a
+client interruption, provide the same production path and recorded operation
+IDs and ask the client to inspect their current state before continuing.
+This smoke test checks healthy recovery planning only; exercise actual selective
+recovery separately with the disposable-output procedure above. Reconnection,
+stale-review rejection and path-boundary checks remain separate acceptance cases.
 
 ## Container image builds and distribution
 
