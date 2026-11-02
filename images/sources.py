@@ -59,7 +59,7 @@ def catalog(version):
 
     files = TOOLS[version].copy()
 
-    files.update({name + '.tar.gz': f'https://lhapdfsets.web.cern.ch/lhapdfsets/current/{name}.tar.gz' for name in PDFS if version == '3.5.6' or name != 'PDF4LHC21_mc'})
+    files.update({name + '.tar.gz': f'https://lhapdfsets.web.cern.ch/lhapdfsets/current/{name}.tar.gz' for name in PDFS })
 
     return files
 
