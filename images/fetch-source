@@ -1,0 +1,7 @@
+#!/bin/bash
+set -eo pipefail
+if [ "$#" -ne 2 ]; then
+    echo 'usage: fetch-source URL FILENAME' >&2
+    exit 2
+fi
+python3 /opt/mgpd-build/sources.py fetch --lock /opt/mgpd-build/sources.lock.json --cache-dir "${MGPD_SOURCE_CACHE:-/opt/mgpd-source-cache}" --offline --url "$1" --file "$2" --output "$2"

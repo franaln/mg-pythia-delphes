@@ -13,21 +13,35 @@ from .results import validate_production
 
 def plan_recovery(output_dir, ignore_recovery_id=None, **policy):
     """Read-only recovery selection; unknown/active jobs are never retry candidates."""
+
     production = load_prepared_production(output_dir)
     manifest = production.manifest
+
     validation = validate_production(production.output_dir, **policy)
+
     condor = manifest['mode'] in ('condor', 'jupiter')
+
     status = production_status(production.output_dir) if condor and manifest['state'] == 'submitted' else None
+
     scheduler = {job['job_id']: job for job in status['jobs']} if status else {}
+
     reserved = {}
     for attempt in manifest.get('recoveries', []):
         if attempt['production_id'] == ignore_recovery_id or not attempt.get('blocks_jobs', True):
             continue
         for job_id in attempt['job_ids']:
             reserved[job_id] = attempt['directory']
-    result = {'production_id': manifest['production_id'], 'directory': production.output_dir,
-              'checked_at': datetime.now(timezone.utc).isoformat(), 'policy': validation['policy'],
-              'jobs': [], 'eligible_job_ids': [], 'query_errors': status['query_errors'] if status else []}
+
+    result = {
+        'production_id': manifest['production_id'],
+        'directory': production.output_dir,
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+        'policy': validation['policy'],
+        'jobs': [],
+        'eligible_job_ids': [],
+        'query_errors': status['query_errors'] if status else []
+    }
+
     for job in validation['jobs']:
         observed = scheduler.get(job['job_id'], {}).get('state', 'unknown')
         row = {'job_id': job['job_id'], 'sample': job['sample'], 'outputs_state': job['outputs_state'],
@@ -63,6 +77,7 @@ def plan_recovery(output_dir, ignore_recovery_id=None, **policy):
         if row['state'] == 'eligible':
             result['eligible_job_ids'].append(job['job_id'])
         result['jobs'].append(row)
+
     return result
 
 
@@ -80,9 +95,9 @@ def prepare_recovery(output_dir, output, job_ids=None, **policy):
         plan = plan_recovery(parent_dir, **policy)
         selected = list(job_ids) if job_ids is not None else plan['eligible_job_ids']
         if not selected or len(set(selected)) != len(selected):
-            raise ValueError('Select at least one distinct eligible job; inspect --plan-recovery')
+            raise ValueError('Select at least one distinct eligible job; inspect mgpd recover --plan')
         if set(selected) - set(plan['eligible_job_ids']):
-            raise ValueError('Selection includes ineligible jobs; inspect --plan-recovery')
+            raise ValueError('Selection includes ineligible jobs; inspect mgpd recover --plan')
         child_dir.mkdir()  # Never overwrite another production or recovery.
         identity = uuid.uuid4().hex
         jobs = [copy.deepcopy(job) for job in parent.manifest['jobs'] if job['job_id'] in selected]
@@ -107,7 +122,7 @@ def prepare_recovery(output_dir, output, job_ids=None, **policy):
             if mode in ('condor', 'jupiter'):
                 for sample in {job['sample'] for job in jobs}:
                     copy_input(f'run_{sample}.tar.gz')
-                copy_input('run_mg_pythia_delphes.sh')
+                copy_input('run_mgpd_condor.sh')
                 for job in jobs:
                     copy_input(job['run_file'])
             else:
@@ -165,4 +180,3 @@ def recheck_recovery_parent(production):
         plan = plan_recovery(parent_dir, ignore_recovery_id=production.manifest['production_id'], **recovery['policy'])
         if set(recovery['job_ids']) - set(plan['eligible_job_ids']):
             raise ValueError('Recovery jobs are no longer eligible; inspect parent status/results')
-

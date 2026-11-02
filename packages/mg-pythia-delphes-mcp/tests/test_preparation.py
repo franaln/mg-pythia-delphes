@@ -25,6 +25,11 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
         for name in ('mg5_aMC', 'condor_submit', 'docker', 'apptainer'):
             executable = tools / name
             executable.write_text(f'#!/bin/sh\ntouch "{self.root}/FORBIDDEN_EXECUTION"\nexit 99\n')
+            if name == 'docker':
+                executable.write_text('#!' + sys.executable + '\n' +
+                    'import json, sys\n' +
+                    'assert sys.argv[1:3] == ["image", "inspect"]\n' +
+                    'print(json.dumps([{"Id": "sha256:' + 'a' * 64 + '", "RepoDigests": []}]))\n')
             executable.chmod(0o755)
         args = ['-m', 'mgpd_mcp.server', '--workspace', str(self.root), '--timeout', str(timeout)]
         if allow:
@@ -36,7 +41,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
         base = self.root / 'project'
         base.mkdir(exist_ok=True)
         (base / 'card.dat').write_text('')
-        data = {'run': {'name': 'sample', 'mode': mode, 'image': 'mg-pythia-delphes-3.5.6',
+        data = {'run': {'name': 'sample', 'mode': mode, 'image': str(self.image),
                         'njobs': 2, 'nevents': 2, 'outputs': ['lhe']},
                 'cards': {'run': 'card.dat'}, 'process': 'generate p p > e+ e-',
                 'options': {'seed': 101}}
@@ -52,7 +57,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.is_error)
         async with self.client() as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-            self.assertEqual(len(tools), 10)
+            self.assertEqual(len(tools), 12)
             for name in ('prepare_production', 'prepare_recovery'):
                 self.assertFalse(tools[name].annotations.read_only_hint)
                 self.assertFalse(tools[name].annotations.idempotent_hint)
@@ -82,7 +87,8 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                 data['cards'] = {key: ({name: str(self.root / 'project' / value) for name, value in values.items()}
                                      if isinstance(values, dict) else str(self.root / 'project' / values))
                                  for key, values in data['cards'].items()}
-                with redirect_stdout(io.StringIO()):
+                from unittest.mock import patch
+                with patch.dict(os.environ, {'PATH': str(self.root / 'tools') + os.pathsep + os.environ['PATH']}), redirect_stdout(io.StringIO()):
                     reference = mgpd.prepare_production(data, self.root / f'baseline-{mode}')
                 actual = mgpd.load_prepared_production(self.root / output)
                 self.assertEqual(actual.manifest['jobs'], reference.manifest['jobs'])
@@ -123,7 +129,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                  {'input_files': ['inputs/run.mg5', 'inputs/card.dat']}]
         async with self.client() as client:
             for i, source in enumerate(forms):
-                config = {'run': {'name': 'inputs', 'mode': 'local-apptainer', 'image': 'test.sif',
+                config = {'run': {'name': 'inputs', 'mode': 'local-apptainer', 'image': str(self.image),
                                   'outputs': ['lhe'], 'njobs': 1, 'nevents': 2}, **source}
                 (self.root / f'inputs{i}.yml').write_text(yaml.safe_dump(config))
                 result = await client.call_tool('prepare_production', {'path': f'inputs{i}.yml', 'output': f'source{i}'})
@@ -147,7 +153,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
         (base / 'run.mg5').write_text('generate p p > e+ e-\nlaunch RUN\n')
         with tempfile.TemporaryDirectory() as outside:
             (base / 'escape').symlink_to(outside, target_is_directory=True)
-            config = {'run': {'name': 'input', 'mode': 'local-apptainer', 'image': 'test.sif', 'outputs': ['lhe']},
+            config = {'run': {'name': 'input', 'mode': 'local-apptainer', 'image': str(self.image), 'outputs': ['lhe']},
                       'input_dir': 'inputs'}
             (self.root / 'input.yml').write_text(yaml.safe_dump(config))
             async with self.client() as client:

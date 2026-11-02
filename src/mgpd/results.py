@@ -17,6 +17,7 @@ from .condor import parse_condor_job_ids
 
 def parse_lhe_init(block):
     """Read HEPRUP records, excluding optional nested XML metadata (LHEF 3)."""
+
     try:
         root = ET.fromstring(block)
     except ET.ParseError as exc:
@@ -91,15 +92,22 @@ def check_lhe(stream, job, event_count='exact', require_positive_cross_section=T
     cross_section = parse_lhe_init('\n'.join(init))
     if not math.isfinite(cross_section) or (require_positive_cross_section and cross_section <= 0):
         raise ValueError('Nonpositive/nonfinite cross section')
+
     return {'lhe_events': events, 'seed': seed, 'cross_section_pb': cross_section}
 
 
 def inspect_outputs(files, job, **policy):
     """files maps basenames to functions opening binary streams; never unpack tar paths."""
+
     checks = {}
-    suffixes = {'lhe': '_unweighted_events.lhe.gz', 'root': '_delphes_events.root',
-                'hepmc': '_pythia8_events.hepmc.gz', 'lhco': '_delphes_events.lhco',
-                'log': '_logs.tar'}
+    suffixes = {
+        'lhe': '_unweighted_events.lhe.gz',
+        'root': '_delphes_events.root',
+        'hepmc': '_pythia8_events.hepmc.gz',
+        'lhco': '_delphes_events.lhco',
+        'log': '_logs.tar'
+    }
+
     for kind in job['outputs']:
         if kind not in suffixes:
             raise ValueError(f'Output validation not implemented for {kind}')
@@ -133,6 +141,7 @@ def inspect_outputs(files, job, **policy):
                     checks['log_files'] = len(logs.getmembers())
             elif not source.read(1):
                 raise ValueError(f'Empty {kind} output')
+
     return checks
 
 
@@ -193,15 +202,28 @@ def result_execution_state(output_dir, manifest, job, scheduler_id):
 
 def validate_production(output_dir, event_count='exact', require_positive_cross_section=True, check_seed=True):
     """Read-only artifact validation and per-sample summary, not physics approval."""
+
     if event_count not in ('exact', 'nonempty', 'ignore'):
         raise ValueError(f'Unsupported event-count policy: {event_count}')
+
     output_dir = str(Path(output_dir).expanduser().resolve())
+
     manifest = read_production_manifest(output_dir)
-    policy = {'event_count': event_count, 'require_positive_cross_section': require_positive_cross_section,
-              'check_seed': check_seed}
-    report = {'production_id': manifest.get('production_id'), 'recorded_state': manifest.get('state'),
-              'checked_at': datetime.now(timezone.utc).isoformat(), 'policy': policy,
-              'jobs': [], 'samples': {}, 'metadata_errors': []}
+    policy = {
+        'event_count': event_count,
+        'require_positive_cross_section': require_positive_cross_section,
+        'check_seed': check_seed
+    }
+
+    report = {
+        'production_id': manifest.get('production_id'),
+        'recorded_state': manifest.get('state'),
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+        'policy': policy,
+        'jobs': [],
+        'samples': {},
+        'metadata_errors': []
+    }
     mappings = manifest.get('submission', {}).get('jobs', [])
     if not mappings and manifest.get('state') == 'submitted' and manifest.get('submission', {}).get('stdout'):
         try:
@@ -210,15 +232,23 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
                         for job, value in zip(manifest['jobs'], ids)]
         except ValueError as exc:
             report['metadata_errors'].append(str(exc))
+
     mapped = {entry['job_id']: entry['scheduler_id'] for entry in mappings}
     if len(mapped) != len(mappings) or len(set(mapped.values())) != len(mapped):
         raise ValueError('Invalid duplicate scheduler mapping')
     suffixes = {'lhe': '_unweighted_events.lhe.gz', 'root': '_delphes_events.root',
                 'hepmc': '_pythia8_events.hepmc.gz', 'lhco': '_delphes_events.lhco', 'log': '_logs.tar'}
+
     for job in manifest['jobs']:
         scheduler_id = mapped.get(job['job_id'])
-        item = {'job_id': job['job_id'], 'sample': job['sample'], 'scheduler_id': scheduler_id,
-                'requested_events': job['nevents'], 'metrics': {}, 'outputs': {}}
+        item = {
+            'job_id': job['job_id'],
+            'sample': job['sample'],
+            'scheduler_id': scheduler_id,
+            'requested_events': job['nevents'],
+            'metrics': {},
+            'outputs': {}
+        }
         item['execution_state'] = result_execution_state(output_dir, manifest, job, scheduler_id)
         try:
             with result_files(output_dir, manifest, job, scheduler_id) as (files, location, local_logs):
@@ -253,6 +283,7 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
             item.update(outputs_state='unavailable', error=str(exc))
         except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as exc:
             item.update(outputs_state='invalid', error=f'{type(exc).__name__}: {exc}')
+
         item['state'] = 'invalid' if item['execution_state'] == 'failed' else item['outputs_state']
         report['jobs'].append(item)
         sample = report['samples'].setdefault(job['sample'], {'planned_jobs': 0, 'requested_events': 0,
@@ -269,5 +300,5 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
     report['counts'] = dict(Counter(job['state'] for job in report['jobs']))
     report['state'] = ('invalid' if report['metadata_errors'] or 'invalid' in report['counts'] else
                        'valid' if report['jobs'] and set(report['counts']) == {'valid'} else 'incomplete')
-    return report
 
+    return report

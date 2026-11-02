@@ -26,8 +26,10 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        self.image = self.root / 'fixture-r1.sif'
+        self.image.write_bytes(b'synthetic SIF')
         card = self.root / 'run.dat'; card.write_text('')
-        config = {'run': {'name': 'sample', 'mode': 'local-apptainer', 'image': 'image.sif',
+        config = {'run': {'name': 'sample', 'mode': 'local-apptainer', 'image': str(self.image),
                           'njobs': 2, 'nevents': 2, 'outputs': ['lhe']},
                   'cards': {'run': str(card)}, 'process': 'generate p p > e+ e-', 'options': {'seed': 101}}
         with redirect_stdout(io.StringIO()):
@@ -53,7 +55,7 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
         async with self.client() as client:
             tools = (await client.list_tools()).tools
             self.assertEqual({tool.name for tool in tools}, {'validate_config', 'inspect_production',
-                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report'})
+                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change'})
             for tool in tools:
                 self.assertTrue(tool.annotations.read_only_hint)
                 self.assertFalse(tool.annotations.destructive_hint)

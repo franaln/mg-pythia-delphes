@@ -14,7 +14,7 @@ from unittest.mock import patch
 import mgpd
 from mgpd.storage import write_manifest
 from mgpd.production_merging import merge_production
-from mgpd.merging import main as merge_main
+from mgpd.cli import main as cli_main
 
 
 def lhe(seed, events=2):
@@ -23,8 +23,11 @@ def lhe(seed, events=2):
                           + '<event>\n</event>\n' * events + '</LesHouchesEvents>\n').encode())
 
 
+from image_fixtures import installed_image
+
 class ProductionMergingTests(unittest.TestCase):
     def setUp(self):
+        installed_image(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -94,7 +97,7 @@ class ProductionMergingTests(unittest.TestCase):
         return subprocess.CompletedProcess(command, 0)
 
     def merge(self, directory, **kwargs):
-        with patch('mgpd.merging.subprocess.run', side_effect=self.fake_container):
+        with patch('mgpd.merge.subprocess.run', side_effect=self.fake_container):
             output = merge_production(directory, backend='local-apptainer', **kwargs)
         return Path(output), json.loads((Path(output) / 'merge-report.json').read_text())
 
@@ -240,17 +243,17 @@ class ProductionMergingTests(unittest.TestCase):
             if calls == 2:
                 raise subprocess.CalledProcessError(1, command)
             return self.fake_container(command, check)
-        with patch('mgpd.merging.subprocess.run', side_effect=fail_second), self.assertRaises(subprocess.CalledProcessError):
+        with patch('mgpd.merge.subprocess.run', side_effect=fail_second), self.assertRaises(subprocess.CalledProcessError):
             merge_production(parent.output_dir)
         self.assertFalse((Path(parent.output_dir) / 'merged').exists())
         self.assertFalse(list(Path(parent.output_dir).glob('.mgpd-dataset-*')))
 
     def test_production_cli_without_output_and_archive_expert_interface(self):
         parent = self.fixture()
-        with patch('mgpd.merging.subprocess.run', side_effect=self.fake_container), redirect_stdout(io.StringIO()):
-            self.assertEqual(merge_main([parent.output_dir, '--sample', 'sample', '--backend', 'local-apptainer']), 0)
-        with patch('mgpd.merging.merge_outputs', return_value='custom') as merge, redirect_stdout(io.StringIO()):
-            self.assertEqual(merge_main(['job1.tar.gz', 'job2.tar.gz', '-o', 'custom']), 0)
+        with patch('mgpd.merge.subprocess.run', side_effect=self.fake_container), redirect_stdout(io.StringIO()):
+            self.assertEqual(cli_main(['merge', parent.output_dir, '--sample', 'sample', '--backend', 'local-apptainer']), 0)
+        with patch('mgpd.cli.merge_outputs', return_value='custom') as merge, redirect_stdout(io.StringIO()):
+            self.assertEqual(cli_main(['merge', 'job1.tar.gz', 'job2.tar.gz', '-o', 'custom']), 0)
             self.assertEqual(merge.call_args.args, (['job1.tar.gz', 'job2.tar.gz'], 'custom'))
 
     def test_real_root_event_totals_and_decompressed_lhe(self):

@@ -2,7 +2,7 @@
   "examples": [
     {
       "name": "example1_process",
-      "config": "example1_process/example1.yml",
+      "config": "example1_process/config.yml",
       "samples": [
         "ttbb1"
       ],
@@ -11,7 +11,7 @@
     },
     {
       "name": "example2_proc_card",
-      "config": "example2_proc_card/example2.yml",
+      "config": "example2_proc_card/config.yml",
       "samples": [
         "ttbb2"
       ],
@@ -20,7 +20,7 @@
     },
     {
       "name": "example3_multiple_models",
-      "config": "example3_multiple_models/example3.yml",
+      "config": "example3_multiple_models/config.yml",
       "samples": [
         "ttbb3_model1",
         "ttbb3_model2",
@@ -31,7 +31,7 @@
     },
     {
       "name": "example4_input_files",
-      "config": "example4_input_files/example4.yml",
+      "config": "example4_input_files/config.yml",
       "samples": [
         "ttbb4"
       ],
@@ -40,7 +40,7 @@
     },
     {
       "name": "example5_input_dir",
-      "config": "example5_input_dir/example5.yml",
+      "config": "example5_input_dir/config.yml",
       "samples": [
         "ttbb5"
       ],
@@ -120,8 +120,5 @@
       "jobs_per_sample": 2,
       "smoke": true
     }
-  ],
-  "manual_only": {
-    "example0_sub": "Standalone historical submit-file example; does not exercise the YAML runner."
-  }
+  ]
 }

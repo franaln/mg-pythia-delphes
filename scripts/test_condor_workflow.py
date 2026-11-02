@@ -55,7 +55,7 @@ class WorkflowTest:
         deadline = time.monotonic() + self.args.timeout
         while True:
             before = (directory / 'manifest.json').read_bytes()
-            status = self.command(label + '-status', ['--status', directory, '--json'], json_output=True)
+            status = self.command(label + '-status', ['status', directory, '--json'], json_output=True)
             if before != (directory / 'manifest.json').read_bytes():
                 raise ValueError('Read-only status changed the manifest')
             if status['query_errors'] or not status.get('identity_checks_enabled'):
@@ -64,7 +64,7 @@ class WorkflowTest:
                 raise ValueError(f'{label}: scheduler reports failed, removed or held jobs')
             if status['jobs'] and all(job['state'] == 'completed' and job['source'] == 'history'
                                       for job in status['jobs']):
-                validation = self.command(label + '-validate', ['--validate-results', directory, '--json'],
+                validation = self.command(label + '-validate', ['validate-results', directory, '--json'],
                                           json_output=True)
                 if validation['state'] != 'valid':
                     raise ValueError(f'{label}: completed outputs are not valid')
@@ -74,14 +74,14 @@ class WorkflowTest:
             time.sleep(min(3, max(0, deadline - time.monotonic())))
 
     def execute(self, directory, label):
-        self.command(label + '-execute', ['--execute-prepared', directory])
+        self.command(label + '-execute', ['execute', directory])
         manifest = json.loads((directory / 'manifest.json').read_text())
         self.report['productions'].append({'directory': str(directory),
                                            'production_id': manifest['production_id'],
                                            'scheduler_jobs': manifest.get('submission', {}).get('jobs', [])})
         self.save()
         before = (directory / 'manifest.json').read_bytes()
-        self.command(label + '-duplicate-rejected', ['--execute-prepared', directory], expected=1)
+        self.command(label + '-duplicate-rejected', ['execute', directory], expected=1)
         if (directory / 'manifest.json').read_bytes() != before:
             raise ValueError('Rejected duplicate execution changed the manifest')
         return manifest
@@ -104,7 +104,7 @@ class WorkflowTest:
                                check=True, timeout=120)
             original = self.execute(parent, 'parent')
         self.wait(parent, 'parent')
-        clean_plan = self.command('clean-plan', ['--plan-recovery', parent, '--json'], json_output=True)
+        clean_plan = self.command('clean-plan', ['recover', parent, '--plan', '--json'], json_output=True)
         if clean_plan['eligible_job_ids'] or len(original['jobs']) != 2:
             raise ValueError('Expected two valid jobs without recovery candidates')
         first, good = original['jobs']
@@ -124,22 +124,22 @@ class WorkflowTest:
         self.save()
         missing.rename(withheld)
         try:
-            invalid = self.command('missing-output', ['--validate-results', parent, '--json'],
+            invalid = self.command('missing-output', ['validate-results', parent, '--json'],
                                    expected=1, json_output=True)
             if invalid['state'] == 'valid':
                 raise ValueError('Missing output was incorrectly accepted')
-            plan = self.command('selective-plan', ['--plan-recovery', parent, '--json'], json_output=True)
+            plan = self.command('selective-plan', ['recover', parent, '--plan', '--json'], json_output=True)
             if plan['eligible_job_ids'] != [first['job_id']]:
                 raise ValueError('Recovery did not select exactly the missing job')
             child = self.args.output / 'retry'
-            self.command('prepare-recovery', ['--prepare-recovery', parent, '-o', child,
+            self.command('prepare-recovery', ['recover', parent, '-o', child,
                                                '--job-id', first['job_id']])
             child_manifest = json.loads((child / 'manifest.json').read_text())
             if child_manifest['jobs'] != [first] or child_manifest['image'] != original['image']:
                 raise ValueError('Recovery changed selected job inputs, seed or image')
             if child_manifest.get('submission') or child_manifest['state'] != 'prepared':
                 raise ValueError('Recovery preparation unexpectedly executed work')
-            reserved = self.command('reserved-plan', ['--plan-recovery', parent, '--json'], json_output=True)
+            reserved = self.command('reserved-plan', ['recover', parent, '--plan', '--json'], json_output=True)
             if reserved['eligible_job_ids']:
                 raise ValueError('Parent offers a job already delegated to recovery')
             self.execute(child, 'recovery')
@@ -157,7 +157,7 @@ class WorkflowTest:
             self.save()
             if not self.report['withheld']['restored'] or digest(preserved) != good_hash:
                 raise ValueError('Parent output checksum changed during the test')
-        self.command('restored-parent-valid', ['--validate-results', parent, '--json'], json_output=True)
+        self.command('restored-parent-valid', ['validate-results', parent, '--json'], json_output=True)
         self.report['state'] = 'passed'
         self.save()
 

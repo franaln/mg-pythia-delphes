@@ -1,11 +1,11 @@
 """YAML loading, validation and container-reference resolution."""
-import os
 import socket
 import yaml
 import re
 from pathlib import Path
-import copy
+
 from .models import MAX_SEED
+from .images import apptainer_reference, docker_reference
 
 
 def resolve_run_mode(mode):
@@ -14,7 +14,6 @@ def resolve_run_mode(mode):
         return mode
     hostname = socket.gethostname().lower().rstrip('.').split('.')[0]
     return 'local-apptainer' if hostname == 'jupiter' else 'local-docker'
-
 
 
 def get_config_options(config):
@@ -58,35 +57,43 @@ def get_expert_options(config):
     return config_options
 
 
-def validate_config(config):
+def validate_config(config, base_directory=None):
     """Validate inputs without creating directories or submitting work.
 
     Relative input paths retain the CLI's historical current-directory semantics.
     """
     if not isinstance(config, dict) or not isinstance(config.get('run'), dict):
         raise ValueError("Configuration must contain a 'run' mapping")
+
     run = config['run']
+
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', str(run.get('name', ''))):
         raise ValueError('run.name must be a nonempty filesystem-safe name')
+
     for key in ('nevents', 'njobs'):
         value = run.get(key, 10000 if key == 'nevents' else 1)
         if type(value) is not int or value <= 0:
             raise ValueError(f'run.{key} must be a positive integer')
+
     modes = ('local', 'local-docker', 'local-apptainer', 'condor', 'jupiter')
     if run.get('mode', 'local') not in modes:
         raise ValueError(f'run.mode must be one of {modes}')
+
     outputs = run.get('outputs', ['lhe', 'lhco', 'log'])
     if not isinstance(outputs, list) or not outputs or any(
         x not in ('lhe', 'lhco', 'root', 'hepmc', 'hepmc0', 'log', 'all') for x in outputs
     ):
         raise ValueError('run.outputs must be a nonempty list of supported outputs')
+
     options = config.get('options', {})
     if not isinstance(options, dict):
         raise ValueError('options must be a mapping')
+
     seed = options.get('seed')
     if not (seed is None or type(seed) is int and 0 <= seed <= MAX_SEED
             or isinstance(seed, str) and seed.strip().upper() == 'RANDOM'):
         raise ValueError(f'options.seed must be 0, RANDOM, or an integer from 1 to {MAX_SEED}')
+
     samples = len(config.get('input_dirs', {})) if 'input_dirs' in config else 1
     if isinstance(config.get('cards', {}).get('param'), dict):
         samples = len(config['cards']['param'])
@@ -116,9 +123,13 @@ def validate_config(config):
             paths.extend(Path(x) for x in (card.values() if isinstance(card, dict) else [card]))
         if any(x in outputs for x in ('root', 'lhco')) and 'delphes' not in cards:
             raise ValueError('ROOT/LHCO output requires a Delphes card')
+
     for path in paths:
+        if base_directory is not None and not path.is_absolute():
+            path = Path(base_directory) / path
         if not path.is_file():
             raise ValueError(f'Input file does not exist: {path}')
+
     return config
 
 
@@ -133,52 +144,10 @@ def load_config(config_file, run_mode=None):
 
 def resolve_container_image(config_run, run_mode):
     """Resolve a configured image without modifying the caller's configuration."""
-    config_run = copy.deepcopy(config_run)
-    available_images = [
-        'mg-pythia-delphes-3.3.2',
-        'mg-pythia-delphes-3.5.6',
-        'mg-pythia-delphes-latest',
-    ]
 
-    ## Docker/Apptainer image
-    if run_mode in ('condor', 'jupiter'):
-
-        image_dir = '/opt/images'
-
-        if 'image' not in config_run:
-            print('- No image was configured. Using latest: mg-pythia-delphes-latest')
-            container_image = 'mg-pythia-delphes-latest'
-        else:
-            if ':' in config_run['image']:
-                config_run['image'] = config_run['image'].replace(':', '-')
-
-            if config_run['image'] not in available_images:
-                raise ValueError(f'Image {config_run["image"]} is not available; choose from {available_images}')
-            else:
-                container_image = config_run["image"]
-
-        container_image_path = f'{image_dir}/{container_image}.sif'
-        print(f'- Running with condor using image: {container_image_path}')
-
-    elif run_mode == 'local-docker':
-        if 'image' in config_run:
-            container_image_path = config_run['image']
-        else:
-            container_image_path = 'franaln/mg-pythia-delphes:latest'
-
-        print(f'- Running locally with docker using image: {container_image_path}')
-
-    elif run_mode == 'local-apptainer':
-
-        if 'image' in config_run:
-            if config_run['image'] in available_images and os.path.exists(f'/opt/images/{config_run["image"]}.sif'):
-                container_image_path = f'/opt/images/{config_run["image"]}.sif'
-            else:
-                container_image_path = config_run['image']
-        else:
-            raise ValueError('No default Apptainer image is available')
-
-        print(f'- Running locally with apptainer using image: {container_image_path}')
-
-    return container_image_path
-
+    reference = config_run.get('image')
+    if run_mode == 'local-docker':
+        return docker_reference(reference or '3.5.6')
+    if run_mode in ('condor', 'jupiter', 'local-apptainer'):
+        return apptainer_reference(reference or '3.5.6')
+    raise ValueError(f'Unsupported execution mode: {run_mode}')

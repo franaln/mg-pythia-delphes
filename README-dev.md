@@ -1,701 +1,582 @@
 # Developer and maintainer guide
 
-For users, see [README.md](README.md) and the [example catalog](examples/README.md).
-This guide contains development setup, automated and live tests, release checks,
-and shared deployment. The implementation roadmap is maintained locally.
+User instructions are in [README.md](README.md), the
+[example catalog](examples/README.md), and the [MCP guide](packages/mg-pythia-delphes-mcp/README.md).
+This guide covers environment setup, tests, releases, shared deployment and
+container builds. Roadmaps, implementation notes and historical test results
+belong in the local, untracked `development.md`.
+
+Run commands from the repository root unless stated otherwise. Use new output
+directories for tests. Commands with `--execute` run real work; automated unit
+tests use fake external tools and never submit real jobs.
 
 ## Development environment
 
-Run commands from the repository root unless stated otherwise:
+Core requires Python 3.9+; use Python 3.11+ to develop/test the MCP adapter too.
+Physics programs, container engines and HTCondor are external dependencies.
 
 ```bash
-python3 -m venv .venv-dev
+python3.12 -m venv .venv-dev
 source .venv-dev/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev]' -e packages/mg-pythia-delphes-mcp
 ```
 
-The editable installation reflects current source changes; the `dev` extra adds
-build tools and uproot for ROOT validation. Physics programs and container engines
-are external dependencies. Local regression tests use fake external tools and
-never submit real jobs; commands marked `--execute` launch real work.
+The `dev` extra installs build tools, uproot and round-trip YAML support.
+For core-only development, omit the adapter. Shared installations must use
+versioned environments installed from wheels, not editable checkouts.
 
-## Preparation checks anywhere
-
-From the repository root, with Python 3.9+ and PyYAML:
-
-```bash
-python3 scripts/test_examples.py --list
-python3 scripts/test_examples.py --mode condor --output test-results/preparation-condor
-python3 scripts/test_examples.py --mode local-docker --output test-results/preparation-docker
-python3 scripts/test_examples.py --mode local-apptainer --output test-results/preparation-apptainer
-```
-
-These commands validate and prepare every catalogued YAML example, then check
-sample/job counts, distinct seeds, concrete seeded commands, checksums,
-packaged inputs and Bash syntax. They do not start containers or contact
-HTCondor. They exercise preparation, not MadGraph command syntax or physics.
-The test driver uses 100 events/job by default; `--events` overrides this.
-It retains the documented job counts.
-
-Outputs must go into a **new directory**. Each invocation saves `report.json`,
-per-example logs, a test configuration and the prepared production. Catalogued
-examples live in `examples/catalog.json`; the regression suite checks that every YAML
-example is registered, so newly added examples cannot silently escape testing.
-
-## Hostname-based local default
-
-The runner accepts `--mode local` and YAML `run.mode: local`. When no mode is
-specified, `local` is the default. It selects Apptainer if the short hostname is
-`jupiter`, and Docker on any other host. Explicit concrete modes take precedence.
-There are no site environment variables or configurable hostname aliases.
-
-The example driver also defaults to `--mode local`. It resolves the hostname
-before executable checks, image translation and execution, and records requested
-and resolved modes. For example, on JUPITER:
-
-```bash
-python scripts/test_examples.py --mode local \
-  --example example8_smoke_full --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/preparation-local-01
-```
-
-This prepares only; add `--execute` to run the selected example. Use `--mode condor`
-explicitly for Condor tests. Saved productions retain the concrete backend and
-are not reinterpreted when executed on another host.
-
-## Real integration tests on JUPITER
-
-Use the development environment above. ROOT checks require the included uproot dependency.
-
-First test MadGraph and Condor without showering or detector simulation:
-
-```bash
-python scripts/test_examples.py \
-  --execute --mode condor --example example7_parton_only \
-  --output test-results/condor-parton-01 --timeout 1800
-```
-
-Then test the full chain:
-
-```bash
-python scripts/test_examples.py \
-  --execute --mode condor --example example8_smoke_full \
-  --output test-results/condor-full-01 --timeout 1800
-```
-
-`condor_submit` and `condor_wait` must be available in the submitting shell.
-The default SM container must exist on the workers as
-`/opt/images/mg-pythia-delphes-3.5.6.sif`. You can select another runner-supported
-image name with `--image mg-pythia-delphes-latest`.
-
-Add `--example example9_smoke_madspin` to also test the decayed output directory,
-or select any other catalogued example explicitly. Execution never defaults to
-all examples. `--max-jobs` defaults to 8 **per example**; this guard counts every
-sample, not just jobs per sample. Heavy examples require the relevant UFO model
-and may require a higher limit and timeout.
-
-The driver:
-
-1. Prepares and checks inputs, then executes them through the guarded
-   `--execute-prepared` CLI. Both the runner and driver enforce job-count limits.
-2. Uses the runner's exact scheduler-ID mapping in the production manifest,
-   also saving `submitted_jobs.json` and submission output in `submit.log`.
-3. Waits for each test job, with one overall Condor wait deadline per example.
-4. Checks normal termination with exit code zero and returned archives.
-5. Checks requested outputs: LHE event counts and actual seed, a positive finite
-   cross section, nonempty HepMC/LHCO, readable log archives, and a readable
-   nonempty Delphes tree for ROOT output.
-6. Writes the report and returns a nonzero exit code if any example fails.
-
-These are software/integrity checks, not a validation of cross sections against
-reference calculations or detector physics. The driver does not implement the
-`outputs: [all]` validation mode; select explicit output types for tests.
-
-Timed-out or failed jobs are **left in the queue by default** for diagnosis.
-Add `--remove-on-failure` to remove only the exact recorded test job IDs;
-`condor_rm` must then also be available. Check `submitted_jobs.json`,
-`submit.log`, and `condor_q` if submission itself was interrupted or its output
-could not be parsed: the driver cannot clean up IDs it did not obtain.
-
-## Real local container tests
-
-For example:
-
-```bash
-python scripts/test_examples.py \
-  --execute --mode local-docker --example example8_smoke_full \
-  --output test-results/docker-full-01
-```
-
-For local Docker the test driver translates catalogued image names to
-`franaln/mg-pythia-delphes:<version>`; for Apptainer it uses `/opt/images/*.sif`.
-`--image` can override the Docker reference or Apptainer path. Local jobs run
-sequentially, with `--timeout` applied to the whole local example. Local mode
-validates native outputs and converts ROOT to LHCO when requested. Local logs
-remain in the working directory rather than being packaged as Condor log archives.
-
-## Automated regression suite
+## Automated tests
 
 ```bash
 python -B -m unittest discover -s tests -v
+python -B -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
+python -m pip check
 ```
 
-This runs all YAML examples through preparation for all three backends, tests
-failure handling, and exercises the integration-test driver against a fake
-scheduler and generated LHE archives. It never submits real jobs. Successful
-mock tests do not establish that a real cluster/container run succeeds.
+Run the core suite separately on Python 3.9 without the MCP SDK when checking
+minimum-version support. MCP tests require its SDK and use real stdio transport
+with fake scheduler/container executables. Passing these suites does not prove
+that real images or cluster jobs work.
 
-Output parsing and production validation are shared with the runner. The test
-report includes `validation` with job details and sample summaries. Default
-smoke policies remain strict. To inspect an existing result without another run:
+Targeted checks:
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py \
-  --validate-results test-results/condor-full-01/example8_smoke_full/production --json
+python -m unittest discover -s tests -p test_configuration.py -v
+python -m unittest discover -s tests -p test_completion.py -v
+python -m unittest discover -s tests -p test_create_images.py -v
+python -m unittest discover -s tests -p test_checked_images.py -v
 ```
 
-The public core API is exported by `src/mgpd/__init__.py`; the roadmap is
-maintained locally.
-
-After a Condor test, inspect the production without submitting more jobs:
+## Example preparation checks
 
 ```bash
-python3 scripts/run_mg_pythia_delphes.py \
-  --status test-results/condor-full-01/example8_smoke_full/production --json
+python scripts/test_examples.py --list
+python scripts/test_examples.py --mode condor --output test-results/preparation-condor
+python scripts/test_examples.py --mode local  --output test-results/preparation-local
 ```
 
-Selective recovery can be tested separately on a disposable completed smoke
-production. Use `--plan-recovery`, then `--prepare-recovery` to a new directory;
-see [README.md](README.md#selective-recovery). Recovery
-is never enabled automatically by this test driver. The regression suite also
-covers the complete recovery CLI with a fake scheduler, without real jobs.
+These validate/prepare the examples in `examples/catalog.json`, checking job and
+sample counts, seeds, frozen files, archives and Bash syntax. They do not launch
+containers or contact Condor. Add new examples to the catalog. `--events` changes
+events per job; the configured job counts are retained. Results include
+`report.json`, configurations, prepared productions and per-example logs.
 
-For developing/testing current edits, install `-e ".[dev]"` instead of a fixed
-release. The example driver uses the package installed in its Python environment;
-see [package release checks](#package-layout-and-release-checks).
+`local` resolves to Apptainer on hostname `jupiter`, Docker elsewhere. Use an
+explicit concrete mode when testing another backend. Saved productions keep
+the resolved backend and image; execution does not reinterpret the hostname.
 
-## Live merging smoke test on JUPITER
+## Real container and cluster tests
 
-Install the current development checkout in the environment used for testing:
+Run these as a normal user. Install the current package and uproot in the
+interpreter running the test scripts. Use images available on the execution
+host/workers. Jupiter uses Apptainer locally and under Condor; Docker is for
+external hosts. Local execution is sequential.
+
+### Full-chain test
+
 
 ```bash
-python -m pip install -e '.[dev]'
+python scripts/test_examples.py --execute --mode local --example example8_smoke_full --output test-results/apptainer-full-01
+```
+```bash
+python scripts/test_examples.py --execute --mode condor --example example8_smoke_full --output test-results/condor-full-01 --timeout 1800
 ```
 
-Generate two small jobs with LHE, ROOT and LHCO outputs. Run from the repository
-root; the example driver handles card paths. This actually launches simulations:
+`condor_submit` and `condor_wait` must be available. The selected named image
+must exist under `/opt/images/` on the workers. Version selectors (including revisions) and explicit SIF paths are supported.
+Preparation resolves symlinks and records the actual SIF path and SHA256; that
+exact file must remain available to every worker. Do not substitute the nonfunctional `latest` image.
+
+Select `example9_smoke_madspin` to test decayed output directories. Real execution
+requires explicit examples and defaults to at most eight jobs per example;
+`--max-jobs` raises this limit when justified. Heavy examples may need extra
+models and longer timeouts.
+
+The driver waits for successful job termination and checks returned outputs:
+LHE event counts/seeds/cross sections, readable nonempty ROOT trees and expected
+HepMC/LHCO/log files. Use explicit outputs; `outputs: [all]` is not supported by
+result validation. These are integrity checks, not physics certification.
+
+Failed/timed-out Condor jobs remain queued for diagnosis. `--remove-on-failure`
+removes only the recorded test job IDs and requires `condor_rm`. Inspect
+`submitted_jobs.json`, logs and the scheduler if submission was ambiguous.
+
+### Merge test
+
+Generate two full-chain jobs, then merge their outputs in the real container:
 
 ```bash
-python scripts/test_examples.py --execute --mode local-apptainer \
-  --example example11_merge_smoke \
-  --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/merge-production-01
+python scripts/test_examples.py --execute --mode local --example example11_merge_smoke --output test-results/merge-production-01
+python scripts/test_merging.py  --production test-results/merge-production-01/example11_merge_smoke/production --backend local-apptainer --output test-results/merge-check-01
 ```
 
-Then run the real container merge and inspect the report:
+The checker requires two valid jobs from one sample. It checks merged LHE,
+ROOT and LHCO event totals, finite weights, an unweighted-replica normalization
+sanity check, LHCO-only conversions and the production-directory merge report.
+It retains reports/logs and leaves source artifacts untouched. A completed
+Condor production can be checked the same way. For recovery families, merge
+from the original production so that alternate attempts are not double-counted.
 
-```bash
-python scripts/test_merging.py \
-  --production test-results/merge-production-01/example11_merge_smoke/production \
-  --backend local-apptainer \
-  --image /mnt/R5/images/mg-pythia-delphes-3.5.6.sif \
-  --output test-results/merge-check-01
-cat test-results/merge-check-01/report.json
-```
-
-For Condor, generate with `--mode condor` and an appropriate Condor image reference
-(e.g. `--image mg-pythia-delphes-3.5.6`), then pass that completed production to
-the same merge checker. The checker itself never submits jobs. It copies selected
-artifacts into its new test directory and leaves the production untouched.
-
-The checker requires two valid jobs from one sample. It checks exact summed LHE,
-ROOT and LHCO event counts, finite event weights, and a replica normalization
-sanity check: the merged LHE cross section must remain within the input cross
-section range, allowing rounding. It records the event-weighted reference and
-input/merged weight statistics for inspection; it does not assume that raw event
-weights must add across every LHE weight convention. This is a smoke test for this
-positive unweighted SM example, not certification of arbitrary weighted samples.
-It also tests LHCO-only merging through `lhco2root` and `root2lhco` separately.
-
-`report.json`, `merge.log`, and `merge-lhco-only.log` retain results and failures.
-Use fresh output paths for every test. A passing report is live evidence only for
-the backend/image and input production actually exercised.
-
-## Production-directory merge checks
-
-The regression suite exercises real prepared plans and local/Condor artifact
-readers, with only external merge tools faked. It covers multi-sample separation,
-filtering, incomplete/unfinished jobs, explicit partial datasets, recovery chains,
-original-attempt preference, ownership/input corruption, per-file provenance,
-ROOT/LHE event totals and failure without publishing any samples.
-
-The live merger driver above now also invokes the production-directory interface
-and checks its report against input event totals, in addition to explicit-archive
-and LHCO-only paths. On an existing disposable validated production:
-
-```bash
-mgpd merge production/ --backend local-apptainer
-cat production/merged/merge-report.json
-```
-
-A single selected sample uses the output root; multiple selected samples use
-separate subdirectories. The report belongs to the entire selection. For a retry
-family, invoke this command on the original directory: only registered children
-with matching identities, exact job definitions and frozen inputs are accepted.
-Merging does not require a live scheduler query, but Condor attempts must have
-recorded successful exit evidence. Use fresh destinations when repeating tests.
-
-## Live saved-execution and recovery test on JUPITER
-
-From the repository root, in an environment with the current package installed
-and access to your normal Condor scheduler:
+### Saved execution and selective recovery
 
 ```bash
 python scripts/test_condor_workflow.py --execute \
-  --image mg-pythia-delphes-3.5.6 \
-  --output test-results/condor-workflow-01
+  --image mg-pythia-delphes-3.5.6 --output test-results/condor-workflow-01
 ```
 
-This submits **two parton-only SM jobs and one selective recovery job**, with 100
-events per job (override with `--events`, limited to 1000). It:
+This submits two parton-level jobs and one selected recovery job. It checks
+saved-plan execution, duplicate-attempt refusal, read-only status, tagged history,
+result validation, recovery ownership and preservation of inputs/seeds. It
+withholds one disposable archive and restores it afterward. Never use actual
+analysis results for this exercise.
 
-1. Prepares the example, loads and executes its saved plan, then checks that a
-   duplicate execution is rejected without changing the manifest.
-2. Polls read-only `--status` until both jobs have tagged, successful completion
-   records in history; validates results and checks no recovery is needed.
-3. Moves one test-owned archive into `withheld/`, verifies the missing result is
-   detected, and prepares a child containing exactly that job with its original
-   seed, job configuration and image.
-4. Checks recovery ownership prevents a second delegation, executes the saved
-   child once, rejects duplicate execution, and validates the replacement output.
-5. Checks the other parent's output is unchanged, restores the withheld archive,
-   and validates the original production again.
+`--events` defaults to 100 and is limited to 1000; `--timeout` defaults to 1800
+seconds per production. Held/unknown jobs or query errors block recovery. The
+driver does not cancel jobs on failure. After a process kill, inspect the
+original/backup paths in `report.json` before restoring anything.
 
-Everything lives under a **new** output directory. Existing user productions are
-never accepted as input. Parent and recovery submissions/IDs, CLI logs, scheduler
-observations and failures are retained in `report.json` and numbered logs. Status
-queries must leave manifests unchanged. Recovery preparation must not submit.
-
-The per-production wait defaults to 1800 seconds (`--timeout`). Queue delays or
-history finalization can require more time. Query errors, held/failed jobs and
-unknown states never trigger speculative recovery. The test does not cancel jobs
-on failure; inspect recorded IDs and manifests before any manual scheduler action.
-The withheld archive is restored on ordinary errors/interrupts; after a process
-kill, inspect the backup/original paths recorded in `report.json` before moving it.
-Both original and recovered outputs remain available after success: they are
-alternate attempts for the same logical job and must not both enter a merge.
-
-This deliberately uses a cheap parton-only example to isolate scheduler/recovery
-behavior. Pythia/Delphes and merging are exercised by the separate merge smoke
-test. A fake-scheduler regression tests the driver itself; real JUPITER coverage
-is established only by the report from this command.
-
-If this test fails during initial parent-status observation, update the package
-and resume the same test directory without resubmitting the parent:
+A failed test with one submitted parent and no recovery/withholding can resume:
 
 ```bash
 python scripts/test_condor_workflow.py --execute --resume \
   --output test-results/condor-workflow-01
 ```
 
-Resume is limited to a failed test with one recorded submitted parent, before
-withholding or recovery preparation. It verifies the saved identity and scheduler
-mapping and preserves prior logs. Failed/ambiguous child submissions require
-inspection rather than automatic resubmission. The resumed parent keeps its
-original image, configuration and seeds.
+Resume preserves identity, image, seeds and logs. Ambiguous child submissions
+require inspection instead of another submission. Keep manifests, scheduler IDs
+and numbered logs for diagnosis. To inspect an existing production without
+running more work, use `mgpd status DIRECTORY --json` and
+`mgpd validate-results DIRECTORY --json`.
 
-## Package layout and release checks
+## Release build and wheel validation
 
-| Module | Responsibility |
-| --- | --- |
-| `config` | Load/validate YAML and resolve image references |
-| `models`, `templates` | Production model, seed range and generated templates |
-| `storage` | Manifests, checksums, path confinement and locks |
-| `preparation` | Render sample/job inputs, package and freeze execution files |
-| `execution` | Reload and execute guarded plans |
-| `condor` | Parse IDs and query scheduler state |
-| `results` | Inspect artifacts and summarize validated results |
-| `recovery` | Plan/prepare/recheck parent-child recovery ownership |
-| `merging` | Merge explicit output archives and dispatch merge CLI |
-| `production_merging` | Validate/select recovery attempts and merge per sample with provenance |
-| `cli` | Parse arguments and coordinate public operations |
-| `compat` | Historical script function/template exports |
-
-With the development environment active and the regression suite passing:
-
-```bash
-python -m build
-```
-
-Editable installs require a modern pip (PEP 660); upgrade pip before installation
-on AlmaLinux environments with older bundled versions. Do not use editable
-installs for the shared production environment.
-
-`python -m build` creates an sdist and builds the wheel from that sdist. Before
-releasing, install the wheel in a fresh environment and test outside the source
-checkout. Confirm core commands work without uproot, then install the validation
-extra and run all regressions. Check `mgpd --version` and `python -m mgpd` outside the repository. Package refactoring does not
-require rebuilding existing schema-2 productions or resetting attempt guards.
-
-The example driver remains in the repository and runs with its Python
-interpreter's package version. Examples are not installed with the wheel;
-regular users supply their own YAML/cards. Use the intended environment
-explicitly when testing releases or current development. The examples driver
-uses `python -m mgpd`; the old standalone runner script has been removed.
-
-## Shared JUPITER deployment
-
-`scripts/deploy_shared.py` can install the CLI and MCP adapter together in
-`/opt/venvs/mgpd-VERSION`. Both commands follow a single `mgpd-current` symlink.
-Build-only is separate from installation. Deployment actions can be combined:
-
-| Action | Effect |
-| --- | --- |
-| `--build` | Only build wheels into `--outdir` (default `./dist`), without changing shared installations |
-| `--deploy-venv` | Install/check a new versioned environment; leave current unchanged |
-| `--update-current` | Validate and select an installed version; no build/install unless also requested |
-| `--create-wrapper --bin-dir DIR` | Create launchers for the selected environment |
-
-`--with-mcp` builds/includes the adapter when deploying from source, or requires
-it when activating an existing environment. `--mcp-wheel` implies MCP deployment
-and requires a matching `--wheel`. Core-only deployments remain supported with
-Python 3.9+; combined deployments require Python 3.11+. No action is implicit.
-
-### Build the intended release as a normal user
-
-Default source builds use the checkout containing the script, not the latest
-Git release. When development has moved on, build tested release wheels from
-an isolated checkout and deploy those. On JUPITER, install the build frontend
-in a user-owned environment (`python -m pip install build`). From a 0.2.0 source
-checkout, run the updated helper without sudo:
-
-```bash
-python scripts/deploy_shared.py --build --with-mcp --version 0.2.0 \
-  --outdir dist/0.2.0
-```
-
-If the working checkout is already on 0.3 development, keep it intact and select
-an isolated stable source tree explicitly:
-
-```bash
-git worktree add --detach /tmp/mgpd-020-source v0.2.0
-python scripts/deploy_shared.py --build --with-mcp --version 0.2.0 \
-  --source /tmp/mgpd-020-source --outdir dist/0.2.0
-```
-
-The frontend runs with the interpreter invoking the script; `--python` only
-selects the deployment runtime. Both project wheels are pure Python, so their
-builder need not match the runtime interpreter exactly. Building on JUPITER is
-convenient; the installed dependencies are selected there for its Python/OS.
-Omit `--with-mcp` for a CLI-only build. `--build` cannot be combined with install,
-activation or launcher actions. Both wheel versions are checked before final
-publication, and existing wheel files are never overwritten; use a fresh output
-directory for another build. Build isolation may create temporary build
-environments, but no shared runtime environment is created or selected.
-
-Run the core/MCP wheel checks described below before installation. The helper
-never fetches Git changes or publishes packages. `--version` checks wheel
-metadata before creating an environment, preventing accidental deployment of a
-newer checkout. Different core/MCP versions and mixed wheel/source inputs are
-rejected. Do not run a source build with sudo when tested wheels are available.
-
-### Stage 0.2.0 without changing current
-
-Run installation as the administrator who owns the shared environment:
-
-```bash
-sudo python3.11 scripts/deploy_shared.py --deploy-venv --version 0.2.0 \
-  --wheel dist/0.2.0/mg_pythia_delphes-0.2.0-py3-none-any.whl \
-  --mcp-wheel dist/0.2.0/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl \
-  --prefix /opt/venvs --python /usr/bin/python3.11
-```
-
-Adjust the Python path to the available interpreter. The helper installs the
-core validation extra and adapter together, checks dependencies/imports and both
-versions, and retains failed environments for diagnosis. Incomplete installations
-have a marker and cannot be activated. Existing versioned directories are never
-reused, modified or removed; inspect failures before choosing another location
-or release. This step changes neither launchers nor `mgpd-current`.
-
-Test the staged commands as a normal user, using the new environment explicitly:
-
-```bash
-/opt/venvs/mgpd-0.2.0/bin/mgpd --version
-/opt/venvs/mgpd-0.2.0/bin/mgpd-mcp --version
-/opt/venvs/mgpd-0.2.0/bin/python \
-  packages/mg-pythia-delphes-mcp/scripts/check_server.py \
-  --workspace /home/USER/mg-pythia-delphes --production production
-```
-
-Use a completed production you own. Import/version checks alone do not test
-physics engines, scheduler access or SSH connectivity.
-
-### Activate and create launchers
-
-After validation, switch both commands together:
-
-```bash
-sudo python3.11 scripts/deploy_shared.py --update-current --version 0.2.0 \
-  --with-mcp --prefix /opt/venvs \
-  --create-wrapper --bin-dir /usr/local/bin
-```
-
-This validates the already installed environment without rebuilding it, then
-atomically replaces `mgpd-current`. The wrappers are `mgpd` and `mgpd-mcp`.
-An existing matching managed `mgpd` wrapper is preserved, so an upgrade can add
-just the missing MCP launcher. Unrelated commands/symlinks are refused, and
-wrapper collisions are checked before switching current. Wrapper-only actions
-require the requested version to already be current. Users need the wrapper
-directory on PATH and do not need to activate a virtual environment.
-
-For later activation or rollback, omit wrapper creation:
-
-```bash
-sudo python3.11 scripts/deploy_shared.py --update-current --version 0.2.0 \
-  --with-mcp --prefix /opt/venvs
-```
-
-Change the version to a previously installed combined release to roll back both
-commands. Omitting `--with-mcp` permits selecting a CLI-only release; MCP will
-then be unavailable. The previous link target is printed for rollback.
-
-To build and install directly from an intentionally selected checkout:
-
-```bash
-python scripts/deploy_shared.py --deploy-venv --with-mcp --version 0.2.0 \
-  --prefix /path/to/user-owned/venvs --python /path/to/python3.11
-```
-
-The caller's Python needs `build`. Add `--update-current` if activation should
-happen in the same invocation. Always use a new versioned environment rather
-than overwriting an in-use installation. Keep administrator ownership and normal
-read/execute access for users; never grant ordinary accounts write permission
-to shared environments. Keep old environments while servers/workers use them.
-
-## MCP adapter development
-
-The adapter is a separate distribution in `packages/mg-pythia-delphes-mcp`.
-Core supports Python 3.9 without the SDK; MCP requires Python 3.11+. For release
-0.2.0 the adapter requires core `>=0.2.0,<0.3` and SDK `>=2.3,<3`.
-User connection instructions and the end-to-end workflow are in the
-[adapter README](packages/mg-pythia-delphes-mcp/README.md).
-
-### Environment and automated tests
-
-From the repository root:
-
-```bash
-python3.11 -m venv .venv-mcp
-source .venv-mcp/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[validation]' -e packages/mg-pythia-delphes-mcp build
-python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
-```
-
-Tests use real SDK stdio transport, core APIs and file fixtures, with fake
-scheduler/container executables. Coverage includes preparation parity and seed
-preservation, workspace checks, recovery ownership, duplicate/concurrent
-requests, detached workers, reconnects, failed launches, killed workers, merge
-selection/checksums, partial merging, event totals and provenance. These tests
-never submit real jobs. Run the independent core suite in Python 3.9 without the
-MCP SDK as well; running core tests alone does not exercise the adapter.
-
-Build each distribution independently:
+Update `src/mgpd/_version.py` and
+`packages/mg-pythia-delphes-mcp/pyproject.toml` together, including the adapter's
+core dependency bound. Build each distribution:
 
 ```bash
 python -m build --outdir dist/core
 python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
 ```
 
-Install both wheels in a fresh Python 3.11+ environment and run tests from
-outside the checkout, so subprocesses import installed wheels:
+Install both wheels in a fresh Python 3.11+ environment. For example, for 0.3.0:
 
 ```bash
-python -m pip install 'dist/core/mg_pythia_delphes-0.2.0-py3-none-any.whl[validation]' \
-  dist/mcp/mg_pythia_delphes_mcp-0.2.0-py3-none-any.whl
+python -m pip install 'dist/core/mg_pythia_delphes-0.3.0-py3-none-any.whl[validation]' \
+  dist/mcp/mg_pythia_delphes_mcp-0.3.0-py3-none-any.whl
+python -m pip check
+```
+
+Run tests from outside the checkout to exercise the installed package:
+
+```bash
 cd /tmp
+/absolute/path/to/test-env/bin/python -m unittest discover \
+  -s /absolute/path/to/repository/tests -v
 /absolute/path/to/test-env/bin/python -m unittest discover \
   -s /absolute/path/to/repository/packages/mg-pythia-delphes-mcp/tests -v
 ```
 
-Check dependency consistency with `python -m pip check`, version metadata and
-wheel/source contents. The local `development.md` must remain untracked and
-excluded from source distributions.
+Also check core commands without optional validation/configuration dependencies,
+CLI/module versions, project creation from packaged cards, and completion
+output. Check the source archive includes repository test/build inputs and
+excludes the ignored local `development.md`. Image recipes require the repository
+root as context because they also copy files from `data/`.
 
-### JUPITER connectivity and live workflow checks
+## Shared Jupiter deployment
 
-Run as the normal user with Condor access, never with sudo:
+`scripts/deploy_shared.py` installs versioned environments, with both CLI/MCP
+launchers following `/opt/venvs/mgpd-current`. Build as a normal user; install
+and select shared environments as their administrator.
+
+| Action | Effect |
+| --- | --- |
+| `--build` | Build wheels only, without installing/selecting an environment |
+| `--deploy-venv` | Install/check a new environment without selecting it |
+| `--update-current` | Validate/select an existing environment |
+| `--create-wrapper --bin-dir DIR` | Create managed CLI/MCP launchers |
+
+Build the intended checkout (0.3.0 example):
 
 ```bash
-.venv-mcp/bin/python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
-  --workspace /home/USER/mg-pythia-delphes \
-  --production production > mcp-check.json
+python scripts/deploy_shared.py --build --with-mcp --version 0.3.0 --outdir dist/0.3.0
 ```
 
-This launches the installed server with a real SDK client, discovers tools and
-inspects an existing completed production. It does not submit work or modify
-production files. Omit `--production` for discovery only; add `--config` and
-`--base-directory` to validate YAML. Nonzero exit indicates tool/query errors or
-invalid, incomplete or unknown results. Preserve the JSON report for diagnosis.
+Use `--source PATH` to select another checkout, including a detached worktree at
+a release tag. `--version` verifies package metadata; the script does not fetch
+Git changes. Existing wheels are not overwritten. `--build` cannot be combined
+with installation/activation. `--python` selects the installed runtime, not the
+wheel builder. Core-only installations support Python 3.9+; MCP requires 3.11+.
 
-For the live workflow use a disposable parton-level example, then a full-chain
-example when needed. Follow the user guide's SSH workflow with all three action
-flags enabled and check:
+Stage the tested pair without changing current:
 
-1. Preparation has the expected jobs/seeds/image, submits nothing and refuses
-   an existing output directory.
-2. Submission records scheduler IDs. Reconnect and recover the operation;
-   repeated requests must not submit again.
-3. Wait for tagged, successful completion and validate the outputs.
-4. After completion, withhold one disposable job output into a backup location.
-   Plan and prepare only that job; verify its seed/cards match, good outputs
-   remain unchanged and duplicate recovery ownership is refused. Submit and
-   validate the child. Restore the withheld output after the test.
-5. Plan merging from the original production. Verify one attempt per job,
-   sample separation and event totals. Reconnect while merging, repeat the
-   request and check the same operation ID and provenance report. Use a fresh
-   destination when previous tests already created `merged/`.
+```bash
+sudo python3.11 scripts/deploy_shared.py --deploy-venv --version 0.3.0 \
+  --wheel dist/0.3.0/mg_pythia_delphes-0.3.0-py3-none-any.whl \
+  --mcp-wheel dist/0.3.0/mg_pythia_delphes_mcp-0.3.0-py3-none-any.whl \
+  --prefix /opt/venvs --python /usr/bin/python3.11
+```
 
-Keep manifests, scheduler IDs, operation logs and reports. Manual success
-validates the environment used, not every fault scenario. Do not withhold or
-remove actual analysis results just to exercise recovery.
+Existing environments are not reused or removed. Failed installations remain
+for diagnosis and cannot be activated. Test the staged commands as a normal
+user before selection:
 
-The 0.2.0 release passed 114 core regressions on Python 3.9 without MCP and 27
-adapter tests against installed wheels. The user also reported successful
-manual JUPITER preparation, execution, validation, recovery and merging tests.
+```bash
+/opt/venvs/mgpd-0.3.0/bin/mgpd --version
+/opt/venvs/mgpd-0.3.0/bin/mgpd-mcp --version
+/opt/venvs/mgpd-0.3.0/bin/python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
+  --workspace /home/USER/mg-pythia-delphes --production production
+```
 
-Deployment-helper verification: 17 isolated tests cover action boundaries,
-wheel/version mismatch, install/activation failures, incomplete environments,
-existing versions, wrapper collisions/reuse and combined actions. A real temporary
-combined 0.2.0 environment was installed from stable-tag wheels, staged without
-switching current, activated, and queried through both launchers and MCP stdio.
-A real standalone `--build --with-mcp --version 0.2.0` run against the stable
-source checkout also produced both wheels without installing or selecting a
-shared environment. Build-only tests cover core-only builds, existing outputs,
-wrong/mismatched versions and incompatible action flags. No JUPITER/shared
-installation was changed by these local checks.
+Activate both commands and create launchers:
 
-### MCP shared installation and SSH environment
+```bash
+sudo python3.11 scripts/deploy_shared.py --update-current --version 0.3.0 \
+  --with-mcp --prefix /opt/venvs --create-wrapper --bin-dir /usr/local/bin
+```
 
-Use the combined deployment procedure in
-[Shared JUPITER deployment](#shared-jupiter-deployment), rather than a separate
-hand-installed MCP environment. Set the remote executable in each user's SSH
-MCP configuration to `/usr/local/bin/mgpd-mcp` (or the absolute wrapper directory
-you selected). Its target is `/opt/venvs/mgpd-current/bin/mgpd-mcp`. Workspaces
-and Condor credentials remain per-user. Installation uses sudo; servers and jobs
-run as each normal SSH user. No shared daemon or HTTP service is installed.
+Omit `--create-wrapper` for later activation/rollback. Change the version to an
+already installed release to roll back. Wrapper-only actions require the version
+to be current; unrelated commands/symlinks are refused. Users need the launcher
+directory on PATH and do not activate the venv. Keep old environments available
+while servers or detached workers still use them. Ordinary users must not have
+write permission to shared environments.
 
-For 0.2.0 the action flags are `--allow-prepare`, `--allow-execute` and
-`--allow-merge`.
-Reconnect clients after selecting a new environment. Existing detached workers
-keep their original interpreter and must retain access to that environment.
+## MCP connectivity and acceptance
 
-SSH must support noninteractive authentication (`BatchMode=yes`), and shell
-startup must not print banners to stdout. Configure explicit SSH on the local
-client; do not combine the documented entry with
-`experimental_environment="remote"`. Ensure the remote noninteractive environment
-can find Condor, Apptainer and other required executables. Do not start a second
-server manually inside the SSH command's protocol stream.
+Use the combined shared installation; set the remote command to
+`/usr/local/bin/mgpd-mcp` in each user's SSH client configuration. The
+[adapter guide](packages/mg-pythia-delphes-mcp/README.md) has the connection syntax.
+SSH must work noninteractively (`BatchMode=yes`), startup must not print banners
+to stdout, and the remote environment must find Condor/Apptainer. Servers and
+jobs run as the normal SSH user. Reconnect clients after switching environments.
 
-### Protocol and operation internals
+Run the read-only SDK connectivity check against a production you own:
 
-The `mgpd://capabilities` resource reports versions, workspace, enabled actions
-and timeout. Requests run in isolated core workers; their cwd and diagnostic
-stdout cannot interfere with the server. Diagnostics go to stderr; protocol
-stdout contains MCP messages only.
+```bash
+python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
+  --workspace /home/USER/mg-pythia-delphes --production production > mcp-check.json
+```
 
-Adapter responses contain matching text JSON and structured data:
+Omit `--production` for discovery only. `--config` and `--base-directory` validate
+a YAML file. A nonzero exit means a tool/query error or invalid/incomplete result;
+retain the JSON report. Version/import checks alone do not test SSH or engines.
 
-- Success: `{"schema_version":1,"ok":true,"data":{...}}`.
-- Failure: `{"schema_version":1,"ok":false,"error":{"code":"...","message":"..."}}`
-  with the MCP error flag. Scheduler query failures retain observations in `data`.
-- SDK argument-validation/unknown-tool failures use SDK-native errors.
-- Invalid output is an observation (`data.state="invalid"`), not a protocol error.
+Enable only the actions needed for the live acceptance test:
 
-Error codes include `PATH_OUTSIDE_WORKSPACE`, `NOT_FOUND`, `VALIDATION_ERROR`,
-`QUERY_FAILED`, `TOOL_TIMEOUT`, `WORKER_FAILED`, `OUTPUT_EXISTS`,
-`PREPARATION_UNKNOWN`, `EXECUTION_UNKNOWN` and `MERGE_UNKNOWN`. Listing `limit`
-is 1–1000, default 100. Totals/truncation flags bound returned lists, not the
-underlying validation work. Log pagination uses `log_offset`, `log_limit`
-(maximum 16000 bytes) and `log_next_offset`.
+| Flag | Actions |
+| --- | --- |
+| `--allow-config-write` | Create/copy projects and apply reviewed YAML edits |
+| `--allow-prepare` | Prepare productions and explicit selected recoveries |
+| `--allow-execute` | Submit reviewed saved Condor plans |
+| `--allow-merge` | Execute reviewed managed merges |
 
-`--timeout` defaults to 120 seconds. Read/preparation workers and subprocesses
-are killed on timeout/disconnection; interrupted preparation may leave partial
-files or recovery ownership. There is no automatic rollback/reset. Preparation
-can invoke system `tar`, but never engines or scheduler submission. Recursively
-checked inputs, output paths and registered parent/child paths must stay within
-the workspace. These path checks are not an execution sandbox or a Unix-user
-authorization boundary; physics cards/models remain user-supplied code.
+Use disposable projects to check:
 
-Submission and merge workers detach from the request and survive MCP/SSH
-shutdown. Submission reserves `.mgpd-mcp-operation/` in the production. Merge
-reserves `.mgpd-mcp-operation-merge-<output-hash>/`, independently per destination.
-Each reservation has atomic `operation.json`, `worker.lock` and `submission.log`
-(the filename is shared by both operation kinds). Submitted is not physics
-completion; completed merge means its output checks passed.
+1. Create a small custom-process project, then copy it with explicit overrides.
+   Check cards, retained settings and the unchanged source. Validate YAML and
+   inspect the prepared `run.mg5` before execution.
+2. Plan/edit/save YAML through MCP, reviewing the diff/checksum. Use the returned
+   `base_directory` for subsequent validation/preparation. Check refusal of
+   stale reviews, existing create destinations and paths outside the workspace.
+3. Prepare without submitting; verify jobs, seeds, image and plan checksum.
+4. Submit once, reconnect and inspect the recorded operation. Repeated requests
+   must not submit again. Wait for successful history and validate outputs.
+5. Test selected recovery on disposable missing output as described in the
+   Condor recovery test. Restore withheld output afterward.
+6. Plan/execute a merge from the original production; check event totals,
+   provenance, omitted jobs and one attempt per logical job. Reconnect while
+   merging and verify repeated requests retrieve the same operation.
 
-A queued operation may appear unknown briefly before acquiring its lock.
-Interrupted workers, failed launches and ambiguous submissions remain unknown;
-inspect operation/production records and queue/history before taking action.
-An identical repeated request retrieves the existing reservation; it does not
-restart work. Partial reservations without metadata also block launch. There is
-no automatic retry/reset. Reboot, logout policies or administrative signals can
-kill workers; core attempt guards remain in effect.
+Keep manifests and operation IDs/logs. On unknown save/create/submit/merge
+outcomes, inspect checksums, directories and scheduler records before retrying.
+Do not unlink active lock files or reset attempt/ownership guards. Increase
+client/server timeouts for large validations. Card contents remain user-supplied
+code; workspace checks are not a Unix execution sandbox.
 
-Merge checksums bind source bytes, recovery identity, selected jobs, omissions,
-options and destination. The worker revalidates under core locks and verifies
-copied bytes. Container failures do not publish staged results; interruption
-during final publication can leave a destination requiring inspection. Planning
-may read large ROOT/HepMC files: increase both server/client timeouts beforehand
-when needed.
 
-## Core workflow implementation notes
+### Copyable MCP acceptance-test prompt
 
-Schema-2 execution verifies frozen inputs and the immutable plan checksum, then
-writes a durable attempt marker under a nonblocking POSIX lock before launching
-work. `--force` cannot reset attempts. Earlier manifests may be readable but
-cannot be safely executed without new preparation. Direct `condor_submit`
-bypasses the runner's guards. Container tags are recorded, not verified as
-immutable image digests.
+Connect the client to the candidate 0.3.0 MCP installation on Jupiter, with the
+four capability flags above enabled. Use an existing workspace with enough
+space for disposable projects and productions; the selected image must also be
+available to Condor workers. Replace `mgpd_jupiter` below with the configured
+server name and, if necessary, replace the SIF path with an installed revision.
+The test submits two small detector-level jobs and runs a real merge.
 
-Condor status checks exact IDs in queue then history and verifies identity tags.
-Missing records or exit details remain unknown; successful execution requires
-normal exit with code zero. Query errors produce CLI exit code 1; job failures
-are observations in status data. Local status reports saved execution state.
-
-LHE validation reads the complete gzip stream and checks counts, seed, finite
-cross section and structure. ROOT validation requires uproot and a nonempty
-Delphes tree; it reads metadata rather than every event basket. HepMC validation
-checks gzip integrity and nonempty content, not physics. Known execution failure
-invalidates readable outputs; missing validation dependencies do not justify
-regeneration. Cross sections from replica jobs remain separate measurements.
-
-Recovery clones frozen inputs/seeds, records parent/child ownership and rechecks
-eligibility on execution. Terminal tagged Condor history is required; active,
-held, unknown or untagged jobs and query errors are blocked. Keep registered paths
-and parents available. Retry failed children from the child. There is no automatic
-owner reassignment/reset for deleted or ambiguous children, or a distributed
-exactly-once guarantee over manual scheduler actions.
-
-Managed merging verifies registered descendants and selects the original valid
-stopped attempt, otherwise the first valid descendant in parent-first order.
-It validates copied snapshots and merged LHE/ROOT event totals, stages all samples
-before publishing, and records provenance/omissions/hashes. Different samples
-stay separate. Explicit-archive merging cannot establish sample compatibility
-or detect renamed duplicates; users select distinct jobs themselves. MadGraph's
-merge tool, ROOT `hadd` and Delphes conversion execute in containers. HepMC and
-pre-decay LHE are not merged; unsupported auxiliary files require `--keep-all`.
-The host does not need ROOT, but managed ROOT validation requires uproot.
-
-For writable model additions, generate into the job working directory:
+Paste this prompt into the MCP client:
 
 ```text
-import model sm-lepton_masses
-add model taudecay_UFO --output=./models_tmp
-import ./models_tmp-lepton_masses
+Test the candidate mgpd 0.3.0 MCP server named mgpd_jupiter on Jupiter.
+Use this image: /opt/images/mg-pythia-delphes-3.5.6.sif.
+
+Use only that server's MCP tools/resources for this test. Do not fall back to
+SSH commands, shell tools, direct Python calls or direct file edits to bypass a
+missing or failing MCP feature. Report unsupported checks as NOT TESTED.
+
+Read mgpd://capabilities first. Report the server version, workspace and enabled
+capabilities. Stop if configuration writing, preparation, execution or merging
+is unavailable, or if this is not the intended candidate installation.
+
+Choose a unique prefix such as mcp03-YYYYMMDD-HHMMSS. Create the following as
+separate direct children of the configured workspace, using that prefix:
+-original, -copy and -production. Never reuse or overwrite an existing path.
+Do not modify any unrelated project, production, image, alias or server setting.
+
+1. Create an original project with create_project:
+   template=proc, level=detector, mode=condor, name=mcp03_original,
+   nevents=10, njobs=1, seed=101 and the image above.
+   Use this explicit process block:
+   import model sm
+   generate p p > e+ e-
+   Inspect and validate the resulting config with path=config.yml and the
+   returned project base_directory. For every config operation, resolve path
+   relative to that base; do not prepend the project directory twice. Record
+   its checksum, settings and validation result.
+
+2. Use create_project with copy_from pointing to the original project, without
+   template, to create the copy. Override name=mcp03_copy, njobs=2 and seed=201.
+   Leave process, level, image and nevents unspecified so they are inherited.
+   Inspect/validate both configs. Verify that the original checksum has not
+   changed and that the copy retains the process and 10 events per job.
+
+3. Plan an in-place change to the copied YAML using plan_config_change:
+   changes={"run.nevents": 20}. Use the copy's returned base_directory.
+   Show the diff, validation and change_sha256, then WAIT for my approval.
+   After approval, apply that exact proposal with apply_config_change.
+   Reinspect/validate the copy and confirm nevents=20, njobs=2 and seed=201.
+   Confirm once more that the original config checksum has not changed.
+
+4. Prepare the copy into the new -production directory with prepare_production.
+   Inspect the saved production. Show production_id, plan_sha256, resolved
+   image, mode, samples, outputs and every job's seed and event count.
+   Expect two Condor jobs, 20 events each, distinct seeds 201 and 202, and
+   detector outputs including LHE, ROOT and LHCO. Do not execute if the plan
+   differs or validation fails. Preparation alone must not submit jobs.
+   Show the exact plan to execute and WAIT for my approval to submit it.
+
+5. After approval, call execute_production with that exact saved plan_sha256.
+   Record operation_id. Use operation_status to observe submission and
+   production_status for the scheduler state. Report scheduler IDs and errors.
+   Poll at reasonable intervals; do not busy-loop. If waiting is interrupted,
+   return the production path and operation ID so I can ask you to continue.
+   Never create another production or resubmit to compensate for a timeout or
+   unknown outcome. Submission success alone does not mean the jobs completed.
+
+6. When both jobs have completed successfully, call validate_results with
+   event_count=exact, check_seed=true and require_positive_cross_section=true.
+   Require valid requested outputs for both jobs, 20 LHE events per job and
+   40 total. Report ROOT/LHCO validation metrics when returned by the tools.
+   Call plan_recovery and expect no eligible jobs for this healthy production.
+   Do not prepare a recovery or remove/rename outputs in this smoke test.
+
+7. Call plan_merge on the original -production directory, using its default
+   merged output, backend=local-apptainer, extract_lhe=true and
+   allow_partial=false. Inspect the selected sample/jobs, omissions and
+   selection_sha256. Expect both logical jobs exactly once and no omissions.
+   Show the merge plan and WAIT for my approval to execute it.
+   After approval, call merge_production with that exact selection_sha256 and
+   identical options. Record operation_id, poll operation_status and inspect
+   merge_report. Require successful completion and 40 merged LHE events;
+   also report the ROOT/LHCO results and provenance exposed by the report.
+
+At any unexpected failure, stop the dependent steps and report the tool name,
+arguments, error, known state and available log/operation references. Preserve
+all test files and jobs for inspection. Do not loosen validation, permit a
+partial merge, fabricate missing evidence, cancel jobs or clean up automatically.
+
+Finish with a PASS / FAIL / NOT TESTED checklist for creation, copying,
+configuration editing, preparation, submission, scheduler completion, result
+validation, recovery planning and merging. Include project/production paths,
+checksums, operation/scheduler IDs, pinned image information when exposed,
+event totals and any remaining uncertainty.
 ```
 
-For custom cuts, include `user_cuts.f` in the complete input directory and
-reference `user_cuts.f = custom_fcts` from the run card. `expert.ncores` controls
-MadGraph; automatic matching of Condor resource requests is not implemented.
+Approve each proposed change/plan only after reviewing it. To resume after a
+client interruption, provide the same production path and recorded operation
+IDs and ask the client to inspect their current state before continuing.
+This smoke test checks healthy recovery planning only; exercise actual selective
+recovery separately with the disposable-output procedure above. Reconnection,
+stale-review rejection and path-boundary checks remain separate acceptance cases.
+
+## Container image builds and distribution
+
+The active recipes and helpers are in `images/`; `create_images.sh`, `dockerfiles/`
+and their old helpers are retained until real-image validation is complete.
+Use Python 3.9+ for `scripts/create_images.py`. Podman is the default engine;
+select `--engine docker` elsewhere. Podman builds explicitly use `--format docker`
+so the Dockerfile `SHELL` instruction is preserved. If building directly with
+Podman, pass the same flag; OCI-format cached layers may have lost the Bash
+configuration, so use `--no-cache` once when retrying a build affected by this. The recipes use x86_64 ROOT binaries, so
+build on Jupiter. Supported MadGraph versions are 3.3.2 and 3.5.6; do not use
+`latest`.
+
+### Capture/review the source lock
+
+```bash
+python images/sources.py lock --version 3.3.2 --version 3.5.6 \
+  --cache dist/image-source-cache --output images/sources.lock.json
+```
+
+This downloads sizeable scientific archives/PDF sets and records URLs/SHA256.
+It reuses cache files and refuses an existing output lock. The initial capture
+trusts those bytes: review it and compare with trusted upstream checksums where
+available. Keep/commit the reviewed lock; use a new output file when reviewing
+an update. Builds require the lock inside the build context and reject changed
+bytes before extraction. HTTP/error pages are not silently accepted. A failed
+HTTPS endpoint requires review of a replacement URL.
+
+Before compiling, check the reviewed lock offline:
+
+```bash
+python images/sources.py check --version 3.5.6 --lock images/sources.lock.json \
+  --cache dist/image-source-cache
+```
+
+The constructor runs this validation automatically before starting Podman/Docker.
+Missing entries, URL differences and malformed SHA256 values are reported
+separately. If a lock is out of date, capture a new file with `lock --output
+images/sources-new.lock.json` using the existing cache, review its diff and use
+`--source-lock images/sources-new.lock.json` for a test build. Do not edit a
+checksum merely to bypass a failed verification.
+
+If the reviewed lock exists but the host cache is absent (for example on CI),
+populate it without changing the lock or its checksums:
+
+```bash
+python images/sources.py cache --version 3.5.6 --lock images/sources.lock.json \
+  --cache dist/image-source-cache
+```
+
+### Build and check candidates
+
+```bash
+python scripts/create_images.py --version 3.5.6 --revision r1 \
+  --build-jobs 4 --build --sif --check --dry-run
+python scripts/create_images.py --version 3.5.6 --revision r1 \
+  --build-jobs 4 --build --sif --check
+```
+
+Repeat `--version` for both versions. Commands work from any current directory;
+default output is this checkout's `dist/images/`. The example produces OCI tag
+`franaln/mg-pythia-delphes:3.5.6-r1`, SIF `mg-pythia-delphes-3.5.6-r1.sif` and a
+neighboring `.sif.json`. `--source` changes the build context; `--source-lock`
+selects a relative lock file inside it. `--build-jobs` requires `--build` and a
+positive integer. `--no-cache` disables construction-layer reuse, not the local
+source archives. `--source-cache` selects a cache directory inside the build
+context (default `dist/image-source-cache`); a custom directory must not be
+excluded by `.dockerignore`.
+
+The constructor verifies all required cached hashes before starting the engine.
+Both Dockerfiles use a separate source-archive stage, mounted read-only only in
+installation steps. `fetch-source` copies the requested verified archive from
+that mount; missing or corrupted cache files fail rather than triggering another
+download. The archive cache is not copied into final runtime layers, although the
+engine can retain the intermediate source stage in its local build cache.
+Docker builds use BuildKit for these mounts; the constructor enables it. Podman
+must support multi-stage `RUN --mount=type=bind,from=...`. `apt`, `pip` and optional
+MadGraph installers may still need network access.
+
+Actions are independent. `--sif` without `--build` converts an existing local
+OCI image via a temporary Docker archive, without pushing first. `--check`
+checks tools, ROOT import, MadGraph version, FastJet/LHAPDF and two common PDF
+sets, against OCI and any generated/existing SIF. Existing SIFs must match their
+recorded checksum/identity. `--replace` explicitly permits replacing outputs.
+
+These checks do not generate events. Run the local full-chain and merge tests
+above against the candidate SIF as a normal user. Test Condor before replacing
+the recommended cluster alias. Use an explicit revision or candidate SIF path
+for acceptance tests before promotion.
+The image inventory/lock is under `/mg_pythia_delphes/share/mgpd-image/`; this
+lock does not pin apt/pip packages or internal MadGraph installer downloads.
+
+### Publish and install
+
+After the real acceptance tests:
+
+```bash
+python scripts/create_images.py --version 3.5.6 --revision r1 --check --push
+sudo python3 scripts/create_images.py --version 3.5.6 --revision r1 \
+  --output-dir "$PWD/dist/images" --install --recommend
+```
+
+Authenticate with the engine beforehand; `--repository` changes the registry
+repository. `--push` requires checks in the same invocation and retags the exact
+checked image ID. Install-only needs neither engine nor Apptainer/rootless-store
+access; it verifies checked SIF bytes and publishes complete temporary copies.
+The SIF and metadata are published individually, so inspect both after an
+interruption. The destination defaults to `/mnt/R5/images` and must exist. Use
+`--install-dir /opt/images` to choose another directory. Setting `--install-dir`
+alone does not install anything; installation requires `--install`. No
+synchronization between `/mnt/R5/images` and `/opt/images` is assumed. Keep metadata with its SIF.
+
+Use `--recommend` with an explicit revision to select the validated default.
+For a SIF it atomically updates `mg-pythia-delphes-VERSION.sif` to a relative
+symlink targeting the revision in `--install-dir` (default `/mnt/R5/images`).
+Recommendation does not require `--install` if the checked revision and its
+metadata are already installed; no build output or engine is needed. An ordinary file at the alias is never overwritten;
+move it to a revision name first. Previous revision files remain available.
+A previously checked SIF can also be promoted without engines or rebuilding:
+
+```bash
+python scripts/create_images.py --version 3.5.6 --revision r1 \
+  --install-dir /mnt/R5/images --recommend
+```
+
+With `--check --push --recommend`, both `:VERSION-REVISION` and `:VERSION` are
+published from the same checked image ID. Omit `--recommend` to publish a
+candidate without moving the default. Keep published revision names unchanged.
+
+### Discover and freeze production images
+
+```bash
+mgpd images                         # Apptainer on jupiter; Docker elsewhere
+mgpd images --backend local-apptainer --directory /opt/images --json
+mgpd images --backend local-docker  # Locally installed Docker tags
+mgpd images --remote                # Published Docker Hub tags; needs network
+```
+
+The version aliases are the recommended images, rather than the highest
+revision discovered. `run.image` may select `3.5.6`, `3.5.6-r1`, a SIF path, or
+an explicit Docker reference appropriate to the backend. Preparation requires
+an installed image: pull Docker images beforehand with `docker pull REFERENCE`.
+Docker preparation inspects metadata only and pins a repository digest, or the
+local content ID for images without a repository digest. Locally cached tags
+are used as installed; pull again explicitly to refresh a moved remote alias.
+SIF preparation resolves the real path and hashes the file. Hashing large SIFs
+adds preparation time. Execution checks the SIF again before running/submitting.
+Updating a recommended alias affects future preparations, not saved plans or
+recoveries. Keep the referenced revision files available and unchanged.
+
+Old prepared plans without an immutable image identity remain inspectable,
+but must be prepared again before execution. Discovery and validation do not
+pull images, launch containers or submit jobs. Docker Hub listing uses
+`--repository namespace/name` (default `franaln/mg-pythia-delphes`).
+
+The GitHub workflow uses this same constructor with Docker and requires a
+reviewed `images/sources.lock.json` committed before running. It publishes image
+artifacts/releases under image-specific names, separate from package tags.
+Neither the local tests nor a dry run build/publish real images.
+
+## Shell completion
+
+Bash (`~/.bashrc`):
+
+```bash
+eval "$(mgpd completion bash)"
+```
+
+Zsh (`~/.zshrc`, after completion initialization):
+
+```zsh
+autoload -Uz compinit
+compinit
+eval "$(mgpd completion zsh)"
+```
+
+Do not duplicate an existing `compinit`. Use `/usr/local/bin/mgpd` explicitly for
+shared installs when needed. To avoid startup generation, save the output to a
+file and source it; regenerate after CLI upgrades. Completion uses shell functions
+at Tab time, including argument choices and paths with spaces, and performs no
+scheduler/container queries. Free-form process strings and IDs are not guessed.

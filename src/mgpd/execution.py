@@ -5,6 +5,7 @@ import shlex
 from pathlib import Path
 from datetime import datetime, timezone
 import socket
+
 from .models import PreparedProduction
 from .storage import (
     execution_lock,
@@ -15,21 +16,26 @@ from .storage import (
     write_manifest,
 )
 from .condor import parse_condor_job_ids
+from .images import verify_image
 
 
 def build_local_command(run_mode, image, sample, run_dir):
     """Return argv for the same container command used by the CLI."""
+
     inner = 'source /setup_mg_pythia_delphes.sh && cd /local && '
-    inner += shlex.join(['./run_mg_pythia_delphes.sh', sample, f'run_{sample}'])
+    inner += shlex.join(['./run_mgpd_local.sh', sample, f'run_{sample}'])
+
     if run_mode == 'local-docker':
         return ['docker', 'run', '--rm', '-v', f'{run_dir}:/local', image, inner]
     if run_mode == 'local-apptainer':
         return ['apptainer', 'exec', '--bind', f'{run_dir}:/local', image, '/bin/bash', '-l', '-c', inner]
+
     raise ValueError(f'Not a local execution mode: {run_mode}')
 
 
 def load_prepared_production(output_dir):
     """Load and verify a saved plan without its original YAML/cards or cwd."""
+
     output_dir = str(Path(output_dir).expanduser().resolve())
     manifest = read_production_manifest(output_dir)
     if manifest.get('schema_version') != 2:
@@ -48,12 +54,12 @@ def load_prepared_production(output_dir):
     submit_file = manifest['execution']['submit_file']
     if mode in ('condor', 'jupiter'):
         production_path(output_dir, submit_file)
-        if submit_file not in hashes or 'run_mg_pythia_delphes.sh' not in hashes:
+        if submit_file not in hashes or 'run_mgpd_condor.sh' not in hashes:
             raise ValueError('Missing submit-file/wrapper integrity record')
     elif mode in ('local-docker', 'local-apptainer'):
         for job in manifest['jobs']:
             run_file = production_path(output_dir, job['run_file'])
-            wrapper = str(Path(job['run_file']).parent / 'run_mg_pythia_delphes.sh')
+            wrapper = str(Path(job['run_file']).parent / 'run_mgpd_local.sh')
             if job['run_file'] not in hashes or wrapper not in hashes:
                 raise ValueError('Missing job-input/wrapper integrity record')
             local_dirs[job['job_id']] = (job['sample'], str(run_file.parent))
@@ -69,7 +75,9 @@ def execute_production(production):
     and selective recovery remain separate development stages.
     """
     with execution_lock(production.output_dir):
+
         current = load_prepared_production(production.output_dir)
+
         manifest = current.manifest
         if production.manifest.get('plan_sha256') != manifest['plan_sha256']:
             raise ValueError('Production was replaced after it was loaded')
@@ -79,10 +87,14 @@ def execute_production(production):
             # Recovery depends on the plan loader; import only when needed.
             from .recovery import recheck_recovery_parent
             recheck_recovery_parent(current)
+
+        verify_image(manifest['image'], manifest.get('image_identity'))
+
         mode = manifest['mode']
         manifest['execution_attempt'] = {'started_at': datetime.now(timezone.utc).isoformat()}
         manifest['state'] = 'submitting' if mode in ('condor', 'jupiter') else 'running'
         write_manifest(current.output_dir, manifest)
+
         try:
             if mode in ('condor', 'jupiter'):
                 submitted = subprocess.run(['condor_submit', '-terse', '-maxjobs', str(len(manifest['jobs'])),
@@ -122,8 +134,10 @@ def execute_production(production):
             write_manifest(current.output_dir, manifest)
             raise
         manifest['execution_attempt']['finished_at'] = datetime.now(timezone.utc).isoformat()
+
         write_manifest(current.output_dir, manifest)
+
         production.manifest.clear()
         production.manifest.update(manifest)
-        return manifest
 
+        return manifest

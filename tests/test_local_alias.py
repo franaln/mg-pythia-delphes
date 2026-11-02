@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -21,7 +22,12 @@ driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)
 
 
+from image_fixtures import installed_image
+
 class LocalAliasTests(unittest.TestCase):
+    def setUp(self):
+        installed_image(self)
+
     def test_hostname_matrix_and_explicit_modes(self):
         for host, expected in [('jupiter', 'local-apptainer'),
                                ('JUPITER.iflp.unlp.edu.ar.', 'local-apptainer'),
@@ -51,7 +57,7 @@ class LocalAliasTests(unittest.TestCase):
                     source = root / 'local.yml'
                     source.write_text(yaml.safe_dump(config))
                     with patch('mgpd.config.socket.gethostname', return_value=host), redirect_stdout(io.StringIO()):
-                        cli_main(['-c', str(source), '-o', str(root / 'yaml-production'), '--dry-run'])
+                        cli_main(['prepare', str(source), '-o', str(root / 'yaml-production')])
                     self.assertEqual(json.loads((root / 'yaml-production/manifest.json').read_text())['mode'], expected)
                     with patch('mgpd.config.resolve_run_mode', side_effect=AssertionError('Must not re-resolve')), \
                             patch('mgpd.execution.subprocess.run') as run, redirect_stdout(io.StringIO()):
@@ -62,9 +68,14 @@ class LocalAliasTests(unittest.TestCase):
         for host, expected in [('jupiter', 'local-apptainer'), ('laptop', 'local-docker')]:
             for flag in ([], ['--mode', 'local']):
                 with self.subTest(host=host, flag=flag), tempfile.TemporaryDirectory() as temporary:
-                    output = Path(temporary) / 'results'
-                    argv = ['test_examples.py', *flag, '--example', 'example7_parton_only', '--output', str(output)]
-                    with patch('sys.argv', argv), patch('mgpd.config.socket.gethostname', return_value=host), \
+                    root = Path(temporary)
+                    output = root / 'results'
+                    image = root / 'fixture.sif'; image.write_bytes(b'SIF')
+                    docker = root / 'docker'
+                    docker.write_text("#!/bin/sh\necho '[{\"Id\":\"sha256:" + 'a' * 64 + "\",\"RepoDigests\":[]}]'\n")
+                    docker.chmod(0o755)
+                    argv = ['test_examples.py', '--image', str(image), *flag, '--example', 'example7_parton_only', '--output', str(output)]
+                    with patch.dict('os.environ', {'PATH': str(root) + ':' + os.environ['PATH']}), patch('sys.argv', argv), patch('mgpd.config.socket.gethostname', return_value=host), \
                             redirect_stdout(io.StringIO()):
                         self.assertEqual(driver.main(), 0)
                     report = json.loads((output / 'report.json').read_text())
@@ -75,7 +86,7 @@ class LocalAliasTests(unittest.TestCase):
 
     def test_cli_mode_overrides_yaml_and_old_option_is_not_accepted(self):
         from mgpd.cli import parse_args
-        _, args = parse_args(['-c', 'config.yml', '--mode', 'local', '--validate-only'])
+        _, args = parse_args(['validate-config', 'config.yml', '--mode', 'local'])
         self.assertEqual(args.run_mode, 'local')
         with redirect_stdout(io.StringIO()), patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
-            parse_args(['-c', 'config.yml', '--run_mode', 'local', '--validate-only'])
+            parse_args(['validate-config', 'config.yml', '--run_mode', 'local'])

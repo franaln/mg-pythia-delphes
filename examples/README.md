@@ -5,7 +5,6 @@ that directory. Use the installed `mgpd` command with the supplied YAML/cards.
 
 | Example | Purpose | Dependencies beyond the standard container |
 | --- | --- | --- |
-| `example0_sub` | Historical standalone submit file, not the YAML runner | Site-specific paths; manual only |
 | `example1_process` | Inline process and individual cards | None |
 | `example2_proc_card` | External process card; `hepmc0` output selection | None |
 | `example3_multiple_models` | Three parameter cards / samples | None |

@@ -30,6 +30,8 @@ def plan_sha256(manifest):
         data = {key: manifest[key] for key in keys}
     except KeyError as exc:
         raise ValueError(f'Missing production metadata: {exc}') from exc
+    if isinstance(manifest.get('image_identity'), dict):
+        data['image_identity'] = manifest['image_identity']
     if 'recovery' in manifest:
         data['recovery'] = manifest['recovery']
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()

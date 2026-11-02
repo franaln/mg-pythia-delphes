@@ -1,4 +1,4 @@
-"""Installed package entry points, legacy compatibility and public API checks."""
+"""Installed package entry points, saved-plan requirements and public API checks."""
 import importlib.metadata
 import json
 import os
@@ -65,13 +65,14 @@ class PackageTests(unittest.TestCase):
                 with self.subTest(command=command):
                     result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn(mgpd.__version__ if '--version' in command else '--execute-prepared', result.stdout)
+                    self.assertIn(mgpd.__version__ if '--version' in command else 'create', result.stdout)
 
     def test_console_and_module_cli_prepare_identical_inputs(self):
         launcher = self.launcher()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'run_card.dat').write_text('')
+            (root / 'placeholder.sif').write_bytes(b'synthetic SIF')
             (root / 'config.yml').write_text('''run:
   name: package_test
   mode: local-apptainer
@@ -86,7 +87,7 @@ options:
 ''')
             for command, output in [([launcher], 'console'),
                                     ([sys.executable, '-m', 'mgpd'], 'module')]:
-                result = subprocess.run(command + ['-c', 'config.yml', '-o', output, '--dry-run'],
+                result = subprocess.run(command + ['prepare', 'config.yml', '-o', output],
                                         cwd=root, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
             def inputs(directory):
@@ -98,14 +99,16 @@ options:
                 self.assertEqual(manifest['jobs'][0]['seed'], 101)
                 self.assertNotIn('execution_attempt', manifest)
 
-    def test_prepackage_schema2_fixture_is_still_loadable(self):
+    def test_old_wrapper_names_require_new_preparation(self):
+        from unittest.mock import patch
         fixture = REPO / 'tests/fixtures/legacy_schema2'
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / 'production'
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'production'
             shutil.copytree(fixture, output)
-            production = mgpd.load_prepared_production(output)
-            self.assertEqual(production.manifest['jobs'][0]['seed'], 101)
-            self.assertEqual(production.manifest['state'], 'prepared')
+            with patch('mgpd.execution.subprocess.run') as run:
+                with self.assertRaisesRegex(ValueError, 'wrapper integrity record'):
+                    mgpd.load_prepared_production(output)
+                run.assert_not_called()
 
 
 if __name__ == '__main__':

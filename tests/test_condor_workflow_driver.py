@@ -15,6 +15,7 @@ SCRIPT = ROOT / 'scripts/test_condor_workflow.py'
 class CondorWorkflowDriverTests(unittest.TestCase):
     def fake_scheduler(self, root, fail_child=False):
         env = examples_tests.ExampleTests().fake_condor(root)
+        image = root / 'fixture.sif'; image.write_bytes(b'SIF')
         history = root / 'bin/condor_history'
         history.write_text(f'#!{sys.executable}\n' + f'''import json, sys
 from pathlib import Path
@@ -41,8 +42,9 @@ print(json.dumps(records))
 
     def test_explicit_execute_required_before_any_submission(self):
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / 'results'
-            result = subprocess.run([sys.executable, str(SCRIPT), '--output', str(output)],
+            root = Path(temporary)
+            output = root / 'results'
+            result = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--output', str(output)],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn('requires --execute', result.stderr)
@@ -54,7 +56,7 @@ print(json.dumps(records))
             env = self.fake_scheduler(root)
             (root / 'bin/condor_q').write_text('#!/bin/bash\nexit 1\n')
             output = root / 'results'
-            result = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--output', str(output)],
+            result = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--execute', '--output', str(output)],
                                     env=env, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 1)
             report = json.loads((output / 'report.json').read_text())
@@ -65,7 +67,7 @@ print(json.dumps(records))
             # Retry the observation with the real-world empty successful queue
             # response. Only the child may be submitted during resume.
             (root / 'bin/condor_q').write_text('#!/bin/bash\nexit 0\n')
-            resumed = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--resume',
+            resumed = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--execute', '--resume',
                                       '--output', str(output)], env=env,
                                      capture_output=True, text=True, timeout=60)
             self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
@@ -81,7 +83,7 @@ print(json.dumps(records))
                 root = Path(temporary)
                 env = self.fake_scheduler(root, fail_child)
                 output = root / 'results'
-                result = subprocess.run([sys.executable, str(SCRIPT), '--execute',
+                result = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--execute',
                                          '--events', '2', '--timeout', '10', '--output', str(output)],
                                         env=env, capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, int(fail_child), result.stdout + result.stderr)
@@ -95,12 +97,12 @@ print(json.dumps(records))
                     self.assertEqual(len(report['productions']), 2)
                     self.assertEqual(len(report['productions'][1]['scheduler_jobs']), 1)
                 before = (output / 'report.json').read_bytes()
-                again = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--output', str(output)],
+                again = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--execute', '--output', str(output)],
                                        env=env, capture_output=True, text=True)
                 self.assertEqual(again.returncode, 2)
                 self.assertEqual((output / 'report.json').read_bytes(), before)
                 if not fail_child:
-                    refused = subprocess.run([sys.executable, str(SCRIPT), '--execute', '--resume',
+                    refused = subprocess.run([sys.executable, str(SCRIPT), '--image', str(root / 'fixture.sif'), '--execute', '--resume',
                                               '--output', str(output)], env=env, capture_output=True, text=True)
                     self.assertEqual(refused.returncode, 2)
                     self.assertEqual((output / 'report.json').read_bytes(), before)
