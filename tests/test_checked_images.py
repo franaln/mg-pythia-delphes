@@ -95,6 +95,7 @@ class CheckedImageTests(unittest.TestCase):
             recipe = (CHECKED / f'mg-pythia-delphes-{version}.Dockerfile').read_text()
             joined = '\n'.join(line for line in recipe.splitlines() if not line.lstrip().startswith('#')).replace('\\\n', '')
             command = next(line[4:] for line in joined.splitlines() if line.startswith('RUN ') and 'fetch-source' in line and 'pythia${PYTHIA_VERSION}.tgz' in line)
+            command = re.sub(r'^--mount=\S+\s+', '', command)
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 fake = root / 'fetch-source'; fake.write_text('#!/bin/bash\nprintf "%s\\n" "$1" "$2"\nexit 42\n'); fake.chmod(0o755)
@@ -111,6 +112,7 @@ class CheckedImageTests(unittest.TestCase):
             recipe = (CHECKED / f'mg-pythia-delphes-{version}.Dockerfile').read_text()
             joined = '\n'.join(line for line in recipe.splitlines() if not line.lstrip().startswith('#')).replace('\\\n', '')
             command = next(line[4:] for line in joined.splitlines() if line.startswith('RUN ') and 'fetch-source' in line and 'Delphes-${DELPHES_VERSION}.tar.gz' in line)
+            command = re.sub(r'^--mount=\S+\s+', '', command)
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 archive = root / 'source.tar.gz'
@@ -136,6 +138,57 @@ class CheckedImageTests(unittest.TestCase):
                 self.assertEqual(Path((root/'install/Delphes/build-directory.txt').read_text().strip()).resolve(),
                                  (root/'install/Delphes').resolve())
 
+    def test_fetch_reuses_verified_cache_without_network_and_rejects_missing_or_bad_bytes(self):
+        payload = self.archive()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); cache = root / 'cache'; cache.mkdir()
+            filename = 'source.tar.gz'; url = 'https://example.org/source.tar.gz'
+            cached = cache / filename; cached.write_bytes(payload)
+            lock = root / 'lock.json'
+            lock.write_text(json.dumps({'schema_version': 1, 'files': {
+                filename: {'url': url, 'sha256': hashlib.sha256(payload).hexdigest()}}}))
+            output = root / 'work/source.tar.gz'
+            with patch.object(sources, 'urlopen', side_effect=AssertionError('No network during build')):
+                sources.fetch(lock, filename, url, output, cache_dir=cache, offline=True)
+                self.assertEqual(output.read_bytes(), payload)
+                self.assertEqual(cached.read_bytes(), payload)
+                output.unlink()
+                cached.write_bytes(b'bad')
+                with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                    sources.fetch(lock, filename, url, output, cache_dir=cache, offline=True)
+                self.assertFalse(output.exists())
+                cached.unlink()
+                with self.assertRaisesRegex(FileNotFoundError, 'downloads are disabled'):
+                    sources.fetch(lock, filename, url, output, cache_dir=cache, offline=True)
+                self.assertFalse(output.exists())
+
+    def test_cache_population_uses_existing_lock_and_never_rewrites_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); payload = self.archive()
+            filename = 'source.tar.gz'; url = 'https://example.org/source.tar.gz'
+            lock = root/'lock.json'; lock.write_text(json.dumps({'schema_version': 1, 'files': {
+                filename: {'url': url, 'sha256': hashlib.sha256(payload).hexdigest()}}}))
+            original = lock.read_bytes()
+            response = io.BytesIO(payload); response.geturl = lambda: url
+            with patch.object(sources, 'catalog', return_value={filename: url}),                     patch.object(sources, 'urlopen', return_value=response):
+                self.assertEqual(sources.main(['cache', '--version', '3.5.6', '--lock', str(lock),
+                                              '--cache', str(root/'cache')]), 0)
+            self.assertEqual((root/'cache'/filename).read_bytes(), payload)
+            self.assertEqual(lock.read_bytes(), original)
+
+    def test_all_archive_and_pdf_steps_mount_cache_without_copying_it_to_runtime(self):
+        for recipe in CHECKED.glob('*.Dockerfile'):
+            text = recipe.read_text()
+            self.assertIn('FROM scratch AS mgpd_sources', text)
+            self.assertIn('COPY ${SOURCE_CACHE}/ /archives/', text)
+            joined = '\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('#')).replace('\\\n', '')
+            for line in joined.splitlines():
+                if line.startswith('RUN ') and ('fetch-source ' in line or 'bash ${INSTALL_DIR}/scripts/download_pdf.sh ' in line):
+                    self.assertIn('from=mgpd_sources', line)
+                    self.assertIn('target=/opt/mgpd-source-cache,ro ', line)
+            final_stage = text.split('FROM ubuntu:20.04', 1)[1]
+            self.assertNotIn('COPY --from=mgpd_sources', final_stage)
+
     def test_catalog_pdf_names_match_recipes_and_do_not_mutate_tools(self):
         original = copy.deepcopy(sources.TOOLS)
         for version in ('3.3.2', '3.5.6'):
@@ -157,7 +210,7 @@ class CheckedImageTests(unittest.TestCase):
             content = recipe.read_text()
             self.assertNotIn('dockerfiles/', content)
             for line in content.splitlines():
-                if line.startswith('COPY ') and '${SOURCE_LOCK}' not in line:
+                if line.startswith('COPY ') and not any(variable in line for variable in ('${SOURCE_LOCK}', '${SOURCE_CACHE}')):
                     source = line.split()[1]
                     self.assertTrue(list(ROOT.glob(source)), source)
             self.assertIn('ARG SOURCE_LOCK=images/sources.lock.json', content)

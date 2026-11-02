@@ -11,6 +11,11 @@
 # Delphes=3.5.0
 # MG5aMC_PY8_interface=1.3
 
+# Source archives live in an intermediate stage, never in the runtime layers.
+FROM scratch AS mgpd_sources
+ARG SOURCE_CACHE=dist/image-source-cache
+COPY ${SOURCE_CACHE}/ /archives/
+
 FROM ubuntu:20.04
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BUILD_JOBS=4
@@ -72,7 +77,7 @@ RUN mkdir -p ${DATA_TMP_DIR}
 # Install ROOT
 ARG ROOT_VERSION=root_v6.24.02.Linux-ubuntu20-x86_64-gcc9.3.tar.gz
 ARG ROOT_URL=https://root.cern/download/${ROOT_VERSION}
-RUN fetch-source "${ROOT_URL}" "${ROOT_VERSION}" && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro fetch-source "${ROOT_URL}" "${ROOT_VERSION}" && \
     tar xvfz ${ROOT_VERSION} -C ${INSTALL_DIR} && \
     rm -rf ${INSTALL_DIR}/root/tutorials && \
     rm ${ROOT_VERSION}
@@ -82,7 +87,7 @@ ARG MG_VERSION=3.3.2
 ARG MG_URL=https://launchpad.net/mg5amcnlo/3.0/3.3.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
 COPY data/no_update_3_3_2.patch ${DATA_TMP_DIR}
 COPY data/six.py ${INSTALL_DIR}/python
-RUN fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
     mkdir ${INSTALL_DIR}/MG5_aMC && \
     tar -xzvf MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=${INSTALL_DIR}/MG5_aMC && \
     rm MG5_aMC_v${MG_VERSION}.tar.gz && \
@@ -93,7 +98,7 @@ RUN fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
 # Install HepMC
 ARG HEPMC_VERSION=02_06_09
 COPY data/WeightContainer* ${DATA_TMP_DIR}
-RUN mkdir ${TMP_DIR} && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_${HEPMC_VERSION}/HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" "HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" && \
     tar -xvzf HepMC-HEPMC_${HEPMC_VERSION}.tar.gz && \
@@ -117,7 +122,7 @@ RUN mkdir ${TMP_DIR} && \
 
 # Install FastJet
 ARG FASTJET_VERSION=3.3.4
-RUN mkdir ${TMP_DIR} && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://fastjet.fr/repo/fastjet-${FASTJET_VERSION}.tar.gz" "fastjet-${FASTJET_VERSION}.tar.gz" && \
     tar xvfz fastjet-${FASTJET_VERSION}.tar.gz && \
@@ -138,7 +143,7 @@ RUN echo "CXX=$(command -v g++)" > /setup_build.sh && \
 
 # Install LHAPDF
 ARG LHAPDF_VERSION=6.3.0
-RUN mkdir ${TMP_DIR} && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://lhapdf.hepforge.org/downloads/?f=LHAPDF-${LHAPDF_VERSION}.tar.gz" "LHAPDF-${LHAPDF_VERSION}.tar.gz" && \
     tar xvfz LHAPDF-${LHAPDF_VERSION}.tar.gz && \
@@ -152,7 +157,7 @@ RUN mkdir ${TMP_DIR} && \
 
 # Install PYTHIA
 ARG PYTHIA_VERSION=8306
-RUN mkdir ${TMP_DIR} && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://gitlab.com/Pythia8/releases/-/archive/pythia${PYTHIA_VERSION}/releases-pythia${PYTHIA_VERSION}.tar.gz" "pythia${PYTHIA_VERSION}.tgz" && \
     tar xvfz pythia${PYTHIA_VERSION}.tgz && \
@@ -180,7 +185,7 @@ RUN mkdir ${TMP_DIR} && \
 
 # Install Delphes
 ARG DELPHES_VERSION=3.5.0
-RUN fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES_VERSION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES_VERSION}.tar.gz" "Delphes-${DELPHES_VERSION}.tar.gz" && \
     mkdir -p "${INSTALL_DIR}/Delphes" && \
     tar -zxf "Delphes-${DELPHES_VERSION}.tar.gz" --strip-components=1 -C "${INSTALL_DIR}/Delphes" && \
     rm "Delphes-${DELPHES_VERSION}.tar.gz" && \
@@ -190,7 +195,7 @@ RUN fetch-source "https://github.com/delphes/delphes/archive/refs/tags/${DELPHES
 
 # Install MG-Pythia8 interface
 ARG MG5aMC_PY8_INTERFACE_VERSION=1.3
-RUN fetch-source "https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" "MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro fetch-source "https://madgraph.mi.infn.it/Downloads/MG5aMC_PY8_interface/MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" "MG5aMC_PY8_interface_V${MG5aMC_PY8_INTERFACE_VERSION}.tar.gz" && \
     mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     mkdir -p $TMP_DIR/MG5aMC_PY8_interface && \
@@ -232,24 +237,24 @@ RUN python3 -m venv ${INSTALL_DIR}/venv && \
 COPY images/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
 RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
-# Install/compile needed tools for loops
-RUN source /setup_mg_pythia_delphes.sh && \
-    echo "install ninja" | mg5_aMC && \
-    echo "install collier" | mg5_aMC
+# # Install/compile needed tools for loops
+# RUN source /setup_mg_pythia_delphes.sh && \
+#     echo "install ninja" | mg5_aMC && \
+#     echo "install collier" | mg5_aMC
 
-# build cuttools
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
-    make clean && \
-    make -j"${BUILD_JOBS}"
+# # build cuttools
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
+#     make clean && \
+#     make -j"${BUILD_JOBS}"
 
-# build iregi
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
-    make clean && \
-    make -j"${BUILD_JOBS}"
+# # build iregi
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
+#     make clean && \
+#     make -j"${BUILD_JOBS}"
 
-# build StdHEP
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
-    make -j"${BUILD_JOBS}"
+# # build StdHEP
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
+#     make -j"${BUILD_JOBS}"
 
 # Install loop_qcd_qed_sm model
 COPY data/loop_qcd_qed_sm.tar.gz /
@@ -269,7 +274,7 @@ RUN tar -xvzf SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models
 # 91500: PDF4LHC15_nnlo_mc
 COPY images/download_pdf.sh ${INSTALL_DIR}/scripts/
 RUN chmod 0755 ${INSTALL_DIR}/scripts/download_pdf.sh
-RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
+RUN --mount=type=bind,from=mgpd_sources,source=/archives,target=/opt/mgpd-source-cache,ro sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
     bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119         && \
     bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed      && \
     bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118         && \

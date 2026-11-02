@@ -47,7 +47,8 @@ def run(command, cwd=None, capture=False):
     command = [str(item) for item in command]
     print('+ ' + shlex.join(command), flush=True)
     result = subprocess.run(command, cwd=cwd, check=True, text=True,
-                            stdout=subprocess.PIPE if capture else None)
+                            stdout=subprocess.PIPE if capture else None,
+                            env={**os.environ, 'DOCKER_BUILDKIT': '1'} if command[:2] == ['docker', 'build'] else None)
     if capture:
         print(result.stdout, end='', flush=True)
         return result.stdout
@@ -147,7 +148,11 @@ def validate(args):
         spec = importlib.util.spec_from_file_location('_mgpd_build_sources', helper)
         sources = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(sources)
-        sources.check_lock(lock, args.version)
+        cache = (args.source / args.source_cache).resolve()
+        if not cache.is_relative_to(args.source) or not cache.is_dir():
+            raise ValueError('--source-cache must be an existing directory inside the build context')
+        args.source_cache = str(cache.relative_to(args.source))
+        sources.check_lock(lock, args.version, cache)
     if args.install_dir is not None:
         args.install_dir = args.install_dir.expanduser().resolve(strict=True)
         if not args.install_dir.is_dir():
@@ -216,7 +221,8 @@ def process(args, version):
                     # OCI format drops Dockerfile SHELL metadata on affected Podman/Buildah versions.
                     command += ['--format', 'docker']
                 command += ['--tag', candidate, '--file', dockerfile]
-                command += ['--build-arg', 'SOURCE_LOCK=' + args.source_lock]
+                command += ['--build-arg', 'SOURCE_LOCK=' + args.source_lock,
+                            '--build-arg', 'SOURCE_CACHE=' + args.source_cache]
                 if args.build_jobs is not None:
                     command += ['--build-arg', f'BUILD_JOBS={args.build_jobs}']
                 metadata['source_lock_sha256'] = sha256(args.source / args.source_lock)
@@ -302,6 +308,7 @@ def main(argv=None):
     arguments.add_argument('--revision', help='Optional image revision, e.g. r1 (tag becomes 3.5.6-r1)')
     arguments.add_argument('--engine', choices=('podman', 'docker'), default='podman')
     arguments.add_argument('--build-jobs', type=int, help='Parallel compilation jobs')
+    arguments.add_argument('--source-cache', default='dist/image-source-cache', help='Cached source archives inside the build context; no downloads during build')
     arguments.add_argument('--source-lock', default='images/sources.lock.json', help='Reviewed download lock relative to build context')
     arguments.add_argument('--source', type=Path, default=REPOSITORY, help='Repository/build context')
     arguments.add_argument('--output-dir', type=Path, default=REPOSITORY / 'dist/images')

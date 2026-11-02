@@ -11,3 +11,9 @@ test-results
 .pytest_cache
 .env
 .env.*
+
+# Include only the source-archive cache from otherwise ignored build outputs.
+!dist/
+dist/*
+!dist/image-source-cache/
+!dist/image-source-cache/**

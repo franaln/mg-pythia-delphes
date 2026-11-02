@@ -346,7 +346,8 @@ HTTPS endpoint requires review of a replacement URL.
 Before compiling, check the reviewed lock offline:
 
 ```bash
-python images/sources.py check --version 3.5.6 --lock images/sources.lock.json
+python images/sources.py check --version 3.5.6 --lock images/sources.lock.json \
+  --cache dist/image-source-cache
 ```
 
 The constructor runs this validation automatically before starting Podman/Docker.
@@ -355,6 +356,14 @@ separately. If a lock is out of date, capture a new file with `lock --output
 images/sources-new.lock.json` using the existing cache, review its diff and use
 `--source-lock images/sources-new.lock.json` for a test build. Do not edit a
 checksum merely to bypass a failed verification.
+
+If the reviewed lock exists but the host cache is absent (for example on CI),
+populate it without changing the lock or its checksums:
+
+```bash
+python images/sources.py cache --version 3.5.6 --lock images/sources.lock.json \
+  --cache dist/image-source-cache
+```
 
 ### Build and check candidates
 
@@ -370,7 +379,20 @@ default output is this checkout's `dist/images/`. The example produces OCI tag
 `franaln/mg-pythia-delphes:3.5.6-r1`, SIF `mg-pythia-delphes-3.5.6-r1.sif` and a
 neighboring `.sif.json`. `--source` changes the build context; `--source-lock`
 selects a relative lock file inside it. `--build-jobs` requires `--build` and a
-positive integer. `--no-cache` disables construction cache.
+positive integer. `--no-cache` disables construction-layer reuse, not the local
+source archives. `--source-cache` selects a cache directory inside the build
+context (default `dist/image-source-cache`); a custom directory must not be
+excluded by `.dockerignore`.
+
+The constructor verifies all required cached hashes before starting the engine.
+Both Dockerfiles use a separate source-archive stage, mounted read-only only in
+installation steps. `fetch-source` copies the requested verified archive from
+that mount; missing or corrupted cache files fail rather than triggering another
+download. The archive cache is not copied into final runtime layers, although the
+engine can retain the intermediate source stage in its local build cache.
+Docker builds use BuildKit for these mounts; the constructor enables it. Podman
+must support multi-stage `RUN --mount=type=bind,from=...`. `apt`, `pip` and optional
+MadGraph installers may still need network access.
 
 Actions are independent. `--sif` without `--build` converts an existing local
 OCI image via a temporary Docker archive, without pushing first. `--check`

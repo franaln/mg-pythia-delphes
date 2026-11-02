@@ -1,5 +1,8 @@
 """Image lifecycle orchestration: fake engines, real staging/checksum operations."""
 import importlib.util
+import hashlib
+import io
+import tarfile
 import json
 import os
 import shutil
@@ -33,9 +36,18 @@ class ImageTests(unittest.TestCase):
         shutil.copy2(helper, self.context / 'images/sources.py')
         spec = importlib.util.spec_from_file_location('test_source_catalog', helper)
         sources = importlib.util.module_from_spec(spec); spec.loader.exec_module(sources)
+        cache = self.context / 'dist/image-source-cache'; cache.mkdir(parents=True)
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w:gz') as stream:
+            info = tarfile.TarInfo('file'); info.size = 4
+            stream.addfile(info, io.BytesIO(b'data'))
+        payload = archive.getvalue()
+        checksum = hashlib.sha256(payload).hexdigest()
         entries = {}
         for version in builder.VERSIONS:
-            entries.update({name: {'url': url, 'sha256': 'a'*64} for name, url in sources.catalog(version).items()})
+            entries.update({name: {'url': url, 'sha256': checksum} for name, url in sources.catalog(version).items()})
+            for name in sources.catalog(version):
+                (cache / name).write_bytes(payload)
         (self.context / 'images/sources.lock.json').write_text(json.dumps({'schema_version': 1, 'files': entries}))
 
     def fake_run(self, command, cwd=None, capture=False):
@@ -49,8 +61,16 @@ class ImageTests(unittest.TestCase):
             Path(command[2]).write_bytes(b'SIF')
         return 'checks passed\n' if capture else None
 
+    def parse_args(self, words):
+        class Parsed(Exception):
+            pass
+        with patch.object(builder, 'validate', side_effect=Parsed) as validate:
+            with self.assertRaises(Parsed):
+                builder.main(words)
+        return validate.call_args.args[0]
+
     def args(self, *extra):
-        args = builder.parser().parse_args(['--version', '3.5.6', '--source', str(self.context), '--output-dir', str(self.output), *extra])
+        args = self.parse_args(['--version', '3.5.6', '--source', str(self.context), '--output-dir', str(self.output), *extra])
         builder.validate(args)
         return args
 
@@ -153,7 +173,7 @@ class ImageTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 self.args(*options)
         with self.assertRaises(SystemExit):
-            builder.parser().parse_args(['--version', 'latest', '--build'])
+            self.parse_args(['--version', 'latest', '--build'])
         with patch.object(builder, 'run', side_effect=AssertionError('Dry run must not execute')):
             builder.process(self.args('--build', '--sif', '--check', '--dry-run'), '3.5.6')
         self.assertFalse(self.output.exists())
@@ -222,6 +242,23 @@ elif Path(sys.argv[0]).name=='apptainer' and args[0]=='build':
         with patch.object(builder, 'run', side_effect=AssertionError('Build must not start')):
             with self.assertRaisesRegex(ValueError, 'URL mismatch for pythia8306.tgz'):
                 self.args('--build')
+
+    def test_source_cache_is_validated_before_building(self):
+        cache = self.context / 'dist/image-source-cache'
+        source = cache / 'pythia8306.tgz'
+        original = source.read_bytes()
+        source.unlink()
+        with self.assertRaisesRegex(FileNotFoundError, 'Source cache is missing'):
+            self.args('--build')
+        source.write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            self.args('--build')
+        source.write_bytes(original)
+        self.execute('--build')
+        command = self.calls[0]
+        self.assertIn('SOURCE_CACHE=dist/image-source-cache', command)
+        with self.assertRaisesRegex(ValueError, 'inside the build context'):
+            self.args('--build', '--source-cache', str(self.root))
 
     def test_publication_never_overwrites_or_follows_symlinks(self):
         source = self.root / 'source'; source.write_bytes(b'new')

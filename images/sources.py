@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -122,15 +123,46 @@ def checked_entry(entries, filename, url):
     return checksum
 
 
-def check_lock(lock_path, versions):
+def check_lock(lock_path, versions, cache_dir=None):
     entries = lock_entries(lock_path)
     for version in versions:
         for filename, url in catalog(version).items():
-            checked_entry(entries, filename, url)
+            checksum = checked_entry(entries, filename, url)
+            if cache_dir is not None:
+                cached = cache_dir / filename
+                if not cached.is_file():
+                    raise FileNotFoundError(f'Source cache is missing {cached}; populate it before building')
+                if digest(cached) != checksum:
+                    raise ValueError(f'Cached source checksum mismatch: {cached}')
 
 
-def fetch(lock_path, filename, url, output):
+def fetch(lock_path, filename, url, output, cache_dir=None, offline=False):
+    if Path(filename).name != filename or filename in ('.', '..'):
+        raise ValueError('Source filename must be a basename')
     checksum = checked_entry(lock_entries(lock_path), filename, url)
+    cached = cache_dir / filename if cache_dir is not None else None
+    if cached is not None and cached.is_file():
+        if digest(cached) != checksum:
+            raise ValueError(f'Cached source checksum mismatch: {cached}')
+        with tarfile.open(cached):
+            pass
+        if cached.resolve() == output.resolve():
+            return checksum
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=output.parent, prefix='.source-', delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                with cached.open('rb') as source:
+                    shutil.copyfileobj(source, stream)
+                stream.close()
+                if digest(temporary) != checksum:
+                    raise ValueError(f'Source cache changed while copying: {cached}')
+                temporary.replace(output)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return checksum
+    if offline:
+        raise FileNotFoundError(f'Source cache is missing {filename}; downloads are disabled during the image build')
     return download(url, output, checksum)
 
 
@@ -147,21 +179,36 @@ def main(argv=None):
     checker = commands.add_parser('check', help='Validate the complete lock offline before building')
     checker.add_argument('--version', choices=('3.3.2', '3.5.6'), action='append', required=True)
     checker.add_argument('--lock', type=Path, required=True)
+    checker.add_argument('--cache', type=Path, help='Also verify local cached archives')
+
+    cacher = commands.add_parser('cache', help='Populate host cache from an existing reviewed lock')
+    cacher.add_argument('--version', choices=('3.3.2', '3.5.6'), action='append', required=True)
+    cacher.add_argument('--lock', type=Path, required=True)
+    cacher.add_argument('--cache', type=Path, required=True)
 
     fetcher = commands.add_parser('fetch')
     fetcher.add_argument('--lock', type=Path, required=True)
     fetcher.add_argument('--file', required=True)
     fetcher.add_argument('--url', required=True)
     fetcher.add_argument('--output', type=Path, required=True)
+    fetcher.add_argument('--cache-dir', type=Path)
+    fetcher.add_argument('--offline', action='store_true', help='Refuse downloads if the cached archive is absent')
 
     args = parser.parse_args(argv)
 
     try:
         if args.command == 'check':
-            check_lock(args.lock, args.version)
+            check_lock(args.lock, args.version, args.cache)
             print('Source lock matches the requested versions')
+        elif args.command == 'cache':
+            check_lock(args.lock, args.version)
+            entries = lock_entries(args.lock)
+            for version in args.version:
+                for filename, url in catalog(version).items():
+                    print(f'Caching {filename}', flush=True)
+                    download(url, args.cache / filename, checked_entry(entries, filename, url))
         elif args.command == 'fetch':
-            fetch(args.lock, args.file, args.url, args.output)
+            fetch(args.lock, args.file, args.url, args.output, args.cache_dir, args.offline)
         else:
             if args.output.exists():
                 raise FileExistsError('Source lock already exists; use a new output to review an update')
