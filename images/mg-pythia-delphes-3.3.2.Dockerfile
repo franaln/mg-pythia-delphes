@@ -80,8 +80,8 @@ RUN fetch-source "${ROOT_URL}" "${ROOT_VERSION}" && \
 # Install MG
 ARG MG_VERSION=3.3.2
 ARG MG_URL=https://launchpad.net/mg5amcnlo/3.0/3.3.x/+download/MG5_aMC_v${MG_VERSION}.tar.gz
-COPY data/no_update_3_3_2.patch ${DATA_TMP_DIR}
-COPY data/six.py ${INSTALL_DIR}/python
+COPY images/no_update_3_3_2.patch ${DATA_TMP_DIR}
+COPY images/six.py ${INSTALL_DIR}/python
 RUN fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
     mkdir ${INSTALL_DIR}/MG5_aMC && \
     tar -xzvf MG5_aMC_v${MG_VERSION}.tar.gz --strip=1 --directory=${INSTALL_DIR}/MG5_aMC && \
@@ -92,7 +92,7 @@ RUN fetch-source "${MG_URL}" "MG5_aMC_v${MG_VERSION}.tar.gz" && \
 
 # Install HepMC
 ARG HEPMC_VERSION=02_06_09
-COPY data/WeightContainer* ${DATA_TMP_DIR}
+COPY images/WeightContainer* ${DATA_TMP_DIR}
 RUN mkdir ${TMP_DIR} && \
     cd ${TMP_DIR} && \
     fetch-source "https://gitlab.cern.ch/hepmc/HepMC/-/archive/HEPMC_${HEPMC_VERSION}/HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" "HepMC-HEPMC_${HEPMC_VERSION}.tar.gz" && \
@@ -232,35 +232,36 @@ RUN python3 -m venv ${INSTALL_DIR}/venv && \
 COPY images/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
 RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
-# Install/compile needed tools for loops
-RUN source /setup_mg_pythia_delphes.sh && \
-    echo "install ninja" | mg5_aMC && \
-    echo "install collier" | mg5_aMC
+# # Install/compile needed tools for loops
+# RUN source /setup_mg_pythia_delphes.sh && \
+#     echo "install ninja" | mg5_aMC && \
+#     echo "install collier" | mg5_aMC
 
-# build cuttools
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
-    make clean && \
-    make -j"${BUILD_JOBS}"
+# # build cuttools
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
+#     make clean && \
+#     make -j"${BUILD_JOBS}"
 
-# build iregi
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
-    make clean && \
-    make -j"${BUILD_JOBS}"
+# # build iregi
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
+#     make clean && \
+#     make -j"${BUILD_JOBS}"
 
-# build StdHEP
-RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
-    make -j"${BUILD_JOBS}"
+# # build StdHEP
+# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
+#     make -j"${BUILD_JOBS}"
 
-# Install loop_qcd_qed_sm model
-COPY data/loop_qcd_qed_sm.tar.gz /
-RUN tar -xvzf loop_qcd_qed_sm.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-    rm /loop_qcd_qed_sm.tar.gz
 
-# Install SM_LQHH_MU2-LAM3-LAM1-LAM2
-COPY data/SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz /
-RUN tar -xvzf SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models && \
-    rm /SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz
+# Install extra models
+COPY images/models/*.tar.gz /tmp/models/
+RUN mkdir -p "${INSTALL_DIR}/MG5_aMC/models" && \
+    for archive in /tmp/models/*.tar.gz; do \
+        tar -xzf "$archive" \
+            -C "${INSTALL_DIR}/MG5_aMC/models" || exit 1; \
+    done && \
+    rm -rf /tmp/models
 
+    
 # Download PDFs
 # 230000: NNPDF23_nlo_as_0119
 # 247000: NNPDF23_lo_as_0130_qed
@@ -269,12 +270,13 @@ RUN tar -xvzf SM_LQHH_MU2-LAM3-LAM1-LAM2.tar.gz -C ${INSTALL_DIR}/MG5_aMC/models
 # 91500: PDF4LHC15_nnlo_mc
 COPY images/download_pdf.sh ${INSTALL_DIR}/scripts/
 RUN chmod 0755 ${INSTALL_DIR}/scripts/download_pdf.sh
-RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh && \
-    bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119         && \
-    bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed      && \
-    bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118         && \
-    bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian && \
-    bash ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC15_nnlo_mc
+RUN sed -i  "s|__INS_DIR__|${INSTALL_DIR}|g" ${INSTALL_DIR}/scripts/download_pdf.sh
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_nlo_as_0119
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF23_lo_as_0130_qed
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh NNPDF30_nlo_as_0118_hessian
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC15_nnlo_mc
+RUN bash ${INSTALL_DIR}/scripts/download_pdf.sh PDF4LHC21_mc
 
 # Fail if an expected MadGraph configuration substitution or installation is missing.
 RUN python3 -c 'from pathlib import Path; import os; root=os.environ["INSTALL_DIR"]; p=Path(os.environ["MG_CONFIG_FILE"]); lines=p.read_text().splitlines(); settings={k.strip():v.strip() for line in lines if line.strip() and not line.lstrip().startswith("#") and "=" in line for k,v in [line.split("=",1)]}; expected={"fastjet":root+"/bin/fastjet-config","pythia8_path":root,"delphes_path":"../Delphes","automatic_html_opening":"False","run_mode":"0","nb_core":"1","auto_update":"0","lhapdf_py3":root+"/bin/lhapdf-config"}; assert all(settings.get(k)==v for k,v in expected.items()), settings' && \
