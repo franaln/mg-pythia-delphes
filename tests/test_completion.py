@@ -56,6 +56,7 @@ class CompletionTests(unittest.TestCase):
             (['create', '--mode', '='], ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']),
             (['merge', '--event-count', 'non'], ['nonempty']),
             (['completion', 'z'], ['zsh']),
+            (['analyze', '--example', 'lhe'], ['lhe-dileptons']),
             (['create', '--njobs', ''], []),
             (['create', '--process', ''], []),
         ]:
@@ -71,6 +72,8 @@ class CompletionTests(unittest.TestCase):
                          {'input folder', 'input.yml', 'input archive.tar.gz'})
         self.assertIn('input.yml', self.bash_candidates('mgpd', 'validate-config', 'in'))
         self.assertEqual(self.bash_candidates('mgpd', 'status', 'in'), ['input folder'])
+        self.assertEqual(self.bash_candidates('mgpd', 'analyze', '--from-results', 'in'), ['input folder'])
+        self.assertIn('input.yml', self.bash_candidates('mgpd', 'analyze', '--config', 'in'))
         self.assertIn('--mode', self.bash_candidates('mgpd', 'prepare', 'input.yml', ''))
         self.assertIn('input.yml', self.bash_candidates('mgpd', 'prepare', '--mode', 'condor', 'in'))
         self.assertIn('input.yml', self.bash_candidates('mgpd', 'merge', 'input.yml', 'in'))

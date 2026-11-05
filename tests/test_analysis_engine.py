@@ -218,14 +218,14 @@ class AnalysisEngineTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 list(iter_lhe_batches(self.path, 1))
 
-    def test_execution_publishes_only_numerical_artifacts_and_preserves_inputs(self):
+    def test_execution_publishes_analysis_artifacts_and_preserves_inputs(self):
         before = self.path.read_bytes()
         destination = self.root / 'results'
         report = run_analysis(self.plan(chunk_size=2), destination)
         self.assertEqual(report['state'], 'completed')
         self.assertEqual(report['events_processed'], 5)
         self.assertEqual(set(p.name for p in destination.iterdir()),
-                         {'analysis.yml', 'analysis-report.json', 'cutflow.json', 'histograms.json'})
+                         {'analysis.yml', 'analysis-report.json', 'cutflow.json', 'cutflow.csv', 'histograms.json', 'plots'})
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(json.loads((destination / 'cutflow.json').read_text())[-1]['sumw'], 2)
         self.assertFalse(list(self.root.glob('.mgpd-analysis-*')))

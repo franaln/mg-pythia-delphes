@@ -581,7 +581,7 @@ file and source it; regenerate after CLI upgrades. Completion uses shell functio
 at Tab time, including argument choices and paths with spaces, and performs no
 scheduler/container queries. Free-form process strings and IDs are not guessed.
 
-## Analysis development and numerical LHE checks
+## Analysis development and LHE checks
 
 Install the optional stack and run the analysis regressions:
 
@@ -590,35 +590,11 @@ python -m pip install -e '.[dev]'
 python -m unittest discover -s tests -p 'test_analysis*.py' -v
 ```
 
-Create an `analysis.yml` for a dilepton sample:
+Generate the packaged dilepton starter, then edit its object selection,
+variables, cuts, bins and labels for the simulated process:
 
-```yaml
-schema_version: 1
-input:
-  format: lhe
-  weights: {mode: nominal}
-  normalization: {mode: raw}
-objects:
-  electrons:
-    source: particles
-    select: "(abs(pdg_id) == 11) & (status == 1)"
-variables:
-  n_electrons: "count(electrons)"
-  dilepton: "leading_os_pair(electrons)"
-  m_ee: "mass(dilepton)"
-cuts:
-  - name: two_electrons
-    expression: "n_electrons >= 2"
-  - name: valid_pair
-    expression: "is_valid(dilepton)"
-  - name: mass_window
-    expression: "(m_ee > 60) & (m_ee < 120)"
-histograms:
-  - name: m_ee_selected
-    variable: m_ee
-    stage: mass_window
-    bins: {count: 60, min: 0, max: 180}
-    label: "m(ee) [GeV]"
+```bash
+mgpd analyze --example lhe-dileptons > analysis.yml
 ```
 
 Use a validated LHE file from a small merged production. Change the PDG/object
@@ -636,12 +612,40 @@ explicit files asserted to belong to one sample. Directory discovery is not yet
 supported. Delphes ROOT supports `--validate-only`, including branch checks;
 ROOT event execution is a later stage. Analysis never launches containers/jobs.
 
-The numerical result contains `analysis.yml`, `analysis-report.json`,
-`cutflow.json` and `histograms.json`. No CSV or plot files are generated yet.
+The result contains `analysis.yml`, `analysis-report.json`, `cutflow.json`,
+`cutflow.csv`, `histograms.json` and `plots/`. Each histogram is rendered as PNG
+and PDF, alongside cumulative count/weight cutflow plots. Plots use a headless
+Agg canvas, explicit raw normalization and linear axes that retain negative
+bins. Underflow, overflow and missing entries are annotated, not folded into
+visible bins. Histogram labels in YAML should include the observable's units.
+Per-fill errors are sqrt(sumw2); object-level fills do not account for additional
+within-event object correlations.
+
 The report records the frozen plan, full input hashes, dependency versions,
-processed events and preview/completeness flags. Inputs are checked before and
-after processing; failures publish no completed output. Inspect raw bin values
+processed events, compute/render times and preview/completeness flags. Every
+artifact except the report itself has a SHA256/size inventory in the report.
+Inputs are checked before and after processing; failures publish no completed output. Inspect raw bin values
 and cutflows, not just the final number of events, when testing a new sample.
+
+Regenerate plots and CSV into a new directory using saved numerical results:
+
+```bash
+mgpd analyze --from-results analysis-results -o analysis-rendered
+```
+
+This does not read original event files, rerun selections or query the scheduler.
+Keep `analysis-report.json`, `analysis.yml`, `cutflow.json` and `histograms.json`
+together; original plots are not required. The YAML/plan, numerical shapes and
+stored hashes are checked before rendering. Earlier numerical-only results
+without artifact hashes are accepted with an explicit integrity warning.
+New reports record source-artifact hashes and rendering provenance. Sources are
+preserved, and the destination must be new and outside the source directory.
+For Python use `mgpd.analysis.render_analysis(source, output)`.
+
+CSV contains the same counters, relative/cumulative efficiencies, intervals,
+weighted uncertainties, methods and null reasons as JSON. Undefined values are
+empty CSV fields with explicit reason columns. PNG/PDF generation uses exactly
+the stored bin values and variances; it applies no extra normalization or cuts.
 
 Cutflow rows contain N, sumw, sumw2, positive/negative/zero weight counts and
 relative/cumulative count efficiencies and weighted ratios. Count intervals use

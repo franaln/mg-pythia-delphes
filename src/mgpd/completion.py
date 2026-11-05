@@ -15,11 +15,11 @@ def value_kind(command, action):
         return 'choices'
     if command == 'validate-config' and action.dest == 'directory':
         return 'files'
-    if action.dest in ('directory', 'copy', 'base_directory'):
+    if action.dest in ('directory', 'copy', 'base_directory', 'from_results'):
         return 'directories'
     if action.dest == 'output':
         return 'files' if command == 'merge' else 'directories'
-    if action.dest in ('project', 'inputs', 'image'):
+    if action.dest in ('project', 'inputs', 'image', 'config'):
         return 'files'
     return 'none'
 

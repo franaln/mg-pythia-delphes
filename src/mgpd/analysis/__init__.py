@@ -41,7 +41,7 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
                          'nonfinite_weights': 'error', 'histogram_edges': '[left,right), final edge inclusive',
                          'flow_bins': 'stored separately', 'normalization': 'raw',
                          'weighted_denominator_cancellation_tolerance': 1e-12},
-            'limitations': ['LHE numerical execution only; ROOT execution, CSV and plotting are not implemented.',
+            'limitations': ['LHE execution only; ROOT execution and physical normalization are not implemented.',
                             'Headers/branches validated; event shapes and expression result types are not evaluated.',
                             'External multi-file inputs assert one sample; physical overlap is not inferred.',
                             'Object pairs use highest scalar-pT-sum opposite-sign pair, then original indices. Independent-event errors; correlated eventgroups are rejected.']}
@@ -84,12 +84,12 @@ def run_analysis(plan, output):
     require_dependencies()
     _verify_inputs(plan)
     from .engine import calculate_analysis
-    import os
-    import tempfile
+    import time
     from datetime import datetime, timezone
     from importlib.metadata import version
-    import yaml
+    started = time.perf_counter()
     result = calculate_analysis(plan)
+    compute_seconds = time.perf_counter()-started
     _verify_inputs(plan)
     warnings = []
     if result['limit_reached']:
@@ -105,25 +105,40 @@ def run_analysis(plan, output):
               'normalization': 'raw', 'units': plan['units'], 'warnings': warnings,
               'statistics_model': 'independent events; subset covariance included',
               **{key: value for key, value in result.items() if key not in ('cutflow', 'histograms')},
-              'artifacts': ['analysis.yml', 'analysis-report.json', 'cutflow.json', 'histograms.json']}
-    with tempfile.TemporaryDirectory(prefix='.mgpd-analysis-', dir=destination.parent) as temporary:
-        staged = Path(temporary) / 'result'
-        staged.mkdir()
-        (staged / 'analysis.yml').write_text(yaml.safe_dump(plan['config'], sort_keys=False), encoding='utf-8')
-        for name, data in [('analysis-report.json', report), ('cutflow.json', result['cutflow']),
-                           ('histograms.json', result['histograms'])]:
-            (staged / name).write_text(json.dumps(data, indent=2, allow_nan=False) + '\n', encoding='utf-8')
-        # Exclusive reservation prevents replacing a directory created since planning.
-        destination.mkdir()
-        try:
-            os.replace(staged, destination)
-        except BaseException:
-            try:
-                destination.rmdir()  # Remove only an empty reservation; preserve intervening user files.
-            except OSError:
-                pass
-            raise
-    return report
+              'compute_seconds': compute_seconds}
+    from .reporting import publish_results
+    return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination)
 
 
-__all__ = ['plan_analysis', 'run_analysis']
+def analysis_example(name='lhe-dileptons'):
+    """Return a packaged editable starter, with no writes or optional imports."""
+    if name != 'lhe-dileptons':
+        raise ValueError('Unknown analysis example; choose lhe-dileptons')
+    from ..templates import _resource
+    return _resource('analysis/lhe-dileptons.yml').read_text(encoding='utf-8')
+
+
+def render_analysis(source, output):
+    """Regenerate CSV and plots from saved numbers, never opening original events."""
+    from .saved import load_saved_results
+    from .reporting import publish_results
+    from .dependencies import require_dependencies
+    from datetime import datetime, timezone
+    import copy
+    source_path = Path(source).expanduser().resolve(strict=True)
+    report, config, cutflow, histograms, provenance = load_saved_results(source_path)
+    destination = check_output(output, {'inputs': [{'path': str(source_path / name)} for name in
+                                                  ('analysis-report.json', 'analysis.yml', 'cutflow.json', 'histograms.json')]})
+    if destination.is_relative_to(source_path):
+        raise ValueError('Rendering output must be outside the saved analysis directory')
+    require_dependencies(('matplotlib',))
+    report = copy.deepcopy(report)
+    report['output'] = str(destination)
+    report['rendered_at'] = datetime.now(timezone.utc).isoformat()
+    report['rendered_from'] = provenance
+    if not provenance['original_artifact_hashes_verified']:
+        report.setdefault('warnings', []).append('Source result has no artifact hashes; integrity before rendering cannot be established.')
+    return publish_results(report, config, cutflow, histograms, destination)
+
+
+__all__ = ['plan_analysis', 'run_analysis', 'render_analysis', 'analysis_example']
