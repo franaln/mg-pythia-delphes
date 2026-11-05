@@ -294,9 +294,9 @@ class AnalysisEngineTests(unittest.TestCase):
             code = main(['analyze', str(self.path), '--config', str(path), '-o', str(self.root / 'cli')])
         self.assertEqual(code, 0)
         self.assertIn('5 events', stdout.getvalue())
-        # A root plan remains useful, but cannot enter the LHE engine.
+        # An incompatible frozen plan must be rejected before event reading.
         from mgpd.analysis import _checksum
         plan = self.plan(); plan['format'] = 'root'; plan['execution_available'] = False
         plan['plan_sha256'] = _checksum(plan)
-        with self.assertRaisesRegex(ValueError, 'ROOT event processing'):
+        with self.assertRaisesRegex(ValueError, 'current engine'):
             run_analysis(plan, self.root / 'root-output')

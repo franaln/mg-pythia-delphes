@@ -42,17 +42,17 @@ def required_fields(config, format):
                         and node.func.id == 'leading_os_pair' and isinstance(node.args[0], ast.Name)
                         and node.args[0].id == key):
                     fields.add('charge')
-        if source == 'Jet':
+        if source in ('Jet', 'Particle'):
             fields.add('mass')
         if 'select' in obj:
             fields.update(node.id for node in ast.walk(ast.parse(obj['select'], mode='eval'))
                           if isinstance(node, ast.Name) and node.id in FIELDS)
-        if source in ('Electron', 'Muon'):
+        if 'charge' in mapping:
             fields.add('charge')
-        unsupported = fields - set(mapping)
+        unsupported = fields - set(mapping) - {'px', 'py', 'pz', 'energy', 'mass'}
         if unsupported:
             raise ValueError(f'objects.{key}: unsupported fields for {source}: {sorted(unsupported)}')
-        required[key] = sorted(f'{source}.{mapping[field]}' for field in fields)
+        required[key] = sorted(f'{source}.{mapping[field]}' for field in fields if field in mapping)
     weight = config['input']['weights']
     required['event'] = [weight.get('branch', 'Event.Weight')] if weight['mode'] == 'nominal' else []
     return required

@@ -1,4 +1,4 @@
-"""Analysis planning and bounded LHE numerical execution API."""
+"""Analysis planning and bounded LHE/Delphes numerical execution API."""
 from pathlib import Path
 import time
 import copy
@@ -37,7 +37,7 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
     selected, fields, files = inspect_inputs(inputs, effective, format)
     effective['input']['format'] = selected
     plan = {'schema_version': 1, 'mgpd_version': __version__, 'state': 'planned',
-            'execution_available': selected == 'lhe', 'engine': 'lhe-scalar-v1' if selected == 'lhe' else None, 'config': effective, 'variable_order': order,
+            'execution_available': True, 'engine': f'{selected}-scalar-v1', 'config': effective, 'variable_order': order,
             'format': selected, 'sample': sample, 'inputs': files, 'required_fields': fields,
             'chunk_size': chunk_size, 'max_events': max_events, 'preview_requested': max_events is not None,
             'units': {'momentum': 'GeV', 'angle': 'radian'},
@@ -45,7 +45,7 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
                          'nonfinite_weights': 'error', 'histogram_edges': '[left,right), final edge inclusive',
                          'flow_bins': 'stored separately', 'normalization': 'raw',
                          'weighted_denominator_cancellation_tolerance': 1e-12},
-            'limitations': ['LHE execution only; ROOT execution and physical normalization are not implemented.',
+            'limitations': ['Physical normalization is not implemented. ROOT uses split Delphes branches; electron/muon masses are fixed to PDG values, photons/MissingET are massless.',
                             'Headers/branches validated; event shapes and expression result types are not evaluated.',
                             'External multi-file inputs assert one sample; physical overlap is not inferred.',
                             'Object pairs use highest scalar-pT-sum opposite-sign pair, then original indices. Independent-event errors; correlated eventgroups are rejected.']}
@@ -76,7 +76,7 @@ def _verify_inputs(plan):
 
 
 def run_analysis(plan, output, *, plots=False):
-    """Compute raw LHE statistics and publish a new complete numerical result."""
+    """Compute raw event statistics and publish a new complete numerical result."""
 
     if not isinstance(plan, dict) or plan.get('plan_sha256') != _checksum(plan):
         raise ValueError('Analysis plan is missing or changed; plan the analysis again')
@@ -85,10 +85,8 @@ def run_analysis(plan, output, *, plots=False):
         raise ValueError('plots must be a boolean')
     destination = check_output(output, plan)
 
-    if plan.get('format') != 'lhe':
-        raise ValueError('ROOT event processing is not implemented yet; use --validate-only')
-    if not plan.get('execution_available') or plan.get('engine') != 'lhe-scalar-v1':
-        raise ValueError('This plan cannot execute with the current LHE engine; plan the analysis again')
+    if not plan.get('execution_available') or plan.get('engine') != f"{plan.get('format')}-scalar-v1":
+        raise ValueError('This plan cannot execute with the current engine; plan the analysis again')
     require_dependencies()
 
     _verify_inputs(plan)
@@ -130,9 +128,9 @@ def run_analysis(plan, output, *, plots=False):
 def analysis_example(name='lhe-dileptons'):
     """Return a packaged editable starter, with no writes or optional imports."""
 
-    if name != 'lhe-dileptons':
-        raise ValueError('Unknown analysis example; choose lhe-dileptons')
-    return _resource('analysis/lhe-dileptons.yml').read_text(encoding='utf-8')
+    if name not in ('lhe-dileptons', 'delphes-dileptons'):
+        raise ValueError('Unknown analysis example; choose lhe-dileptons or delphes-dileptons')
+    return _resource(f'analysis/{name}.yml').read_text(encoding='utf-8')
 
 
 def render_analysis(source, output):

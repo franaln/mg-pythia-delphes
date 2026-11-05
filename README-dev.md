@@ -581,7 +581,7 @@ file and source it; regenerate after CLI upgrades. Completion uses shell functio
 at Tab time, including argument choices and paths with spaces, and performs no
 scheduler/container queries. Free-form process strings and IDs are not guessed.
 
-## Analysis development and LHE checks
+## Analysis development and LHE/Delphes checks
 
 Install the optional stack and run the analysis regressions:
 
@@ -608,10 +608,39 @@ mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml \
   --max-events 100 --chunk-size 10 -o analysis-preview
 ```
 
-Each output must be new. Inputs can be plain/gzip LHE files, including multiple
-explicit files asserted to belong to one sample. Directory discovery is not yet
-supported. Delphes ROOT supports `--validate-only`, including branch checks;
-ROOT event execution is a later stage. Analysis never launches containers/jobs.
+Each output must be new. Inputs can be plain/gzip LHE or Delphes ROOT files,
+including multiple explicit files asserted to belong to one sample. Analyze LHE
+and ROOT separately. Directory discovery is not yet supported. Analysis never
+launches containers/jobs.
+
+For reconstructed Delphes electrons:
+
+```bash
+mgpd analyze --example delphes-dileptons > analysis-delphes.yml
+mgpd analyze /path/to/merged_delphes_events.root --config analysis-delphes.yml --validate-only
+mgpd analyze /path/to/merged_delphes_events.root --config analysis-delphes.yml --plots -o analysis-delphes
+```
+
+The ROOT adapter reads only required split branches in event-count blocks. The
+supported collections are Electron, Muon, Photon, Jet, Particle and MissingET;
+object sources refer to those exact branch prefixes. Jet/Particle use their Mass
+branch, electrons/muons use fixed masses (0.00051099895/0.1056583755 GeV), and
+Photon/MissingET are massless. MissingET is represented as a massless vector
+using MET/Eta/Phi; it is not a reconstructed neutrino four-vector. Cartesian
+components and energy are derived from those conventions. Unknown PID/status
+fields for reconstructed objects are rejected during planning.
+
+Nominal weights use Event.Weight by default, accepting a scalar or exactly one
+value per event. Set input.weights.branch to select another nominal branch, or
+choose input.weights.mode: unit explicitly when no event weights are available.
+Missing/ambiguous/nonfinite weights and inconsistent object lengths fail; there
+is no implicit fallback to unit weights. Empty collections and trees are valid.
+
+Before accepting this stage on Jupiter, run the starter on a real Delphes file
+with two chunk sizes and compare numerical cutflows/histograms. Synthetic split
+TTrees test the adapter but do not establish compatibility with every Delphes
+TClonesArray layout. Real-file and large-sample memory/throughput checks remain
+pending.
 
 The result contains `analysis.yml`, `analysis-report.json`, `cutflow.json`,
 `cutflow.csv` and `histograms.json`. Add `--plots` to generate `plots/` in the same

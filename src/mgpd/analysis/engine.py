@@ -1,7 +1,8 @@
-"""Scalar event engine over bounded LHE batches; no plotting or ROOT execution."""
+"""Shared scalar event engine over bounded LHE or Delphes batches."""
 from .evaluation import Expression, boolean, finite
 from .expressions import FIELDS
 from .readers import iter_lhe_batches
+from .root_reader import iter_root_batches
 from .statistics import Counter, Histogram, efficiency
 
 
@@ -26,7 +27,11 @@ def calculate_analysis(plan):
             break
         remaining = None if maximum is None else maximum - processed
         files_read.append(source['path'])
-        for batch in iter_lhe_batches(source['path'], plan['chunk_size'], remaining):
+        if plan['format'] == 'lhe':
+            reader = iter_lhe_batches(source['path'], plan['chunk_size'], remaining)
+        else:
+            reader = iter_root_batches(source['path'], config, plan['required_fields'], plan['chunk_size'], remaining)
+        for batch in reader:
             batches += 1
             for event in batch:
                 try:
@@ -34,8 +39,9 @@ def calculate_analysis(plan):
                     environment = {}
                     for key, obj in config['objects'].items():
                         selected = []
-                        objects_report[key]['input_objects'] += len(event['particles'])
-                        for particle in event['particles']:
+                        particles = event['particles'] if plan['format'] == 'lhe' else event[key]
+                        objects_report[key]['input_objects'] += len(particles)
+                        for particle in particles:
                             if key in object_filters:
                                 fields = {field: finite(getattr(particle, field)) for field in FIELDS}
                                 decision = boolean(object_filters[key](fields))
