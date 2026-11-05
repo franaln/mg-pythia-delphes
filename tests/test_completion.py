@@ -86,6 +86,7 @@ class CompletionTests(unittest.TestCase):
                 with redirect_stdout(output):
                     self.assertEqual(main(['completion', shell]), 0)
                 self.assertEqual(output.getvalue(), shell_completion(_parser(), shell))
+                self.assertNotIn('==SUPPRESS==', output.getvalue())
                 executable = shutil.which(shell)
                 if executable:
                     result = subprocess.run([executable, '-n'], input=output.getvalue(), capture_output=True, text=True)

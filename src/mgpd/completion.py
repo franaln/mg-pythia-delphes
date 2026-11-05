@@ -5,7 +5,8 @@ import shlex
 
 def command_parsers(parser):
     action = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
-    descriptions = {item.dest: item.help for item in action._choices_actions}
+    descriptions = {item.dest: '' if item.help == argparse.SUPPRESS else item.help
+                    for item in action._choices_actions}
     return action.choices, descriptions
 
 
@@ -124,6 +125,7 @@ complete -o filenames -F _mgpd_complete mgpd
 
 
 def zsh_description(value):
+    value = '' if value == argparse.SUPPRESS else value
     return (value or '').replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]').replace(':', '\\:').replace('\n', ' ')
 
 

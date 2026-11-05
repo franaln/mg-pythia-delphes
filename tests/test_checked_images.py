@@ -195,9 +195,8 @@ class CheckedImageTests(unittest.TestCase):
             recipe = (CHECKED / f'mg-pythia-delphes-{version}.Dockerfile').read_text()
             names = set(re.findall(r'download_pdf.sh ([A-Za-z0-9_]+)', recipe))
             expected = {'NNPDF23_nlo_as_0119', 'NNPDF23_lo_as_0130_qed',
-                        'NNPDF30_nlo_as_0118', 'NNPDF30_nlo_as_0118_hessian', 'PDF4LHC15_nnlo_mc'}
-            if version == '3.5.6':
-                expected.add('PDF4LHC21_mc')
+                        'NNPDF30_nlo_as_0118', 'NNPDF30_nlo_as_0118_hessian',
+                        'PDF4LHC15_nnlo_mc', 'PDF4LHC21_mc'}
             self.assertEqual(names, expected)
             catalog = sources.catalog(version)
             self.assertEqual(set(catalog) - set(sources.TOOLS[version]), {name+'.tar.gz' for name in names})
