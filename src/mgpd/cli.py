@@ -51,6 +51,16 @@ def _parser():
     images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
     images.add_argument('--json', action='store_true', dest='json_output')
 
+    analyze = commands.add_parser('analyze', help='Plan exploratory LHE/Delphes analysis (execution coming next)')
+    analyze.add_argument('inputs', nargs='+', help='Explicit files of one sample and format')
+    analyze.add_argument('--config', required=True, help='Analysis YAML (not generation YAML)')
+    analyze.add_argument('--format', choices=('lhe', 'root'))
+    analyze.add_argument('--sample', help='Label for the explicitly selected sample')
+    analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')
+    analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
+    analyze.add_argument('--max-events', type=int, help='Bounded preview (execution coming next)')
+    analyze.add_argument('--chunk-size', type=int, default=10000)
+
     # Create project
     create = commands.add_parser('create', help='Create editable YAML/cards from a template')
     create.add_argument('directory', nargs='?', help='New project directory')
@@ -126,6 +136,12 @@ def parse_args(argv=None):
     parser = _parser()
     args = parser.parse_args(argv)
 
+    if args.command == 'analyze':
+        if not args.validate_only and not args.output:
+            parser.error('analyze requires --output, or use --validate-only')
+        if args.validate_only and args.output:
+            parser.error('analyze --validate-only does not accept --output')
+
     if args.command == 'create':
         if args.list_templates and args.copy:
             parser.error('--list-templates cannot be combined with --copy')
@@ -174,6 +190,16 @@ def main(argv=None):
 
     parser, args = parse_args(arguments)
     try:
+
+        if args.command == 'analyze':
+            from .analysis import plan_analysis, run_analysis
+            plan = plan_analysis(args.inputs, args.config, format=args.format, sample=args.sample,
+                                 max_events=args.max_events, chunk_size=args.chunk_size)
+            if args.validate_only:
+                print(json.dumps(plan, indent=2, allow_nan=False))
+            else:
+                run_analysis(plan, args.output)
+            return 0
 
         if args.command == 'completion':
             from .completion import shell_completion

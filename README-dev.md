@@ -580,3 +580,32 @@ shared installs when needed. To avoid startup generation, save the output to a
 file and source it; regenerate after CLI upgrades. Completion uses shell functions
 at Tab time, including argument choices and paths with spaces, and performs no
 scheduler/container queries. Free-form process strings and IDs are not guessed.
+
+## Analysis development: stage 1
+
+The `dev_analysis` branch introduces an optional `analysis` extra and the
+`mgpd.analysis.plan_analysis` / `run_analysis` API. Event processing is not yet
+implemented; this stage validates and prints plans only.
+
+```bash
+python -m pip install -e '.[analysis,dev]'
+python -m unittest discover -s tests -p test_analysis.py -v
+mgpd analyze --help
+mgpd analyze /path/to/events.lhe.gz --config /path/to/analysis.yml --validate-only
+```
+
+Use the version-one YAML design in the local development plan. Inputs currently
+must be explicit files of one sample and format; production/merge directory
+discovery comes later. Validation checks LHE init records or Delphes tree/branch
+names, expressions and dependencies, records full input SHA256 hashes and writes
+nothing. It does not read the event sample to validate shapes or compute physics
+results. LHE planning needs only base dependencies; ROOT planning requires Uproot.
+Execution without the extra reports the installation command; with the extra it
+reports that processing is not implemented and leaves no output directory.
+
+Defaults: nominal weights with no unit-weight fallback, raw normalization,
+10,000-event batches (provisional until measured), explicit flow bins and
+left-inclusive/right-exclusive histogram bins with an inclusive final edge.
+Opposite-sign pairing will select the largest scalar pT sum and break ties by
+original indices. Expressions permit only approved fields and positional pure
+functions; they are parsed and checked without `eval` or `exec`.
