@@ -44,7 +44,9 @@ class AnalysisExampleTests(unittest.TestCase):
                  ['--from-results', 'saved'], ['--from-results', 'saved', '-o', 'new', 'events.lhe'],
                  ['--from-results', 'saved', '-o', 'new', '--validate-only'],
                  ['events.lhe'], ['--config', 'analysis.yml'],
-                 ['--from-results', 'saved', '-o', 'new', '--chunk-size', '10000']]
+                 ['--from-results', 'saved', '-o', 'new', '--chunk-size', '10000'],
+                 ['--example', 'lhe-dileptons', '--plots'],
+                 ['events.lhe', '--config', 'analysis.yml', '--validate-only', '--plots']]
         for args in cases:
             with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 main(['analyze', *args])
@@ -60,7 +62,7 @@ class AnalysisReportingTests(unittest.TestCase):
         events = cls.base / 'events.lhe'; events.write_text(document(EVENTS))
         cls.plan = plan_analysis(events, analysis_config(), sample='Dileptons')
         cls.saved = cls.base / 'original'
-        cls.report = run_analysis(cls.plan, cls.saved)
+        cls.report = run_analysis(cls.plan, cls.saved, plots=True)
         events.unlink()  # All rendering tests deliberately run without original events.
 
     def setUp(self):
@@ -231,13 +233,36 @@ class AnalysisReportingTests(unittest.TestCase):
         events = self.root / 'events.lhe'; events.write_text(document(EVENTS))
         config_path = self.root / 'analysis.yml'; config_path.write_text(analysis_example())
         with redirect_stdout(io.StringIO()):
-            code = main(['analyze', str(events), '--config', str(config_path), '-o', str(self.root / 'example')])
+            code = main(['analyze', str(events), '--config', str(config_path), '-o', str(self.root / 'example'), '--plots'])
         self.assertEqual(code, 0)
         self.assertTrue((self.root / 'example/plots/hist_pt_ee_selected.png').is_file())
+
+    def test_default_execution_skips_plotting_but_retains_csv_and_can_render_later(self):
+        events = self.root / 'events.lhe'; events.write_text(document(EVENTS))
+        output = self.root / 'numerical'
+        with patch('mgpd.analysis.reporting.render_plots', side_effect=AssertionError('No plotting by default')):
+            report = run_analysis(plan_analysis(events, analysis_config()), output)
+        self.assertFalse(report['rendering']['enabled'])
+        self.assertFalse((output / 'plots').exists())
+        self.assertTrue((output / 'cutflow.csv').is_file())
+        events.unlink()
+        result = render_analysis(output, self.root / 'rendered')
+        self.assertTrue(result['rendering']['enabled'])
+        self.assertTrue((self.root / 'rendered/plots/hist_mass_plot.png').is_file())
+
+    def test_default_cli_does_not_load_matplotlib(self):
+        events = self.root / 'events.lhe'; events.write_text(document(EVENTS))
+        config_path = self.root / 'analysis.yml'; config_path.write_text(analysis_example())
+        command = ['analyze', str(events), '--config', str(config_path), '-o', str(self.root / 'cli-numerical')]
+        code = ('import sys; from mgpd.cli import main; '
+                'assert main(' + repr(command) + ') == 0; '
+                'assert "matplotlib" not in sys.modules')
+        subprocess.run([sys.executable, '-c', code], check=True, capture_output=True, text=True)
+        self.assertFalse((self.root / 'cli-numerical/plots').exists())
 
     def test_empty_and_preview_results_have_renderable_artifacts(self):
         for count, maximum in ((0, None), (2, 1)):
             events = self.root / f'events{count}.lhe'; events.write_text(document(EVENTS[:count]))
-            result = run_analysis(plan_analysis(events, analysis_config(), max_events=maximum), self.root / f'output{count}')
+            result = run_analysis(plan_analysis(events, analysis_config(), max_events=maximum), self.root / f'output{count}', plots=True)
             self.assertTrue((Path(result['output']) / 'plots/hist_mass_plot.png').is_file())
             self.assertEqual(result['preview_requested'], maximum is not None)

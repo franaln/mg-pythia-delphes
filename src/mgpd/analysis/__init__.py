@@ -1,18 +1,13 @@
 """Analysis planning and bounded LHE numerical execution API."""
-import hashlib
-import json
 from pathlib import Path
 
 from .._version import __version__
 from .config import load_analysis_config
 from .inputs import inspect_inputs
+from .integrity import checksum as _checksum
+from . import engine
 
 DEFAULT_CHUNK_SIZE = 10000
-
-
-def _checksum(plan):
-    body = {key: value for key, value in plan.items() if key != 'plan_sha256'}
-    return hashlib.sha256(json.dumps(body, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, chunk_size=DEFAULT_CHUNK_SIZE):
@@ -71,10 +66,12 @@ def _verify_inputs(plan):
             raise ValueError(f'Analysis input missing or changed: {path}; plan the analysis again')
 
 
-def run_analysis(plan, output):
+def run_analysis(plan, output, *, plots=False):
     """Compute raw LHE statistics and publish a new complete numerical result."""
     if not isinstance(plan, dict) or plan.get('plan_sha256') != _checksum(plan):
         raise ValueError('Analysis plan is missing or changed; plan the analysis again')
+    if type(plots) is not bool:
+        raise ValueError('plots must be a boolean')
     destination = check_output(output, plan)
     if plan.get('format') != 'lhe':
         raise ValueError('ROOT event processing is not implemented yet; use --validate-only')
@@ -83,12 +80,11 @@ def run_analysis(plan, output):
     from .dependencies import require_dependencies, RUNTIME_MODULES
     require_dependencies()
     _verify_inputs(plan)
-    from .engine import calculate_analysis
     import time
     from datetime import datetime, timezone
     from importlib.metadata import version
     started = time.perf_counter()
-    result = calculate_analysis(plan)
+    result = engine.calculate_analysis(plan)
     compute_seconds = time.perf_counter()-started
     _verify_inputs(plan)
     warnings = []
@@ -107,7 +103,7 @@ def run_analysis(plan, output):
               **{key: value for key, value in result.items() if key not in ('cutflow', 'histograms')},
               'compute_seconds': compute_seconds}
     from .reporting import publish_results
-    return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination)
+    return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination, plots=plots)
 
 
 def analysis_example(name='lhe-dileptons'):
@@ -138,7 +134,7 @@ def render_analysis(source, output):
     report['rendered_from'] = provenance
     if not provenance['original_artifact_hashes_verified']:
         report.setdefault('warnings', []).append('Source result has no artifact hashes; integrity before rendering cannot be established.')
-    return publish_results(report, config, cutflow, histograms, destination)
+    return publish_results(report, config, cutflow, histograms, destination, plots=True)
 
 
 __all__ = ['plan_analysis', 'run_analysis', 'render_analysis', 'analysis_example']

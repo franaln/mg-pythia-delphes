@@ -603,6 +603,7 @@ selection and cuts to match the actual process before interpreting the result.
 ```bash
 mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml --validate-only
 mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml -o analysis-results
+mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml --plots -o analysis-with-plots
 mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml \
   --max-events 100 --chunk-size 10 -o analysis-preview
 ```
@@ -613,8 +614,10 @@ supported. Delphes ROOT supports `--validate-only`, including branch checks;
 ROOT event execution is a later stage. Analysis never launches containers/jobs.
 
 The result contains `analysis.yml`, `analysis-report.json`, `cutflow.json`,
-`cutflow.csv`, `histograms.json` and `plots/`. Each histogram is rendered as PNG
-and PDF, alongside cumulative count/weight cutflow plots. Plots use a headless
+`cutflow.csv` and `histograms.json`. Add `--plots` to generate `plots/` in the same
+execution, with each histogram as PNG/PDF and cumulative count/weight cutflows.
+Without `--plots`, no graphical renderer is loaded. For Python use
+`run_analysis(plan, output, plots=True)` to request the same behavior. Plots use a headless
 Agg canvas, explicit raw normalization and linear axes that retain negative
 bins. Underflow, overflow and missing entries are annotated, not folded into
 visible bins. Histogram labels in YAML should include the observable's units.

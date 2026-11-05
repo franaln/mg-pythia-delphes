@@ -54,6 +54,7 @@ def _parser():
     analyze = commands.add_parser('analyze', help='Analyze LHE numerically or validate an LHE/Delphes analysis plan')
     analyze.add_argument('inputs', nargs='*', help='Explicit files of one sample and format')
     analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
+    analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
     analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
     analyze.add_argument('--example', choices=('lhe-dileptons',), help='Print an editable packaged analysis YAML')
     analyze.add_argument('--format', choices=('lhe', 'root'))
@@ -142,7 +143,7 @@ def parse_args(argv=None):
         if args.example or args.from_results:
             incompatible = (args.inputs or args.config or args.format or args.sample or args.validate_only
                             or args.max_events is not None or args.chunk_size is not None)
-            if incompatible or args.example and (args.output or args.from_results):
+            if incompatible or args.example and (args.output or args.from_results or args.plots):
                 parser.error('analyze --example/--from-results cannot be combined with event-analysis options')
             if args.from_results and not args.output:
                 parser.error('analyze --from-results requires a new --output')
@@ -151,6 +152,8 @@ def parse_args(argv=None):
                 parser.error('analyze requires input files and --config')
             if not args.validate_only and not args.output:
                 parser.error('analyze requires --output, or use --validate-only')
+            if args.validate_only and args.plots:
+                parser.error('analyze --plots requires execution, not --validate-only')
             if args.validate_only and args.output:
                 parser.error('analyze --validate-only does not accept --output')
 
@@ -217,7 +220,7 @@ def main(argv=None):
             if args.validate_only:
                 print(json.dumps(plan, indent=2, allow_nan=False))
             else:
-                report = run_analysis(plan, args.output)
+                report = run_analysis(plan, args.output, plots=args.plots)
                 print(f"Analysis completed: {report['output']} ({report['events_processed']} events; raw normalization)")
             return 0
 

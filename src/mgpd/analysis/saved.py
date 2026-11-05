@@ -46,7 +46,7 @@ def load_saved_results(directory):
         raise ValueError('Saved analysis is not a completed supported result')
     if not isinstance(report.get('warnings', []), list) or any(not isinstance(x, str) for x in report.get('warnings', [])):
         raise ValueError('Invalid saved analysis warnings')
-    from . import _checksum
+    from .integrity import checksum as _checksum
     plan = report['plan']
     if plan.get('plan_sha256') != _checksum(plan) or report.get('plan_sha256') != plan['plan_sha256']:
         raise ValueError('Saved analysis plan checksum mismatch')

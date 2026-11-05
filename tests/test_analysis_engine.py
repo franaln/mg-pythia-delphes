@@ -221,7 +221,7 @@ class AnalysisEngineTests(unittest.TestCase):
     def test_execution_publishes_analysis_artifacts_and_preserves_inputs(self):
         before = self.path.read_bytes()
         destination = self.root / 'results'
-        report = run_analysis(self.plan(chunk_size=2), destination)
+        report = run_analysis(self.plan(chunk_size=2), destination, plots=True)
         self.assertEqual(report['state'], 'completed')
         self.assertEqual(report['events_processed'], 5)
         self.assertEqual(set(p.name for p in destination.iterdir()),

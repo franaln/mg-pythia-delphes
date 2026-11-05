@@ -136,60 +136,13 @@ def histogram_plot_data(histogram):
 
 
 def render_plots(report, cutflow, histograms, directory):
-    from matplotlib import rc_context
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    directory = Path(directory)
-    directory.mkdir()
-    sample = report['plan'].get('sample') or 'Sample'
-    prefix = 'PREVIEW | ' if report.get('preview_requested') else ''
-    title = f"{prefix}{sample} | {report['plan']['format'].upper()}"
-    with rc_context({'text.usetex': False, 'font.family': 'DejaVu Sans'}):
-        for name, histogram in histograms.items():
-            figure = Figure(figsize=(7, 5), layout='constrained')
-            FigureCanvasAgg(figure)
-            try:
-                axis = figure.subplots()
-                data = histogram_plot_data(histogram)
-                axis.stairs(data['values'], data['edges'], color='C0')
-                axis.errorbar(data['centers'], data['values'], yerr=data['errors'], fmt='o', markersize=3,
-                              color='C0', capsize=2, label='Raw sumw; errors sqrt(sumw2)')
-                axis.axhline(0, linewidth=.7, color='0.5')
-                axis.set_xlabel(histogram.get('label') or histogram['variable'])
-                axis.set_ylabel('Sum of object weights / bin (raw)' if histogram['entry_kind'] == 'objects'
-                                else 'Sum of event weights / bin (raw)')
-                axis.set_title(f"{title}\nStage: {histogram['stage']}")
-                text = (f"Selected events: {histogram['selected_events']} | Missing values: {histogram['missing_values']}\n"
-                        f"Flow sumw: under={histogram['underflow']['sumw']:.5g}, over={histogram['overflow']['sumw']:.5g}")
-                axis.text(.02, .98, text, transform=axis.transAxes, ha='left', va='top', fontsize=8,
-                          bbox={'facecolor': 'white', 'alpha': .8, 'edgecolor': 'none'})
-                axis.margins(y=.22)
-                axis.legend(loc='lower right', fontsize=8)
-                for extension in ('png', 'pdf'):
-                    figure.savefig(directory / f'hist_{name}.{extension}', dpi=150)
-            finally:
-                figure.clear()
-        labels = [row['stage'] for row in cutflow]
-        for weighted in (False, True):
-            figure = Figure(figsize=(8, max(3, .45*len(labels)+1.5)), layout='constrained')
-            FigureCanvasAgg(figure)
-            try:
-                axis = figure.subplots()
-                values = [row['sumw' if weighted else 'n'] for row in cutflow]
-                errors = [math.sqrt(row['sumw2']) for row in cutflow] if weighted else None
-                axis.barh(range(len(labels)), values, xerr=errors, color='C0', alpha=.75, capsize=2)
-                axis.set_yticks(range(len(labels)), labels)
-                axis.invert_yaxis()
-                axis.axvline(0, linewidth=.7, color='0.5')
-                axis.set_xlabel('Sum of event weights (raw); errors sqrt(sumw2)' if weighted else 'Events')
-                axis.set_title(title + '\nCumulative cutflow')
-                for extension in ('png', 'pdf'):
-                    figure.savefig(directory / f"cutflow_{'weights' if weighted else 'counts'}.{extension}", dpi=150)
-            finally:
-                figure.clear()
+    """Load the optional graphical renderer only at the plotting boundary."""
+
+    from .plotting import render_plots as render
+    return render(report, cutflow, histograms, directory)
 
 
-def publish_results(report, config, cutflow, histograms, destination):
+def publish_results(report, config, cutflow, histograms, destination, *, plots=False):
     """Render/stage all artifacts and exclusively publish one complete directory."""
     import time
     import yaml
@@ -203,15 +156,17 @@ def publish_results(report, config, cutflow, histograms, destination):
         for name, data in [('cutflow.json', cutflow), ('histograms.json', histograms)]:
             (staged / name).write_text(json.dumps(data, indent=2, allow_nan=False) + '\n', encoding='utf-8')
         write_cutflow_csv(cutflow, staged / 'cutflow.csv')
-        started = time.perf_counter()
-        try:
-            render_plots(report, cutflow, histograms, staged / 'plots')
-        except (RuntimeError, ValueError, TypeError) as exc:
-            raise ValueError(f'Could not render analysis plots: {exc}') from exc
-        report['rendering'] = {'mgpd_version': __version__, 'matplotlib_version': version('matplotlib'),
-                               'backend': 'Agg', 'scale': 'linear', 'formats': ['png', 'pdf'],
-                               'seconds': time.perf_counter()-started, 'flow_bins': 'annotated, not folded',
-                               'error_model': 'sqrt(sumw2) per fill; within-event object correlations are not included'}
+        report['rendering'] = {'enabled': False, 'formats': []}
+        if plots:
+            started = time.perf_counter()
+            try:
+                render_plots(report, cutflow, histograms, staged / 'plots')
+            except (RuntimeError, ValueError, TypeError) as exc:
+                raise ValueError(f'Could not render analysis plots: {exc}') from exc
+            report['rendering'] = {'enabled': True, 'mgpd_version': __version__, 'matplotlib_version': version('matplotlib'),
+                                   'backend': 'Agg', 'scale': 'linear', 'formats': ['png', 'pdf'],
+                                   'seconds': time.perf_counter()-started, 'flow_bins': 'annotated, not folded',
+                                   'error_model': 'sqrt(sumw2) per fill; within-event object correlations are not included'}
         files = sorted(path for path in staged.rglob('*') if path.is_file())
         report['artifact_metadata'] = [{'path': str(path.relative_to(staged)), 'bytes': path.stat().st_size,
                                        'sha256': file_sha256(path)} for path in files]
