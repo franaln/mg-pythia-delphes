@@ -55,8 +55,8 @@ def validate_analysis_config(data):
 
     source = data.setdefault('input', {})
     mapping(source, ('format', 'tree', 'weights', 'normalization'), 'input')
-    if source.get('format') not in (None, 'lhe', 'root'):
-        raise ValueError('input.format: expected lhe or root')
+    if source.get('format') not in (None, 'lhe', 'root', 'lhco'):
+        raise ValueError('input.format: expected lhe, root or lhco')
     source.setdefault('tree', 'Delphes')
     if source['tree'] != 'Delphes':
         raise ValueError('input.tree: only Delphes is supported')
@@ -77,7 +77,7 @@ def validate_analysis_config(data):
     for key, obj in objects.items():
         name(key, 'objects')
         mapping(obj, ('source', 'select', 'sort_by', 'descending'), f'objects.{key}')
-        if obj.get('source') not in ('particles', 'Electron', 'Muon', 'Photon', 'Jet', 'MissingET', 'Particle'):
+        if obj.get('source') not in ('particles', 'Electron', 'Muon', 'Photon', 'Jet', 'MissingET', 'Particle', 'Tau'):
             raise ValueError(f'objects.{key}.source: unsupported collection')
         if 'select' in obj:
             expression_names(obj['select'], set(), f'objects.{key}.select', object_filter=True)

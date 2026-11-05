@@ -581,7 +581,7 @@ file and source it; regenerate after CLI upgrades. Completion uses shell functio
 at Tab time, including argument choices and paths with spaces, and performs no
 scheduler/container queries. Free-form process strings and IDs are not guessed.
 
-## Analysis development and LHE/Delphes checks
+## Analysis development and LHE/Delphes/LHCO checks
 
 Install the optional stack and run the analysis regressions:
 
@@ -608,9 +608,9 @@ mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml \
   --max-events 100 --chunk-size 10 -o analysis-preview
 ```
 
-Each output must be new. Inputs can be plain/gzip LHE or Delphes ROOT files,
-including multiple explicit files asserted to belong to one sample. Analyze LHE
-and ROOT separately. Directory discovery is not yet supported. Analysis never
+Each output must be new. Inputs can be plain/gzip LHE, Delphes ROOT, or plain/gzip LHCO files,
+including multiple explicit files asserted to belong to one sample. Analyze each
+representation separately. Directory discovery is not yet supported. Analysis never
 launches containers/jobs.
 
 For reconstructed Delphes electrons:
@@ -641,6 +641,41 @@ with two chunk sizes and compare numerical cutflows/histograms. Synthetic split
 TTrees test the adapter but do not establish compatibility with every Delphes
 TClonesArray layout. Real-file and large-sample memory/throughput checks remain
 pending.
+
+For standard LHCO files:
+
+```bash
+mgpd analyze --example lhco-dileptons > analysis-lhco.yml
+mgpd analyze /path/to/merged_delphes_events.lhco.gz --config analysis-lhco.yml --validate-only
+mgpd analyze /path/to/merged_delphes_events.lhco.gz --config analysis-lhco.yml --plots -o analysis-lhco
+```
+
+The LHCO reader accepts three-column headers (`0 event-number trigger`) and
+11-column object rows, comments and blank lines. Object indices restart at one
+and must be consecutive within each event. Types 0/1/2/3/4/6 map to
+Photon/Electron/Muon/Tau/Jet/MissingET. Other types or dialects fail explicitly.
+All visible four-vectors use the mass stored in the file (which can differ from
+the fixed lepton masses used for ROOT). MissingET is a massless transverse proxy
+with pz=0, regardless of placeholder eta/mass columns.
+
+Use `input.weights: {mode: unit}` explicitly: no nominal weights or cross sections
+are inferred from LHCO event headers. The sign of nonzero ntrk gives lepton
+charge; zero means unknown, and opposite-sign pairing then fails. If appropriate
+for your selection, remove unknown-charge objects with `is_valid(charge)`.
+Jet charge, generator PID/status, ancestry and tag/isolation fields are not
+exposed by this adapter. Tau objects form a separate collection and are not
+silently included in Jet. Photon/MissingET charge is not exposed.
+
+Empty events are retained; EOF closes the last event without requiring a newline.
+LHCO has no event-length record/trailer, so a file cut exactly between valid rows
+cannot be distinguished from a complete shorter final event. Planning inspects
+the first event; execution validates all consumed rows and reports file/event/line
+on malformed input. Preview mode does not validate the unread tail.
+
+Native Delphes converter acceptance remains pending. On Jupiter, compare ROOT
+and its converted LHCO using explicit unit weights, only shared object content,
+and tolerances for text precision/mass conventions. Record the image/converter
+identity. Synthetic standard-format fixtures do not establish every dialect.
 
 The result contains `analysis.yml`, `analysis-report.json`, `cutflow.json`,
 `cutflow.csv` and `histograms.json`. Add `--plots` to generate `plots/` in the same

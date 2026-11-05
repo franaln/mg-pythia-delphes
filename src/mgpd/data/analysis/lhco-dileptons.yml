@@ -1,0 +1,36 @@
+# Standard LHCO electrons; adapt thresholds to your sample.
+# LHCO has no supported nominal weights; lepton charge uses signed ntrk.
+schema_version: 1
+input:
+  format: lhco
+  weights: {mode: unit}
+  normalization: {mode: raw}
+objects:
+  electrons:
+    source: Electron
+    select: "(pt > 10) & (abs(eta) < 2.5)"
+    sort_by: pt
+    descending: true
+variables:
+  n_electrons: "count(electrons)"
+  dilepton: "leading_os_pair(electrons)"
+  m_ee: "mass(dilepton)"
+  pt_ee: "pt(dilepton)"
+cuts:
+  - name: two_electrons
+    expression: "n_electrons >= 2"
+  - name: valid_pair
+    expression: "is_valid(dilepton)"
+  - name: mass_window
+    expression: "(m_ee > 60) & (m_ee < 120)"
+histograms:
+  - name: m_ee_before_window
+    variable: m_ee
+    stage: valid_pair
+    bins: {count: 60, min: 0, max: 180}
+    label: "m(ee) [GeV]"
+  - name: pt_ee_selected
+    variable: pt_ee
+    stage: mass_window
+    bins: {count: 50, min: 0, max: 200}
+    label: "pT(ee) [GeV]"

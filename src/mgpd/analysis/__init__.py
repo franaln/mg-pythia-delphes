@@ -29,8 +29,8 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
         raise ValueError('chunk_size: expected an integer from 1 to 1000000')
     if max_events is not None and (type(max_events) is not int or max_events < 1):
         raise ValueError('max_events: expected a positive integer')
-    if format not in (None, 'lhe', 'root'):
-        raise ValueError('format: expected lhe or root')
+    if format not in (None, 'lhe', 'root', 'lhco'):
+        raise ValueError('format: expected lhe, root or lhco')
     if sample is not None and (not isinstance(sample, str) or not sample.strip()):
         raise ValueError('sample: expected a nonempty label')
     effective, order = load_analysis_config(config)
@@ -49,6 +49,8 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
                             'Headers/branches validated; event shapes and expression result types are not evaluated.',
                             'External multi-file inputs assert one sample; physical overlap is not inferred.',
                             'Object pairs use highest scalar-pT-sum opposite-sign pair, then original indices. Independent-event errors; correlated eventgroups are rejected.']}
+    if selected == 'lhco':
+        plan['limitations'].append('LHCO supports standard 11-column records and explicit unit weights only; lepton charge is sign(ntrk), zero is missing. No PID/status or jet charge. MET is transverse and massless. Native converter validation pending.')
     plan['plan_sha256'] = _checksum(plan)
     return plan
 
@@ -128,8 +130,8 @@ def run_analysis(plan, output, *, plots=False):
 def analysis_example(name='lhe-dileptons'):
     """Return a packaged editable starter, with no writes or optional imports."""
 
-    if name not in ('lhe-dileptons', 'delphes-dileptons'):
-        raise ValueError('Unknown analysis example; choose lhe-dileptons or delphes-dileptons')
+    if name not in ('lhe-dileptons', 'delphes-dileptons', 'lhco-dileptons'):
+        raise ValueError('Unknown analysis example; choose lhe-dileptons, delphes-dileptons or lhco-dileptons')
     return _resource(f'analysis/{name}.yml').read_text(encoding='utf-8')
 
 

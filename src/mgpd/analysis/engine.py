@@ -2,7 +2,7 @@
 from .evaluation import Expression, boolean, finite
 from .expressions import FIELDS
 from .readers import iter_lhe_batches
-from .root_reader import iter_root_batches
+from .lhco_reader import iter_lhco_batches
 from .statistics import Counter, Histogram, efficiency
 
 
@@ -29,7 +29,10 @@ def calculate_analysis(plan):
         files_read.append(source['path'])
         if plan['format'] == 'lhe':
             reader = iter_lhe_batches(source['path'], plan['chunk_size'], remaining)
+        elif plan['format'] == 'lhco':
+            reader = iter_lhco_batches(source['path'], config, plan['chunk_size'], remaining)
         else:
+            from .root_reader import iter_root_batches
             reader = iter_root_batches(source['path'], config, plan['required_fields'], plan['chunk_size'], remaining)
         for batch in reader:
             batches += 1

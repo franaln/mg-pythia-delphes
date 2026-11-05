@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from ..storage import file_sha256
 from .dependencies import require_dependencies
 from .expressions import FIELDS
+from .lhco_reader import required_lhco_fields, inspect_lhco_header
 
 ROOT_FIELDS = {
     'Electron': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi', 'charge': 'Charge'},
@@ -20,6 +21,9 @@ ROOT_FIELDS = {
 
 
 def required_fields(config, format):
+    if format == 'lhco':
+        return required_lhco_fields(config)
+
     if format == 'lhe':
         if 'branch' in config['input']['weights']:
             raise ValueError('input.weights.branch is a ROOT-only option')
@@ -121,12 +125,12 @@ def inspect_inputs(inputs, config, format=None):
         if not path.is_file():
             raise ValueError(f'{path}: explicit files are required; merge/select production outputs first')
         lower = path.name.lower()
-        kind = 'lhe' if lower.endswith(('.lhe', '.lhe.gz')) else 'root' if lower.endswith('.root') else None
+        kind = 'lhe' if lower.endswith(('.lhe', '.lhe.gz')) else 'root' if lower.endswith('.root') else 'lhco' if lower.endswith(('.lhco', '.lhco.gz')) else None
         if kind is None:
-            raise ValueError(f'{path}: unsupported file extension; expected .lhe, .lhe.gz or .root')
+            raise ValueError(f'{path}: unsupported file extension; expected .lhe, .lhe.gz, .root, .lhco or .lhco.gz')
         kinds.add(kind)
     if len(kinds) != 1:
-        raise ValueError('Analyze one representation at a time; mixed LHE/ROOT input is not supported')
+        raise ValueError('Analyze one representation at a time; mixed LHE/ROOT/LHCO input is not supported')
     inferred = next(iter(kinds))
     for selected in (format, config['input'].get('format')):
         if selected is not None and selected != inferred:
@@ -136,7 +140,7 @@ def inspect_inputs(inputs, config, format=None):
     for path in sorted(paths):
         before = path.stat()
         digest = file_sha256(path)
-        metadata = _lhe_header(path) if inferred == 'lhe' else _root_header(path, config, fields)
+        metadata = _lhe_header(path) if inferred == 'lhe' else inspect_lhco_header(path) if inferred == 'lhco' else _root_header(path, config, fields)
         after = path.stat()
         if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
             raise ValueError(f'Input changed during planning: {path}')

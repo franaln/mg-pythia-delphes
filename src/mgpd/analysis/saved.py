@@ -51,7 +51,7 @@ def load_saved_results(directory):
     plan = report['plan']
     if plan.get('plan_sha256') != _checksum(plan) or report.get('plan_sha256') != plan['plan_sha256']:
         raise ValueError('Saved analysis plan checksum mismatch')
-    if plan.get('format') not in ('lhe', 'root') or report.get('normalization') != 'raw':
+    if plan.get('format') not in ('lhe', 'root', 'lhco') or report.get('normalization') != 'raw':
         raise ValueError('Unsupported saved analysis format or normalization')
     metadata = report.get('artifact_metadata')
     if metadata is not None:
