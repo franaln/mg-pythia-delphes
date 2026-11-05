@@ -2,10 +2,12 @@
 import hashlib
 import json
 from pathlib import Path
+import yaml
 
 from .config import validate_analysis_config
 from .reporting import validate_numerical
-
+from .config import _Loader
+from .integrity import checksum as _checksum
 
 def _pairs(pairs):
     result = {}
@@ -46,7 +48,6 @@ def load_saved_results(directory):
         raise ValueError('Saved analysis is not a completed supported result')
     if not isinstance(report.get('warnings', []), list) or any(not isinstance(x, str) for x in report.get('warnings', [])):
         raise ValueError('Invalid saved analysis warnings')
-    from .integrity import checksum as _checksum
     plan = report['plan']
     if plan.get('plan_sha256') != _checksum(plan) or report.get('plan_sha256') != plan['plan_sha256']:
         raise ValueError('Saved analysis plan checksum mismatch')
@@ -64,8 +65,7 @@ def load_saved_results(directory):
             if entry.get('sha256') != hashes[name] or entry.get('bytes') != len(payloads[name]):
                 raise ValueError(f'Saved artifact checksum/size mismatch: {name}')
     # Load the exact YAML bytes already hashed, not a second read of a mutable file.
-    from .config import _Loader
-    import yaml
+
     try:
         config, _ = validate_analysis_config(yaml.load(payloads['analysis.yml'], Loader=_Loader))
     except yaml.YAMLError as exc:

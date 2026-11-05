@@ -47,10 +47,12 @@ def _finite(value):
 
 
 def validate_analysis_config(data):
+
     data = copy.deepcopy(data)
     mapping(data, ('schema_version', 'input', 'objects', 'variables', 'cuts', 'histograms'), 'analysis')
     if type(data.get('schema_version')) is not int or data['schema_version'] != 1:
         raise ValueError('schema_version: expected integer 1')
+
     source = data.setdefault('input', {})
     mapping(source, ('format', 'tree', 'weights', 'normalization'), 'input')
     if source.get('format') not in (None, 'lhe', 'root'):
@@ -95,6 +97,7 @@ def validate_analysis_config(data):
     cuts = data.setdefault('cuts', [])
     if not isinstance(cuts, list):
         raise ValueError('cuts: expected an ordered list')
+
     stages = {'initial'}
     for cut in cuts:
         mapping(cut, ('name', 'expression'), 'cuts')
@@ -103,9 +106,11 @@ def validate_analysis_config(data):
             raise ValueError(f'cuts: duplicate stage {key}')
         expression_names(cut.get('expression'), symbols, f'cuts.{key}.expression')
         stages.add(key)
+
     histograms = data.get('histograms')
     if not isinstance(histograms, list) or not histograms:
         raise ValueError('histograms: expected a nonempty list')
+
     names = set()
     for hist in histograms:
         mapping(hist, ('name', 'variable', 'stage', 'bins', 'label', 'fill'), 'histograms')
@@ -130,10 +135,12 @@ def validate_analysis_config(data):
             if (type(bins.get('count')) is not int or not 1 <= bins['count'] <= 100000
                     or not _finite(bins.get('min')) or not _finite(bins.get('max')) or bins['min'] >= bins['max']):
                 raise ValueError(f'histograms.{key}.bins: invalid count or range')
+
     return data, order
 
 
 def load_analysis_config(source):
+
     if isinstance(source, dict):
         return validate_analysis_config(source)
     path = Path(source).expanduser().resolve(strict=True)
@@ -141,4 +148,5 @@ def load_analysis_config(source):
         data = yaml.load(path.read_text(encoding='utf-8'), Loader=_Loader)
     except yaml.YAMLError as exc:
         raise ValueError(f'Invalid analysis YAML: {exc}') from exc
+
     return validate_analysis_config(data)

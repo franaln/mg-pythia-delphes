@@ -5,8 +5,12 @@ import os
 from pathlib import Path
 import tempfile
 import json
+import time
+import yaml
 
 from ..storage import file_sha256
+from importlib.metadata import version
+from .._version import __version__
 
 COUNTERS = ('n', 'sumw', 'sumw2', 'sumabsw', 'positive_weights', 'negative_weights', 'zero_weights')
 
@@ -144,10 +148,7 @@ def render_plots(report, cutflow, histograms, directory):
 
 def publish_results(report, config, cutflow, histograms, destination, *, plots=False):
     """Render/stage all artifacts and exclusively publish one complete directory."""
-    import time
-    import yaml
-    from importlib.metadata import version
-    from .._version import __version__
+
     validate_numerical(config, cutflow, histograms)
     with tempfile.TemporaryDirectory(prefix='.mgpd-analysis-', dir=destination.parent) as temporary:
         staged = Path(temporary) / 'result'

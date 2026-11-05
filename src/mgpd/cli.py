@@ -18,6 +18,7 @@ from .merge import merge_outputs
 from .production_merging import merge_production
 from .config import resolve_run_mode
 from .images import list_sif_images, list_docker_images
+from .analysis import plan_analysis, run_analysis, render_analysis, analysis_example, DEFAULT_CHUNK_SIZE
 
 RUN_MODES = ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']
 
@@ -207,7 +208,6 @@ def main(argv=None):
     try:
 
         if args.command == 'analyze':
-            from .analysis import plan_analysis, run_analysis, render_analysis, analysis_example, DEFAULT_CHUNK_SIZE
             if args.example:
                 print(analysis_example(args.example), end='')
                 return 0

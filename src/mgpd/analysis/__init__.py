@@ -1,11 +1,20 @@
 """Analysis planning and bounded LHE numerical execution API."""
 from pathlib import Path
+import time
+import copy
+from datetime import datetime, timezone
+from importlib.metadata import version
 
 from .._version import __version__
 from .config import load_analysis_config
 from .inputs import inspect_inputs
 from .integrity import checksum as _checksum
 from . import engine
+from .dependencies import require_dependencies, RUNTIME_MODULES
+from .reporting import publish_results
+from ..templates import _resource
+from .saved import load_saved_results
+from .reporting import publish_results
 
 DEFAULT_CHUNK_SIZE = 10000
 
@@ -68,25 +77,28 @@ def _verify_inputs(plan):
 
 def run_analysis(plan, output, *, plots=False):
     """Compute raw LHE statistics and publish a new complete numerical result."""
+
     if not isinstance(plan, dict) or plan.get('plan_sha256') != _checksum(plan):
         raise ValueError('Analysis plan is missing or changed; plan the analysis again')
+
     if type(plots) is not bool:
         raise ValueError('plots must be a boolean')
     destination = check_output(output, plan)
+
     if plan.get('format') != 'lhe':
         raise ValueError('ROOT event processing is not implemented yet; use --validate-only')
     if not plan.get('execution_available') or plan.get('engine') != 'lhe-scalar-v1':
         raise ValueError('This plan cannot execute with the current LHE engine; plan the analysis again')
-    from .dependencies import require_dependencies, RUNTIME_MODULES
     require_dependencies()
+
     _verify_inputs(plan)
-    import time
-    from datetime import datetime, timezone
-    from importlib.metadata import version
+
     started = time.perf_counter()
     result = engine.calculate_analysis(plan)
     compute_seconds = time.perf_counter()-started
+
     _verify_inputs(plan)
+
     warnings = []
     if result['limit_reached']:
         warnings.append('Event limit reached; input exhaustion was not verified and no absolute normalization is available.')
@@ -94,46 +106,56 @@ def run_analysis(plan, output, *, plots=False):
         warnings.append('Signed weights: weighted ratios are not probabilities or binomial efficiencies.')
     if not result['events_processed']:
         warnings.append('No input events; efficiencies with empty denominators are undefined.')
-    report = {'schema_version': 1, 'state': 'completed', 'mgpd_version': __version__,
-              'created_at': datetime.now(timezone.utc).isoformat(), 'output': str(destination),
-              'plan_sha256': plan['plan_sha256'], 'plan': plan,
-              'dependency_versions': {module: version(module) for module in RUNTIME_MODULES},
-              'normalization': 'raw', 'units': plan['units'], 'warnings': warnings,
-              'statistics_model': 'independent events; subset covariance included',
-              **{key: value for key, value in result.items() if key not in ('cutflow', 'histograms')},
-              'compute_seconds': compute_seconds}
-    from .reporting import publish_results
+
+    report = {
+        'schema_version': 1,
+        'state': 'completed',
+        'mgpd_version': __version__,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'output': str(destination),
+        'plan_sha256': plan['plan_sha256'],
+        'plan': plan,
+        'dependency_versions': {module: version(module) for module in RUNTIME_MODULES},
+        'normalization': 'raw',
+        'units': plan['units'],
+        'warnings': warnings,
+        'statistics_model': 'independent events; subset covariance included',
+        **{key: value for key, value in result.items() if key not in ('cutflow', 'histograms')},
+        'compute_seconds': compute_seconds
+    }
+
     return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination, plots=plots)
 
 
 def analysis_example(name='lhe-dileptons'):
     """Return a packaged editable starter, with no writes or optional imports."""
+
     if name != 'lhe-dileptons':
         raise ValueError('Unknown analysis example; choose lhe-dileptons')
-    from ..templates import _resource
     return _resource('analysis/lhe-dileptons.yml').read_text(encoding='utf-8')
 
 
 def render_analysis(source, output):
     """Regenerate CSV and plots from saved numbers, never opening original events."""
-    from .saved import load_saved_results
-    from .reporting import publish_results
-    from .dependencies import require_dependencies
-    from datetime import datetime, timezone
-    import copy
+
+
     source_path = Path(source).expanduser().resolve(strict=True)
     report, config, cutflow, histograms, provenance = load_saved_results(source_path)
     destination = check_output(output, {'inputs': [{'path': str(source_path / name)} for name in
                                                   ('analysis-report.json', 'analysis.yml', 'cutflow.json', 'histograms.json')]})
     if destination.is_relative_to(source_path):
         raise ValueError('Rendering output must be outside the saved analysis directory')
+
     require_dependencies(('matplotlib',))
+
     report = copy.deepcopy(report)
     report['output'] = str(destination)
     report['rendered_at'] = datetime.now(timezone.utc).isoformat()
     report['rendered_from'] = provenance
+
     if not provenance['original_artifact_hashes_verified']:
         report.setdefault('warnings', []).append('Source result has no artifact hashes; integrity before rendering cannot be established.')
+
     return publish_results(report, config, cutflow, histograms, destination, plots=True)
 
 
