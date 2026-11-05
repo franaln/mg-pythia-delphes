@@ -41,7 +41,7 @@ def _parser():
     parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__}')
     commands = parser.add_subparsers(dest='command', required=True)
 
-    completion = commands.add_parser('completion', help='Print Bash or Zsh completion setup')
+    completion = commands.add_parser('completion', help=argparse.SUPPRESS)
     completion.add_argument('shell', choices=('bash', 'zsh'))
 
     images = commands.add_parser('images', help='List installed images or published Docker Hub tags')
@@ -62,25 +62,25 @@ def _parser():
     analyze.add_argument('--chunk-size', type=int, default=10000)
 
     # Create project
-    create = commands.add_parser('create', help='Create editable YAML/cards from a template')
+    create = commands.add_parser('create', help='Create project with editable YAML/cards from a template or another project')
     create.add_argument('directory', nargs='?', help='New project directory')
     create.add_argument('--template', choices=sorted(PROJECT_TEMPLATES))
     create.add_argument('--list-templates', action='store_true')
     create.add_argument('--name', help='Sample name; starter defaults to directory name, copy preserves source name')
-    create.add_argument('--level', choices=PROJECT_LEVELS, help='')
-    create.add_argument('--mode', choices=RUN_MODES)
-    create.add_argument('--image')
+    create.add_argument('--level', choices=PROJECT_LEVELS, help='Parton uses only Madgraph, Particle includes showering and hadronization by Pythia, and detector reconstruction with Delphes')
+    create.add_argument('--mode', choices=RUN_MODES, help='Run mode')
+    create.add_argument('--image', help='Docker/Apptainer image to use')
     create.add_argument('--process', help='Inline MadGraph command block; replaces the starter/copied process')
     create.add_argument('--nevents', type=int, help='Events per job')
-    create.add_argument('--njobs', type=int)
+    create.add_argument('--njobs', type=int, help='Number of jobs')
     create.add_argument('--seed', type=int, help='Fixed starting seed; starter defaults to RANDOM, copy preserves source seed')
-    create.add_argument('--copy', help='Copy from another config directory into another')
+    create.add_argument('--copy', help='Copy from another project directory with new parameters')
 
     # Prepare and execute production
-    for name, help_text in [('prepare', 'Freeze a project into a prepared production'),
-                            ('run', 'Prepare and execute/submit a project')]:
+    for name, help_text in [('prepare', 'Prepare a project for a production'),
+                            ('run', 'Prepare a project and execute/submit its production')]:
         command = commands.add_parser(name, help=help_text)
-        command.add_argument('project', help='Project directory or YAML file')
+        command.add_argument('project', help='Project directory or YAML configuration file')
         command.add_argument('-o', '--output', help='Default: production/ beside the YAML')
         command.add_argument('--base-directory', help='Input path base; default: directory containing the YAML')
         command.add_argument('--mode', dest='run_mode', choices=RUN_MODES)
@@ -252,6 +252,7 @@ def main(argv=None):
                                   'mode': config['run'].get('mode', 'local')}, indent=2))
             else:
                 print('Configuration is valid')
+
             return 0
 
         if args.command in ('prepare', 'run'):
@@ -260,6 +261,7 @@ def main(argv=None):
             print(f'Production prepared: {production.output_dir}')
             if args.command == 'run':
                 execute_production(production)
+
             return 0
 
         if args.command == 'execute':

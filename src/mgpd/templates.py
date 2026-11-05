@@ -13,14 +13,6 @@ def _resource(relative):
 def load_template(name):
     return _resource(f'templates/{name}').read_text(encoding='utf-8')
 
-# def replace_template(template_text, replace_dict):
-#     template = string.Template(template_text)
-#     return template.substitute(replace_dict)
-
-# def load_replace_template(name, replace_dict):
-#     template = string.Template(load_template(name))
-#     return template.substitute(replace_dict)
-
 def create_file_from_template(name, output_path, replace_dict={}):
     template_text = load_template(name)
     if replace_dict:

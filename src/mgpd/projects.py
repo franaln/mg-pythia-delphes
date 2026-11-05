@@ -104,7 +104,7 @@ def create_project(directory, *, template, name=None, level='parton', mode='loca
     _set_process(config, process)
 
     header = (f'# Created from mgpd template; review physics settings before running.\n'
-              '# mgpd run resolves these card paths from this directory.\n')
+               '# mgpd run resolves these card paths from this directory.\n')
 
     content = header + yaml.dump(config, Dumper=_Dumper, sort_keys=False, allow_unicode=True)
 
