@@ -11,6 +11,16 @@ _ALLOWED = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare,
             ast.And, ast.Or, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 
 
+def _exponent(node):
+    sign = 1
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        sign = -1 if isinstance(node.op, ast.USub) else 1
+        node = node.operand
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return sign * node.value
+    return None
+
+
 def expression_names(expression, symbols, location, *, object_filter=False):
     if not isinstance(expression, str) or not expression.strip() or len(expression) > 4096:
         raise ValueError(f'{location}: expected an expression of 1..4096 characters')
@@ -31,7 +41,8 @@ def expression_names(expression, symbols, location, *, object_filter=False):
             if isinstance(node.value, float) and not math.isfinite(node.value):
                 raise ValueError(f'{location}: constants must be finite')
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
-            if not isinstance(node.right, ast.Constant) or type(node.right.value) not in (int, float) or not -8 <= node.right.value <= 8:
+            exponent = _exponent(node.right)
+            if exponent is None or not -8 <= exponent <= 8:
                 raise ValueError(f'{location}: powers require a constant exponent between -8 and 8')
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.func.id not in FUNCTIONS or node.keywords:

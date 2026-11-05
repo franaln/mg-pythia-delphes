@@ -581,31 +581,89 @@ file and source it; regenerate after CLI upgrades. Completion uses shell functio
 at Tab time, including argument choices and paths with spaces, and performs no
 scheduler/container queries. Free-form process strings and IDs are not guessed.
 
-## Analysis development: stage 1
+## Analysis development and numerical LHE checks
 
-The `dev_analysis` branch introduces an optional `analysis` extra and the
-`mgpd.analysis.plan_analysis` / `run_analysis` API. Event processing is not yet
-implemented; this stage validates and prints plans only.
+Install the optional stack and run the analysis regressions:
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m unittest discover -s tests -p test_analysis.py -v
-mgpd analyze --help
-mgpd analyze /path/to/events.lhe.gz --config /path/to/analysis.yml --validate-only
+python -m unittest discover -s tests -p 'test_analysis*.py' -v
 ```
 
-Use the version-one YAML design in the local development plan. Inputs currently
-must be explicit files of one sample and format; production/merge directory
-discovery comes later. Validation checks LHE init records or Delphes tree/branch
-names, expressions and dependencies, records full input SHA256 hashes and writes
-nothing. It does not read the event sample to validate shapes or compute physics
-results. LHE planning needs only base dependencies; ROOT planning requires Uproot.
-Execution without the extra reports the installation command; with the extra it
-reports that processing is not implemented and leaves no output directory.
+Create an `analysis.yml` for a dilepton sample:
 
-Defaults: nominal weights with no unit-weight fallback, raw normalization,
-10,000-event batches (provisional until measured), explicit flow bins and
-left-inclusive/right-exclusive histogram bins with an inclusive final edge.
-Opposite-sign pairing will select the largest scalar pT sum and break ties by
-original indices. Expressions permit only approved fields and positional pure
-functions; they are parsed and checked without `eval` or `exec`.
+```yaml
+schema_version: 1
+input:
+  format: lhe
+  weights: {mode: nominal}
+  normalization: {mode: raw}
+objects:
+  electrons:
+    source: particles
+    select: "(abs(pdg_id) == 11) & (status == 1)"
+variables:
+  n_electrons: "count(electrons)"
+  dilepton: "leading_os_pair(electrons)"
+  m_ee: "mass(dilepton)"
+cuts:
+  - name: two_electrons
+    expression: "n_electrons >= 2"
+  - name: valid_pair
+    expression: "is_valid(dilepton)"
+  - name: mass_window
+    expression: "(m_ee > 60) & (m_ee < 120)"
+histograms:
+  - name: m_ee_selected
+    variable: m_ee
+    stage: mass_window
+    bins: {count: 60, min: 0, max: 180}
+    label: "m(ee) [GeV]"
+```
+
+Use a validated LHE file from a small merged production. Change the PDG/object
+selection and cuts to match the actual process before interpreting the result.
+
+```bash
+mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml --validate-only
+mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml -o analysis-results
+mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml \
+  --max-events 100 --chunk-size 10 -o analysis-preview
+```
+
+Each output must be new. Inputs can be plain/gzip LHE files, including multiple
+explicit files asserted to belong to one sample. Directory discovery is not yet
+supported. Delphes ROOT supports `--validate-only`, including branch checks;
+ROOT event execution is a later stage. Analysis never launches containers/jobs.
+
+The numerical result contains `analysis.yml`, `analysis-report.json`,
+`cutflow.json` and `histograms.json`. No CSV or plot files are generated yet.
+The report records the frozen plan, full input hashes, dependency versions,
+processed events and preview/completeness flags. Inputs are checked before and
+after processing; failures publish no completed output. Inspect raw bin values
+and cutflows, not just the final number of events, when testing a new sample.
+
+Cutflow rows contain N, sumw, sumw2, positive/negative/zero weight counts and
+relative/cumulative count efficiencies and weighted ratios. Count intervals use
+Wilson z=1. Weighted errors include pass/total covariance and assume independent
+events; correlated LHE eventgroups are rejected. A cancelling weighted denominator
+returns null with a reason. Signed-weight ratios are not probabilities and are
+not clipped to [0,1]. Normalization remains raw: nominal event weights are not
+automatically converted to cross sections or luminosity yields. `mode: unit`
+explicitly replaces weights by one; malformed/nonfinite event records still fail.
+
+Histograms use left-inclusive/right-exclusive bins with an inclusive final edge,
+separate flow bins and missing-value counts. `fill: events` requires a scalar
+variable. For variables such as `electrons.pt`, use `fill: objects`; every object
+receives its parent event weight and the result is an object-level distribution.
+Variables/cuts never substitute zero for missing pairs or undefined arithmetic.
+Object cuts filter particles; event cuts filter events cumulatively in YAML order.
+
+Pairs select the highest scalar-pT-sum opposite-sign combination, breaking ties
+by original particle indices. Known SM/common hadron charges are mapped explicitly;
+unknown BSM charges require an appropriate selection rather than guessing signs.
+The reader preserves original LHE mother indices, supports optional weight XML
+(nominal XWGTUP only), rejects malformed/truncated events and processes bounded
+batches. Computation currently uses a scalar event loop; batch-size changes must
+leave numerical results unchanged. Large-sample memory/performance testing on
+Jupiter remains necessary. Review all requested observables for the process.

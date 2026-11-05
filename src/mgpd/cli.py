@@ -51,14 +51,14 @@ def _parser():
     images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
     images.add_argument('--json', action='store_true', dest='json_output')
 
-    analyze = commands.add_parser('analyze', help='Plan exploratory LHE/Delphes analysis (execution coming next)')
+    analyze = commands.add_parser('analyze', help='Analyze LHE numerically or validate an LHE/Delphes analysis plan')
     analyze.add_argument('inputs', nargs='+', help='Explicit files of one sample and format')
     analyze.add_argument('--config', required=True, help='Analysis YAML (not generation YAML)')
     analyze.add_argument('--format', choices=('lhe', 'root'))
     analyze.add_argument('--sample', help='Label for the explicitly selected sample')
     analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')
     analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
-    analyze.add_argument('--max-events', type=int, help='Bounded preview (execution coming next)')
+    analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
     analyze.add_argument('--chunk-size', type=int, default=10000)
 
     # Create project
@@ -198,7 +198,8 @@ def main(argv=None):
             if args.validate_only:
                 print(json.dumps(plan, indent=2, allow_nan=False))
             else:
-                run_analysis(plan, args.output)
+                report = run_analysis(plan, args.output)
+                print(f"Analysis completed: {report['output']} ({report['events_processed']} events; raw normalization)")
             return 0
 
         if args.command == 'completion':

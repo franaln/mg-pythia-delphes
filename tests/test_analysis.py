@@ -64,7 +64,7 @@ class AnalysisContractTests(unittest.TestCase):
         plan = plan_analysis([self.lhe], original)
         self.assertEqual(original, config())
         self.assertEqual(plan['state'], 'planned')
-        self.assertFalse(plan['execution_available'])
+        self.assertTrue(plan['execution_available'])
         self.assertEqual(plan['config']['input']['weights']['mode'], 'nominal')
         self.assertEqual(plan['config']['input']['normalization']['mode'], 'raw')
         self.assertEqual(plan['inputs'][0]['metadata']['cross_section_pb'], 2.5)
@@ -135,11 +135,8 @@ class AnalysisContractTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn('mg-pythia-delphes[analysis]', error)
         self.assertFalse(destination.exists())
-        with patch('mgpd.analysis.dependencies.find_spec', return_value=object()):
-            result, _, error = self.call('-o', str(destination))
-        self.assertEqual(result, 1)
-        self.assertIn('not implemented yet', error)
-        self.assertFalse(destination.exists())
+        # Execution is exercised with real optional dependencies in test_analysis_engine.
+
 
     def test_execution_refuses_changed_plan_existing_output_and_invalid_limits(self):
         plan = plan_analysis(self.lhe, config())
