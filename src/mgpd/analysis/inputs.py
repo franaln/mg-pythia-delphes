@@ -15,12 +15,12 @@ ROOT_FIELDS = {
     'Photon': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi'},
     'Jet': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi', 'mass': 'Mass', 'charge': 'Charge'},
     'MissingET': {'pt': 'MET', 'eta': 'Eta', 'phi': 'Phi'},
-    'Particle': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi', 'mass': 'Mass', 'pdg_id': 'PID',
-                 'status': 'Status', 'charge': 'Charge'},
+    'Particle': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi', 'mass': 'Mass', 'pdg_id': 'PID', 'status': 'Status', 'charge': 'Charge'},
 }
 
 
 def required_fields(config, format):
+
     if format == 'lhco':
         return required_lhco_fields(config)
 
@@ -30,6 +30,7 @@ def required_fields(config, format):
         if any(obj['source'] != 'particles' for obj in config['objects'].values()):
             raise ValueError('LHE objects must use source: particles')
         return {'particles': sorted(FIELDS), 'event': ['nominal_weight'] if config['input']['weights']['mode'] == 'nominal' else []}
+
     required = {}
     for key, obj in config['objects'].items():
         source = obj['source']
@@ -92,6 +93,7 @@ def _lhe_header(path):
                     node.clear()
     except (ET.ParseError, EOFError, UnicodeError) as exc:
         raise ValueError(f'{path}: malformed LHE header') from exc
+
     raise ValueError(f'{path}: missing LHE init block')
 
 

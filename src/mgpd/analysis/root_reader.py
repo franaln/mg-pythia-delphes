@@ -1,13 +1,13 @@
 """Delphes split-branch adapter; optional dependencies load only on use."""
 import math
+import awkward as ak
+import uproot
 
 from .inputs import ROOT_FIELDS
 from .readers import Momentum
 
 
 def iter_root_batches(path, config, required, chunk_size, max_events=None):
-    import awkward as ak
-    import uproot
 
     branches = sorted({branch for values in required.values() for branch in values})
     weight_config = config['input']['weights']
@@ -15,15 +15,17 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
     weight_branch = weight_config.get('branch', 'Event.Weight')
     number = 0
     with uproot.open(path) as root:
+
         tree = root[config['input']['tree']]
         stop = min(tree.num_entries, max_events) if max_events is not None else tree.num_entries
+
         for start in range(0, stop, chunk_size):
             size = min(chunk_size, stop - start)
-            arrays = tree.arrays(expressions=branches, entry_start=start, entry_stop=start + size,
-                                 library='ak', how=dict)
+            arrays = tree.arrays(expressions=branches, entry_start=start, entry_stop=start + size, library='ak', how=dict)
             columns = {key: ak.to_list(value) for key, value in arrays.items()}
             if any(len(value) != size for value in columns.values()):
                 raise ValueError(f'{path}: inconsistent event branch lengths')
+
             batch = []
             for entry in range(size):
                 number += 1
@@ -35,6 +37,7 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
                         weight = weight[0]
                     if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not math.isfinite(weight):
                         raise ValueError('event weight must be a finite number')
+
                     event = {'weight': float(weight), 'source': str(path), 'event_index': number}
                     for key, obj in config['objects'].items():
                         source = obj['source']
@@ -47,6 +50,7 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
                         lengths = {len(value) for value in values.values()}
                         if len(lengths) != 1:
                             raise ValueError(f'{source}: inconsistent object branch lengths')
+
                         particles = []
                         for index in range(next(iter(lengths))):
                             fields = {field: value[index] for field, value in values.items()}
@@ -67,4 +71,5 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
                     batch.append(event)
                 except (ValueError, OverflowError, TypeError) as exc:
                     raise ValueError(f'{path}: event {number}: {exc}') from exc
+
             yield batch
