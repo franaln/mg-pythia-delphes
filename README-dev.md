@@ -610,8 +610,30 @@ mgpd analyze /path/to/merged_unweighted_events.lhe.gz --config analysis.yml \
 
 Each output must be new. Inputs can be plain/gzip LHE, Delphes ROOT, or plain/gzip LHCO files,
 including multiple explicit files asserted to belong to one sample. Analyze each
-representation separately. Directory discovery is not yet supported. Analysis never
-launches containers/jobs.
+representation separately. Managed merge directories are also supported. Analysis
+never launches containers/jobs.
+
+Analyze one sample/format from a managed merge:
+
+```bash
+mgpd analyze /path/to/production/merged --sample signal --format lhe \
+  --config analysis.yml --plots -o analysis-signal
+```
+
+A production root resolves only its default `merged/merge-report.json`, checking
+production/plan identity. Custom merge locations must be supplied explicitly.
+A selected sample subdirectory is also accepted if its parent has the report.
+Omit --sample/--format only when metadata/configuration makes the choice unique.
+For explicit files, --sample remains a label and asserts they belong to one sample.
+
+The adapter uses the merge output inventory and selected logical-job provenance;
+it never recursively scans production/recovery directories or Condor archives.
+Per-job copies retained by --keep-all are ignored. Partial/omitted merges,
+repeated logical job IDs, paths escaping the merge directory, and checksum/size
+mismatches are rejected. Metadata hashes are frozen and checked before and after
+analysis. A completed read checks known merged event totals; LHCO uses LHE/ROOT
+totals when present, otherwise its report records no known expected count.
+The analysis output must be outside the managed merge directory.
 
 For reconstructed Delphes electrons:
 
@@ -682,7 +704,7 @@ The result contains `analysis.yml`, `analysis-report.json`, `cutflow.json`,
 execution, with each histogram as PNG/PDF and cumulative count/weight cutflows.
 Without `--plots`, no graphical renderer is loaded. For Python use
 `run_analysis(plan, output, plots=True)` to request the same behavior. Plots use a headless
-Agg canvas, explicit raw normalization and linear axes that retain negative
+Agg canvas, explicit normalization labels and linear axes that retain negative
 bins. Underflow, overflow and missing entries are annotated, not folded into
 visible bins. Histogram labels in YAML should include the observable's units.
 Per-fill errors are sqrt(sumw2); object-level fills do not account for additional
@@ -719,7 +741,7 @@ relative/cumulative count efficiencies and weighted ratios. Count intervals use
 Wilson z=1. Weighted errors include pass/total covariance and assume independent
 events; correlated LHE eventgroups are rejected. A cancelling weighted denominator
 returns null with a reason. Signed-weight ratios are not probabilities and are
-not clipped to [0,1]. Normalization remains raw: nominal event weights are not
+not clipped to [0,1]. Normalization defaults to raw; nominal event weights are not
 automatically converted to cross sections or luminosity yields. `mode: unit`
 explicitly replaces weights by one; malformed/nonfinite event records still fail.
 
@@ -738,3 +760,53 @@ The reader preserves original LHE mother indices, supports optional weight XML
 batches. Computation currently uses a scalar event loop; batch-size changes must
 leave numerical results unchanged. Large-sample memory/performance testing on
 Jupiter remains necessary. Review all requested observables for the process.
+
+
+### Explicit physical normalization
+
+Set this within the existing analysis `input` block (numbers below are illustrative):
+
+```yaml
+input:
+  weights: {mode: nominal}
+  normalization:
+    mode: luminosity               # raw (default), cross_section, luminosity
+    weight_convention: dimensionless
+    cross_section_pb: 12.0
+    sumw_generated: 40000.0         # full generated sample BEFORE analysis cuts
+    luminosity_pb_inverse: 1000.0   # required only for luminosity mode
+```
+
+For cross_section, omit luminosity_pb_inverse. Both physical modes require an
+explicit positive cross section and finite nonzero generated sum of weights;
+no denominator is estimated from a preview, selected events, merged event count
+or per-job cross sections. `weight_convention: dimensionless` asserts that the
+weights and denominator share the convention needed for this formula:
+
+- cross-section bin/cut value = sigma_pb * raw_sumw / sumw_generated;
+- expected events = that value * luminosity_pb_inverse;
+- statistical variance = raw_sumw2 * scale_factor**2.
+
+LHE physical normalization is limited to IDWTUP=3, or -3 with nominal signed
+weights; other/mixed strategies remain raw. ROOT/LHCO require the explicit
+convention and external denominator as well; LHCO always uses unit weights.
+Unit weighting does not recover information lost from weighted or signed samples.
+Only use it for physical yields when a count denominator is appropriate for the
+underlying sample. No filter-efficiency or branching-fraction correction is guessed.
+User-supplied cross sections are not replaced by, summed from or averaged over
+job/merge init values. External sigma, luminosity and denominator are treated as
+fixed inputs; their uncertainties are not included in the reported errors.
+
+Raw counters, sums, bin values/variances and efficiency ratios remain unchanged.
+Physical values are additional `normalized` objects in cutflow/histogram JSON,
+with scale/provenance in `normalization_metadata` and normalized columns in CSV.
+Plots use the normalized values and label pb or events; flow bins scale too.
+Saved-result rendering revalidates these against raw data/configuration and never
+needs original events or merge metadata. A preview contributes only its processed
+subset using the full external denominator; it is not extrapolated to the full sample.
+
+Jupiter acceptance: analyze an actual managed merge in one selected representation,
+compare raw statistics with explicit-file analysis, and independently check a
+cross-section/yield example whose dimensionless weights and generated denominator
+are known. Repeat with a preview and another chunk size; retain the source hashes
+and report. Synthetic merge-writer/reader tests do not replace this live check.

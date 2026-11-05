@@ -68,9 +68,27 @@ def validate_analysis_config(data):
                                 or not weights['branch'].strip()):
         raise ValueError('input.weights.branch: requires nominal weights and a nonempty branch name')
     normalization = source.setdefault('normalization', {'mode': 'raw'})
-    mapping(normalization, ('mode',), 'input.normalization')
-    if normalization.get('mode') != 'raw':
-        raise ValueError('input.normalization.mode: only raw is supported in the first milestone')
+    mapping(normalization, ('mode', 'cross_section_pb', 'sumw_generated', 'luminosity_pb_inverse',
+                            'weight_convention'), 'input.normalization')
+    mode = normalization.get('mode')
+    if mode not in ('raw', 'cross_section', 'luminosity'):
+        raise ValueError('input.normalization.mode: expected raw, cross_section or luminosity')
+    if mode == 'raw':
+        if set(normalization) != {'mode'}:
+            raise ValueError('Raw normalization accepts only mode')
+    else:
+        for key in ('cross_section_pb', 'sumw_generated'):
+            if not _finite(normalization.get(key)) or not normalization[key]:
+                raise ValueError(f'input.normalization.{key}: expected a finite nonzero number')
+        if normalization['cross_section_pb'] < 0:
+            raise ValueError('input.normalization.cross_section_pb: expected a positive number')
+        if normalization.get('weight_convention') != 'dimensionless':
+            raise ValueError('Physical normalization requires explicit weight_convention: dimensionless')
+        if mode == 'luminosity':
+            if not _finite(normalization.get('luminosity_pb_inverse')) or normalization['luminosity_pb_inverse'] <= 0:
+                raise ValueError('input.normalization.luminosity_pb_inverse: expected a positive number')
+        elif 'luminosity_pb_inverse' in normalization:
+            raise ValueError('luminosity_pb_inverse requires mode: luminosity')
     objects = data.setdefault('objects', {})
     if not isinstance(objects, dict):
         raise ValueError('objects: expected a mapping')

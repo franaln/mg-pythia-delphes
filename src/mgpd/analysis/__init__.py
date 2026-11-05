@@ -8,6 +8,8 @@ from importlib.metadata import version
 from .._version import __version__
 from .config import load_analysis_config
 from .inputs import inspect_inputs
+from .datasets import resolve_dataset
+from .normalization import normalization_plan, apply_normalization
 from .integrity import checksum as _checksum
 from . import engine
 from .dependencies import require_dependencies, RUNTIME_MODULES
@@ -20,7 +22,7 @@ DEFAULT_CHUNK_SIZE = 10000
 
 
 def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, chunk_size=DEFAULT_CHUNK_SIZE):
-    """Validate explicit-file analysis inputs; return a serializable plan, with no writes.
+    """Validate explicit files or one managed merge; return a serializable plan, with no writes.
 
     Multiple files are an explicit assertion of one physical sample. Validation
     checks headers/branches, not every event or the runtime expression shapes.
@@ -34,18 +36,22 @@ def plan_analysis(inputs, config, *, format=None, sample=None, max_events=None, 
     if sample is not None and (not isinstance(sample, str) or not sample.strip()):
         raise ValueError('sample: expected a nonempty label')
     effective, order = load_analysis_config(config)
-    selected, fields, files = inspect_inputs(inputs, effective, format)
+    paths, sample, dataset = resolve_dataset(inputs, format=format or effective['input'].get('format'), sample=sample)
+    selected, fields, files = inspect_inputs(paths, effective, format)
+    if dataset and files[0]['sha256'] != dataset['selected_output']['sha256']:
+        raise ValueError('Managed input changed during planning')
+    normalization = normalization_plan(effective, selected, files)
     effective['input']['format'] = selected
     plan = {'schema_version': 1, 'mgpd_version': __version__, 'state': 'planned',
             'execution_available': True, 'engine': f'{selected}-scalar-v1', 'config': effective, 'variable_order': order,
-            'format': selected, 'sample': sample, 'inputs': files, 'required_fields': fields,
+            'format': selected, 'sample': sample, 'dataset': dataset, 'normalization': normalization, 'inputs': files, 'required_fields': fields,
             'chunk_size': chunk_size, 'max_events': max_events, 'preview_requested': max_events is not None,
             'units': {'momentum': 'GeV', 'angle': 'radian'},
             'policies': {'missing_observables': 'mask; never replace by zero',
                          'nonfinite_weights': 'error', 'histogram_edges': '[left,right), final edge inclusive',
-                         'flow_bins': 'stored separately', 'normalization': 'raw',
+                         'flow_bins': 'stored separately', 'normalization': normalization['mode'],
                          'weighted_denominator_cancellation_tolerance': 1e-12},
-            'limitations': ['Physical normalization is not implemented. ROOT uses split Delphes branches; electron/muon masses are fixed to PDG values, photons/MissingET are massless.',
+            'limitations': ['Physical normalization uses explicit full-sample inputs, with no inferred job cross section. ROOT uses split Delphes branches; electron/muon masses are fixed to PDG values, photons/MissingET are massless.',
                             'Headers/branches validated; event shapes and expression result types are not evaluated.',
                             'External multi-file inputs assert one sample; physical overlap is not inferred.',
                             'Object pairs use highest scalar-pT-sum opposite-sign pair, then original indices. Independent-event errors; correlated eventgroups are rejected.']}
@@ -64,6 +70,8 @@ def check_output(output, plan):
     destination = raw.resolve()
     if not destination.parent.is_dir():
         raise FileNotFoundError('Analysis output parent directory must exist')
+    if plan.get('dataset') and destination.is_relative_to(Path(plan['dataset']['directory'])):
+        raise ValueError('Analysis output must be outside the managed dataset directory')
     if any(Path(item['path']).is_relative_to(destination) for item in plan['inputs']):
         raise ValueError('Analysis output overlaps an input')
     return destination
@@ -71,7 +79,8 @@ def check_output(output, plan):
 
 def _verify_inputs(plan):
     from ..storage import file_sha256
-    for entry in plan['inputs']:
+    entries = list(plan['inputs']) + (plan.get('dataset') or {}).get('metadata', [])
+    for entry in entries:
         path = Path(entry['path'])
         if str(path.resolve()) != entry['path'] or not path.is_file() or file_sha256(path) != entry['sha256']:
             raise ValueError(f'Analysis input missing or changed: {path}; plan the analysis again')
@@ -98,10 +107,18 @@ def run_analysis(plan, output, *, plots=False):
     compute_seconds = time.perf_counter()-started
 
     _verify_inputs(plan)
+    dataset = plan.get('dataset')
+    if (dataset and result['input_exhaustion_verified'] and dataset['expected_events'] is not None
+            and result['events_processed'] != dataset['expected_events']):
+        raise ValueError('Analyzed event total differs from the managed merge report')
+    normalization = normalization_plan(plan['config'], plan['format'], plan['inputs'])
+    apply_normalization(result['cutflow'], result['histograms'], normalization)
 
     warnings = []
     if result['limit_reached']:
-        warnings.append('Event limit reached; input exhaustion was not verified and no absolute normalization is available.')
+        warnings.append('Event limit reached; input exhaustion was not verified. Any normalized values describe only the processed subset, using the explicit full-sample denominator.')
+    if normalization['mode'] != 'raw':
+        warnings.append('External sigma, luminosity and denominator are treated as fixed; their uncertainties are not included. No automatic filter or branching-fraction corrections.')
     if any(row['negative_weights'] for row in result['cutflow']):
         warnings.append('Signed weights: weighted ratios are not probabilities or binomial efficiencies.')
     if not result['events_processed']:
@@ -116,7 +133,8 @@ def run_analysis(plan, output, *, plots=False):
         'plan_sha256': plan['plan_sha256'],
         'plan': plan,
         'dependency_versions': {module: version(module) for module in RUNTIME_MODULES},
-        'normalization': 'raw',
+        'normalization': normalization['mode'],
+        'normalization_metadata': normalization,
         'units': plan['units'],
         'warnings': warnings,
         'statistics_model': 'independent events; subset covariance included',

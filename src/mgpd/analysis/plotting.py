@@ -22,15 +22,20 @@ def render_plots(report, cutflow, histograms, directory):
                 axis = figure.subplots()
                 data = histogram_plot_data(histogram)
                 axis.stairs(data['values'], data['edges'], color='C0')
+                normalized = histogram.get('normalized')
+                unit = normalized['unit'] if normalized else 'raw sumw'
                 axis.errorbar(data['centers'], data['values'], yerr=data['errors'], fmt='o', markersize=3,
-                              color='C0', capsize=2, label='Raw sumw; errors sqrt(sumw2)')
+                              color='C0', capsize=2, label=f'{unit}; scaled statistical errors' if normalized else 'Raw sumw; errors sqrt(sumw2)')
                 axis.axhline(0, linewidth=.7, color='0.5')
                 axis.set_xlabel(histogram.get('label') or histogram['variable'])
-                axis.set_ylabel('Sum of object weights / bin (raw)' if histogram['entry_kind'] == 'objects'
+                axis.set_ylabel(f"{unit} / bin ({histogram['entry_kind']})" if normalized else
+                                'Sum of object weights / bin (raw)' if histogram['entry_kind'] == 'objects'
                                 else 'Sum of event weights / bin (raw)')
                 axis.set_title(f"{title}\nStage: {histogram['stage']}")
+                under = normalized['underflow']['value'] if normalized else histogram['underflow']['sumw']
+                over = normalized['overflow']['value'] if normalized else histogram['overflow']['sumw']
                 text = (f"Selected events: {histogram['selected_events']} | Missing values: {histogram['missing_values']}\n"
-                        f"Flow sumw: under={histogram['underflow']['sumw']:.5g}, over={histogram['overflow']['sumw']:.5g}")
+                        f"Flow ({unit}): under={under:.5g}, over={over:.5g}")
                 axis.text(.02, .98, text, transform=axis.transAxes, ha='left', va='top', fontsize=8,
                           bbox={'facecolor': 'white', 'alpha': .8, 'edgecolor': 'none'})
                 axis.margins(y=.22)
@@ -45,13 +50,16 @@ def render_plots(report, cutflow, histograms, directory):
             FigureCanvasAgg(figure)
             try:
                 axis = figure.subplots()
-                values = [row['sumw' if weighted else 'n'] for row in cutflow]
-                errors = [math.sqrt(row['sumw2']) for row in cutflow] if weighted else None
+                normalized = weighted and 'normalized' in cutflow[0]
+                values = [row['normalized']['value'] for row in cutflow] if normalized else [row['sumw' if weighted else 'n'] for row in cutflow]
+                errors = ([row['normalized']['uncertainty'] for row in cutflow] if normalized else
+                          [math.sqrt(row['sumw2']) for row in cutflow] if weighted else None)
                 axis.barh(range(len(labels)), values, xerr=errors, color='C0', alpha=.75, capsize=2)
                 axis.set_yticks(range(len(labels)), labels)
                 axis.invert_yaxis()
                 axis.axvline(0, linewidth=.7, color='0.5')
-                axis.set_xlabel('Sum of event weights (raw); errors sqrt(sumw2)' if weighted else 'Events')
+                axis.set_xlabel(f"{cutflow[0]['normalized']['unit']}; scaled statistical errors" if normalized else
+                                'Sum of event weights (raw); errors sqrt(sumw2)' if weighted else 'Events')
                 axis.set_title(title + '\nCumulative cutflow')
                 for extension in ('png', 'pdf'):
                     figure.savefig(directory / f"cutflow_{'weights' if weighted else 'counts'}.{extension}", dpi=150)

@@ -11,6 +11,7 @@ import yaml
 from ..storage import file_sha256
 from importlib.metadata import version
 from .._version import __version__
+from .normalization import validate_normalized
 
 COUNTERS = ('n', 'sumw', 'sumw2', 'sumabsw', 'positive_weights', 'negative_weights', 'zero_weights')
 
@@ -105,12 +106,16 @@ def validate_numerical(config, cutflow, histograms):
                 count = sum(histogram['counts']) + histogram['underflow']['n'] + histogram['overflow']['n'] + histogram['missing_values']
                 if count != histogram['selected_events']:
                     raise ValueError('histogram entries do not account for all selected events')
+        validate_normalized(config, cutflow, histograms)
     except (KeyError, TypeError, OverflowError) as exc:
         raise ValueError(f'Invalid serialized analysis results: {exc}') from exc
 
 
 def write_cutflow_csv(cutflow, path):
+    normalized = any('normalized' in row for row in cutflow)
     columns = ['stage', *COUNTERS, 'missing_cut_values']
+    if normalized:
+        columns += ['normalized_value', 'normalized_variance', 'normalized_uncertainty', 'normalized_unit']
     suffixes = ('count_value', 'count_interval_low', 'count_interval_high', 'count_reason',
                 'count_method', 'weighted_value', 'weighted_uncertainty', 'weighted_kind',
                 'weighted_reason', 'weighted_method')
@@ -120,6 +125,8 @@ def write_cutflow_csv(cutflow, path):
         writer.writeheader()
         for row in cutflow:
             output = {key: row.get(key) for key in ['stage', *COUNTERS, 'missing_cut_values']}
+            if normalized:
+                output.update({f'normalized_{key}': value for key, value in row['normalized'].items()})
             for prefix in ('relative', 'cumulative'):
                 counts, weighted = row[prefix]['counts'], row[prefix]['weighted']
                 interval = counts['interval'] or [None, None]
@@ -135,8 +142,10 @@ def write_cutflow_csv(cutflow, path):
 def histogram_plot_data(histogram):
     """Pure numerical transformation; never reread events or clip negative bins."""
     edges = list(histogram['edges'])
+    normalized = histogram.get('normalized')
     return {'edges': edges, 'centers': [a/2+b/2 for a, b in zip(edges, edges[1:])],
-            'values': list(histogram['sumw']), 'errors': [math.sqrt(x) for x in histogram['sumw2']]}
+            'values': list(normalized['values'] if normalized else histogram['sumw']),
+            'errors': list(normalized['uncertainties']) if normalized else [math.sqrt(x) for x in histogram['sumw2']]}
 
 
 def render_plots(report, cutflow, histograms, directory):

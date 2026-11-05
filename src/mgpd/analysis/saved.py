@@ -8,6 +8,7 @@ from .config import validate_analysis_config
 from .reporting import validate_numerical
 from .config import _Loader
 from .integrity import checksum as _checksum
+from .normalization import normalization_plan
 
 def _pairs(pairs):
     result = {}
@@ -51,7 +52,7 @@ def load_saved_results(directory):
     plan = report['plan']
     if plan.get('plan_sha256') != _checksum(plan) or report.get('plan_sha256') != plan['plan_sha256']:
         raise ValueError('Saved analysis plan checksum mismatch')
-    if plan.get('format') not in ('lhe', 'root', 'lhco') or report.get('normalization') != 'raw':
+    if plan.get('format') not in ('lhe', 'root', 'lhco') or report.get('normalization') not in ('raw', 'cross_section', 'luminosity'):
         raise ValueError('Unsupported saved analysis format or normalization')
     metadata = report.get('artifact_metadata')
     if metadata is not None:
@@ -70,8 +71,14 @@ def load_saved_results(directory):
         config, _ = validate_analysis_config(yaml.load(payloads['analysis.yml'], Loader=_Loader))
     except yaml.YAMLError as exc:
         raise ValueError(f'Invalid saved analysis YAML: {exc}') from exc
+    if report['normalization'] != config['input']['normalization']['mode']:
+        raise ValueError('Saved normalization differs from configuration')
     if config != plan.get('config'):
         raise ValueError('Saved YAML differs from the frozen analysis plan')
+    normalization = normalization_plan(config, plan['format'], plan['inputs'])
+    if report['normalization'] != 'raw' and (report.get('normalization_metadata') != normalization
+                                            or plan.get('normalization') != normalization):
+        raise ValueError('Saved normalization metadata differs from configuration/plan')
     cutflow, histograms = _json(payloads['cutflow.json']), _json(payloads['histograms.json'])
     validate_numerical(config, cutflow, histograms)
     if type(report.get('events_processed')) is not int or report['events_processed'] != cutflow[0]['n']:

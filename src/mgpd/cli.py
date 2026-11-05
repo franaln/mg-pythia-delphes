@@ -52,14 +52,14 @@ def _parser():
     images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
     images.add_argument('--json', action='store_true', dest='json_output')
 
-    analyze = commands.add_parser('analyze', help='Analyze LHE numerically or validate an LHE/Delphes analysis plan')
-    analyze.add_argument('inputs', nargs='*', help='Explicit files of one sample and format')
+    analyze = commands.add_parser('analyze', help='Analyze LHE, Delphes ROOT or LHCO files/managed merges')
+    analyze.add_argument('inputs', nargs='*', help='Explicit files or one managed merge/production directory')
     analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
     analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
     analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
     analyze.add_argument('--example', choices=('lhe-dileptons', 'delphes-dileptons', 'lhco-dileptons'), help='Print an editable packaged analysis YAML')
     analyze.add_argument('--format', choices=('lhe', 'root', 'lhco'))
-    analyze.add_argument('--sample', help='Label for the explicitly selected sample')
+    analyze.add_argument('--sample', help='Select a managed sample, or label explicit files')
     analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')
     analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
     analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
@@ -221,7 +221,7 @@ def main(argv=None):
                 print(json.dumps(plan, indent=2, allow_nan=False))
             else:
                 report = run_analysis(plan, args.output, plots=args.plots)
-                print(f"Analysis completed: {report['output']} ({report['events_processed']} events; raw normalization)")
+                print(f"Analysis completed: {report['output']} ({report['events_processed']} events; {report['normalization']} normalization)")
             return 0
 
         if args.command == 'completion':
