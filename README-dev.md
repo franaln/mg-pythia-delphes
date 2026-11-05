@@ -588,7 +588,7 @@ The `dev_analysis` branch introduces an optional `analysis` extra and the
 implemented; this stage validates and prints plans only.
 
 ```bash
-python -m pip install -e '.[analysis,dev]'
+python -m pip install -e '.[dev]'
 python -m unittest discover -s tests -p test_analysis.py -v
 mgpd analyze --help
 mgpd analyze /path/to/events.lhe.gz --config /path/to/analysis.yml --validate-only

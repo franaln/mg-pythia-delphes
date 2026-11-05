@@ -20,7 +20,7 @@ classifiers = [
 analysis = ["numpy>=1.24,<3", "awkward>=2.6,<3", "vector>=1.4,<2", "uproot>=5.3,<6", "matplotlib>=3.7,<4"]
 configuration = ["ruamel.yaml>=0.18.17,<0.19"]
 validation = ["uproot>=5,<6"]
-dev = ["build>=1,<2", "uproot>=5,<6", "ruamel.yaml>=0.18.17,<0.19"]
+dev = ["build>=1,<2", "ruamel.yaml>=0.18.17,<0.19", "numpy>=1.24,<3", "awkward>=2.6,<3", "vector>=1.4,<2", "uproot>=5.3,<6", "matplotlib>=3.7,<4"]
 
 [project.scripts]
 mgpd = "mgpd.cli:main"
