@@ -3,7 +3,8 @@
 Run MadGraph, optionally MadSpin, Pythia8 and Delphes from a YAML configuration,
 locally with Docker/Apptainer or through HTCondor.
 
-## Installation
+
+## Local Installation
 
 Requires Linux/macOS and Python 3.9+. Install from the repository root:
 
@@ -18,7 +19,9 @@ The `validation` extra enables Delphes ROOT checks. You also need Docker or
 Apptainer and a [workflow container image](https://hub.docker.com/r/franaln/mg-pythia-delphes).
 Condor execution requires access to an HTCondor scheduler.
 
-On JUPITER, the package is already installed and you can directly run `mgpd` command.
+## JUPITER
+
+The package is already installed and you can directly use the `mgpd` command in either local or condor run scmode.
 
 
 ## Quick start
