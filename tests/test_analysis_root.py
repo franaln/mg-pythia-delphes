@@ -73,6 +73,16 @@ class RootAnalysisTests(unittest.TestCase):
         self.config['input']['weights'] = {'mode': 'unit'}
         self.assertEqual(self.calculate()['cutflow'][0]['sumw'], 4)
 
+    def test_native_delphes_prefixed_leaf_paths(self):
+        # Reproduce the full paths returned by keys() for native split leaves.
+        columns = {key.split('.')[0] + '/' + key: value for key, value in self.columns.items()}
+        with self.uproot.recreate(self.path) as root:
+            tree = root.mktree('Delphes', {key: 'var * float64' for key in columns})
+            tree.extend({key: self.ak.Array(value) for key, value in columns.items()})
+        result = self.calculate(chunk_size=2)
+        self.assertEqual([row['n'] for row in result['cutflow']], [4, 3, 3, 1])
+        self.assertEqual(result['cutflow'][0]['sumw'], 4.5)
+
     def test_malformed_shapes_weights_and_nonfinite_fail_without_output(self):
         for branch, value, message in [('Electron.Eta', [0.], 'lengths'),
                                        ('Event.Weight', [], 'exactly one'),
@@ -116,6 +126,60 @@ class RootAnalysisTests(unittest.TestCase):
                 self.assertAlmostEqual(particle.mass, mass, places=7)
                 self.assertAlmostEqual(particle.energy, math.hypot(3., mass))
                 self.assertEqual(calculate_analysis(plan)['objects']['items']['selected_objects'], 1)
+
+    def test_native_particle_cartesian_beam_and_planned_branches(self):
+        self.columns = {
+            'Particle.PT': [[0., 5.]], 'Particle.Eta': [[999., 1.6]],
+            'Particle.Phi': [[0., .927]], 'Particle.Mass': [[0., 0.]],
+            'Particle.Px': [[0., 3.]], 'Particle.Py': [[0., 4.]],
+            'Particle.Pz': [[6500., 12.]], 'Particle.E': [[6500., 13.]],
+            'Particle.Charge': [[1., 0.]],
+        }
+        config = {'schema_version': 1, 'input': {'format': 'root', 'weights': {'mode': 'unit'}},
+                  'objects': {'items': {'source': 'Particle'}},
+                  'variables': {'pts': 'items.pt'},
+                  'histograms': [{'name': 'pts', 'variable': 'pts', 'fill': 'objects', 'bins': [0, 1, 6]}]}
+        self.write()
+        plan = plan_analysis(self.path, config)
+        required = plan['inputs'][0]['metadata']['required_fields']['items']
+        self.assertIn('Particle.Px', required)
+        self.assertNotIn('Particle.Eta', required)
+        result = calculate_analysis(plan)
+        self.assertEqual(result['objects']['items']['input_objects'], 2)
+        self.assertEqual(result['histograms']['pts']['counts'], [1, 1])
+        from mgpd.analysis.root_reader import iter_root_batches
+        events = next(iter_root_batches(self.path, plan['config'],
+                                        plan['inputs'][0]['metadata']['required_fields'], 1))
+        beam = events[0]['items'][0]
+        self.assertEqual((beam.pz, beam.energy, beam.pt), (6500., 6500., 0.))
+        self.assertIsNone(beam.eta)
+        for branch, value, message in [('Particle.E', [-1., 13.], 'negative energy'),
+                                       ('Particle.Px', [float('nan'), 3.], 'nonfinite'),
+                                       ('Particle.Pz', [6500.], 'lengths')]:
+            with self.subTest(branch=branch):
+                original = self.columns[branch]
+                self.columns[branch] = [value]
+                self.write()
+                with self.assertRaisesRegex(ValueError, message):
+                    run_analysis(plan_analysis(self.path, config), self.directory / 'failed-cartesian')
+                self.assertFalse((self.directory / 'failed-cartesian').exists())
+                self.columns[branch] = original
+
+    def test_signed_jet_mass_roundoff_is_bounded_and_reported(self):
+        self.columns = {'Jet.PT': [[3.]], 'Jet.Eta': [[0.]], 'Jet.Phi': [[0.]],
+                        'Jet.Mass': [[-1e-8]], 'Jet.Charge': [[0.]]}
+        config = {'schema_version': 1, 'input': {'weights': {'mode': 'unit'}},
+                  'objects': {'jets': {'source': 'Jet'}}, 'variables': {'masses': 'jets.mass'},
+                  'histograms': [{'name': 'masses', 'variable': 'masses', 'fill': 'objects', 'bins': [0, 1, 10]}]}
+        self.write()
+        result = calculate_analysis(plan_analysis(self.path, config))
+        self.assertEqual(result['objects']['jets']['mass_roundoff_corrections'], 1)
+        self.assertEqual(result['histograms']['masses']['counts'], [1, 0])
+        self.columns['Jet.Mass'] = [[-1.]]
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'negative mass exceeds roundoff tolerance'):
+            run_analysis(plan_analysis(self.path, config), self.directory / 'failed-mass')
+        self.assertFalse((self.directory / 'failed-mass').exists())
 
     def test_objectless_unit_count_and_multifile_limit(self):
         self.write()

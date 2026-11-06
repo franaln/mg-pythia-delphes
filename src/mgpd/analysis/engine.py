@@ -15,7 +15,8 @@ def calculate_analysis(plan):
     counters = {'initial': Counter(), **{key: Counter() for key, _ in cuts}}
     histograms = {hist['name']: Histogram(hist) for hist in config['histograms']}
     invalid_cuts = {key: 0 for key, _ in cuts}
-    objects_report = {key: {'input_objects': 0, 'selected_objects': 0, 'missing_selection_values': 0} for key in config['objects']}
+    objects_report = {key: {'input_objects': 0, 'selected_objects': 0, 'missing_selection_values': 0,
+                            'mass_roundoff_corrections': 0} for key in config['objects']}
     missing_variables = {key: 0 for key in variables}
     processed = batches = 0
     files_read = []
@@ -34,7 +35,9 @@ def calculate_analysis(plan):
             reader = iter_lhco_batches(source['path'], config, plan['chunk_size'], remaining)
         else:
             from .root_reader import iter_root_batches
-            reader = iter_root_batches(source['path'], config, plan['required_fields'], plan['chunk_size'], remaining)
+            reader = iter_root_batches(source['path'], config,
+                                       source['metadata'].get('required_fields', plan['required_fields']),
+                                       plan['chunk_size'], remaining)
 
         for batch in reader:
             batches += 1
@@ -47,6 +50,7 @@ def calculate_analysis(plan):
                         selected = []
                         particles = event['particles'] if plan['format'] == 'lhe' else event[key]
                         objects_report[key]['input_objects'] += len(particles)
+                        objects_report[key]['mass_roundoff_corrections'] += event.get('mass_roundoff_corrections', {}).get(key, 0)
                         for particle in particles:
                             if key in object_filters:
                                 fields = {field: finite(getattr(particle, field)) for field in FIELDS}

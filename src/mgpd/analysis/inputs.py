@@ -17,6 +17,7 @@ ROOT_FIELDS = {
     'MissingET': {'pt': 'MET', 'eta': 'Eta', 'phi': 'Phi'},
     'Particle': {'pt': 'PT', 'eta': 'Eta', 'phi': 'Phi', 'mass': 'Mass', 'pdg_id': 'PID', 'status': 'Status', 'charge': 'Charge'},
 }
+PARTICLE_CARTESIAN_FIELDS = {'px': 'Px', 'py': 'Py', 'pz': 'Pz', 'energy': 'E'}
 
 
 def required_fields(config, format):
@@ -97,6 +98,24 @@ def _lhe_header(path):
     raise ValueError(f'{path}: missing LHE init block')
 
 
+def root_branch_paths(tree, branches):
+    """Resolve flat branches and native Delphes collection/leaf paths."""
+    available = set(tree.keys())
+    paths = {}
+    missing = []
+    for branch in branches:
+        nested = branch.split('.', 1)[0] + '/' + branch
+        if branch in available:
+            paths[branch] = branch
+        elif nested in available:
+            paths[branch] = nested
+        else:
+            missing.append(branch)
+    if missing:
+        raise ValueError(f'missing branches: {sorted(missing)}')
+    return paths
+
+
 def _root_header(path, config, fields):
     require_dependencies(('uproot',))
     import uproot
@@ -107,10 +126,26 @@ def _root_header(path, config, fields):
         tree = root[tree_name]
         if not hasattr(tree, 'num_entries'):
             raise ValueError(f'{path}: Delphes is not a tree')
-        missing = set(branch for values in fields.values() for branch in values) - set(tree.keys())
-        if missing:
-            raise ValueError(f'{path}: missing branches: {sorted(missing)}')
+        selected = {key: list(values) for key, values in fields.items()}
+        cartesian = ['Particle.' + branch for branch in PARTICLE_CARTESIAN_FIELDS.values()]
+        for key, obj in config['objects'].items():
+            if obj['source'] != 'Particle':
+                continue
+            try:
+                root_branch_paths(tree, cartesian)
+            except ValueError:
+                continue
+            # Delphes uses sentinel Eta for beam particles with zero transverse
+            # momentum. Native Cartesian components retain their finite vectors.
+            cylindrical = {'Particle.PT', 'Particle.Eta', 'Particle.Phi', 'Particle.Mass'}
+            selected[key] = sorted((set(selected[key]) - cylindrical) | set(cartesian))
+        try:
+            root_branch_paths(tree, {branch for values in selected.values() for branch in values})
+        except ValueError as exc:
+            raise ValueError(f'{path}: {exc}') from exc
         return {'tree': tree_name, 'entries': int(tree.num_entries),
+                'required_fields': selected,
+                'negative_mass_policy': 'Cylindrical signed masses within 8*sqrt(double epsilon)*|p| are treated as massless and counted; larger negative masses fail',
                 'checks': 'tree and branch names only; event shapes are checked during reading'}
 
 

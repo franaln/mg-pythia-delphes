@@ -645,12 +645,24 @@ mgpd analyze /path/to/merged_delphes_events.root --config analysis-delphes.yml -
 
 The ROOT adapter reads only required split branches in event-count blocks. The
 supported collections are Electron, Muon, Photon, Jet, Particle and MissingET;
-object sources refer to those exact branch prefixes. Jet/Particle use their Mass
+object sources refer to those exact branch prefixes. Jet uses its Mass
 branch, electrons/muons use fixed masses (0.00051099895/0.1056583755 GeV), and
-Photon/MissingET are massless. MissingET is represented as a massless vector
+Photon/MissingET are massless. For Particle, native Px/Py/Pz/E take precedence
+when all four branches are available; PT/Eta/Phi/Mass are the fallback. This
+preserves beam-particle vectors whose pseudorapidity is stored as a sentinel.
+Inspect each input's metadata.required_fields in the frozen plan to check the
+selected representation. MissingET is represented as a massless vector
 using MET/Eta/Phi; it is not a reconstructed neutrino four-vector. Cartesian
 components and energy are derived from those conventions. Unknown PID/status
 fields for reconstructed objects are rejected during planning.
+
+For cylindrical inputs, a negative signed mass with magnitude at most
+`8 * sqrt(double epsilon) * |p|` is treated as zero to handle cancellation
+roundoff in native Delphes output. Larger negative masses fail. Inspect
+`objects.COLLECTION.mass_roundoff_corrections` in the analysis report for the
+number of corrected objects before selection; the per-input plan metadata also
+records this policy. Native Particle Cartesian inputs use their stored energy
+and reject negative/nonfinite energy instead of reconstructing it from mass.
 
 Nominal weights use Event.Weight by default, accepting a scalar or exactly one
 value per event. Set input.weights.branch to select another nominal branch, or
@@ -658,11 +670,10 @@ choose input.weights.mode: unit explicitly when no event weights are available.
 Missing/ambiguous/nonfinite weights and inconsistent object lengths fail; there
 is no implicit fallback to unit weights. Empty collections and trees are valid.
 
-Before accepting this stage on Jupiter, run the starter on a real Delphes file
-with two chunk sizes and compare numerical cutflows/histograms. Synthetic split
-TTrees test the adapter but do not establish compatibility with every Delphes
-TClonesArray layout. Real-file and large-sample memory/throughput checks remain
-pending.
+To test native Delphes compatibility, run the starter on a real file with two
+chunk sizes and compare numerical cutflows/histograms. Measure peak memory and
+throughput on a larger sample. Synthetic split TTrees alone do not establish
+compatibility with every Delphes TClonesArray layout.
 
 For standard LHCO files:
 
@@ -694,8 +705,8 @@ cannot be distinguished from a complete shorter final event. Planning inspects
 the first event; execution validates all consumed rows and reports file/event/line
 on malformed input. Preview mode does not validate the unread tail.
 
-Native Delphes converter acceptance remains pending. On Jupiter, compare ROOT
-and its converted LHCO using explicit unit weights, only shared object content,
+To test the native Delphes converter on Jupiter, compare ROOT and its converted
+LHCO using explicit unit weights, only shared object content,
 and tolerances for text precision/mass conventions. Record the image/converter
 identity. Synthetic standard-format fixtures do not establish every dialect.
 
@@ -758,8 +769,9 @@ unknown BSM charges require an appropriate selection rather than guessing signs.
 The reader preserves original LHE mother indices, supports optional weight XML
 (nominal XWGTUP only), rejects malformed/truncated events and processes bounded
 batches. Computation currently uses a scalar event loop; batch-size changes must
-leave numerical results unchanged. Large-sample memory/performance testing on
-Jupiter remains necessary. Review all requested observables for the process.
+leave numerical results unchanged. For memory/performance tests on Jupiter,
+record peak memory and throughput at multiple sample and chunk sizes. Review all
+requested observables for the process.
 
 
 ### Explicit physical normalization
@@ -810,3 +822,33 @@ compare raw statistics with explicit-file analysis, and independently check a
 cross-section/yield example whose dimensionless weights and generated denominator
 are known. Repeat with a preview and another chunk size; retain the source hashes
 and report. Synthetic merge-writer/reader tests do not replace this live check.
+
+### Native ROOT acceptance and resource measurements
+
+Run the opt-in driver with a Python environment containing the installed wheel
+and its `analysis` extra:
+
+```bash
+/path/to/analysis-venv/bin/python scripts/test_analysis_acceptance.py \
+  --input /path/to/native_delphes_events.root \
+  --output test-results/analysis-native-01 \
+  --chunks 128 10000 --preview 10000 --collections-preview 1000
+```
+
+Use a new output directory and an independent native Delphes sample. The driver
+reads the input without launching containers or scheduler jobs, compares full-file
+dilepton results across chunk sizes, checks cutflows and histogram bins/flows
+against independent calculations, and checks a preview of all six supported ROOT
+collections. It also compares input SHA256 before and after execution. Input hashing
+reads the full file several times; account for this I/O when selecting a sample.
+
+`report.json` records the input identity, interpreter installation, commands,
+counts and resource measurements. Per-command logs and timing files retain CLI
+errors, elapsed time and peak RSS in KiB. The driver writes a failed report and
+returns nonzero on discrepancies. Compare peak memory for the preview and full
+run at the same chunk size, and compare full runs across chunk sizes. Elapsed
+CLI times include planning and integrity checks, so they measure end-to-end
+throughput. The driver requires Linux `/usr/bin/time`; each selected collection
+must have the branches required by the analysis reader. Use raw normalization
+for this acceptance test; physical normalization requires a separate verified
+weight convention and full generated denominator.

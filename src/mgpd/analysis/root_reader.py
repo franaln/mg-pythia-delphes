@@ -3,9 +3,10 @@ import math
 import awkward as ak
 import uproot
 
-from .inputs import ROOT_FIELDS
+from .inputs import ROOT_FIELDS, PARTICLE_CARTESIAN_FIELDS, root_branch_paths
 from .readers import Momentum
 
+MASS_ROUNDOFF_RELATIVE_TOLERANCE = 8 * math.sqrt(math.ulp(1.0))
 
 def iter_root_batches(path, config, required, chunk_size, max_events=None):
 
@@ -17,12 +18,13 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
     with uproot.open(path) as root:
 
         tree = root[config['input']['tree']]
+        branch_paths = root_branch_paths(tree, branches)
         stop = min(tree.num_entries, max_events) if max_events is not None else tree.num_entries
 
         for start in range(0, stop, chunk_size):
             size = min(chunk_size, stop - start)
-            arrays = tree.arrays(expressions=branches, entry_start=start, entry_stop=start + size, library='ak', how=dict)
-            columns = {key: ak.to_list(value) for key, value in arrays.items()}
+            arrays = tree.arrays(expressions=list(branch_paths.values()), entry_start=start, entry_stop=start + size, library='ak', how=dict)
+            columns = {key: ak.to_list(arrays[value]) for key, value in branch_paths.items()}
             if any(len(value) != size for value in columns.values()):
                 raise ValueError(f'{path}: inconsistent event branch lengths')
 
@@ -38,10 +40,14 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
                     if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not math.isfinite(weight):
                         raise ValueError('event weight must be a finite number')
 
-                    event = {'weight': float(weight), 'source': str(path), 'event_index': number}
+                    event = {'weight': float(weight), 'source': str(path), 'event_index': number,
+                             'mass_roundoff_corrections': {}}
                     for key, obj in config['objects'].items():
                         source = obj['source']
-                        mapping = ROOT_FIELDS[source]
+                        cartesian = source == 'Particle' and 'Particle.Px' in required[key]
+                        mapping = dict(ROOT_FIELDS[source])
+                        if cartesian:
+                            mapping.update(PARTICLE_CARTESIAN_FIELDS)
                         values = {field: columns[f'{source}.{branch}'][entry]
                                   for field, branch in mapping.items()
                                   if f'{source}.{branch}' in required[key]}
@@ -57,12 +63,25 @@ def iter_root_batches(path, config, required, chunk_size, max_events=None):
                             if any(isinstance(value, bool) or not isinstance(value, (int, float))
                                    or not math.isfinite(value) for value in fields.values()):
                                 raise ValueError(f'{source}: nonfinite or nonnumeric object field')
-                            pt, eta, phi = (fields[name] for name in ('pt', 'eta', 'phi'))
-                            mass = fields.get('mass', {'Electron': 0.00051099895, 'Muon': 0.1056583755}.get(source, 0.0))
-                            if pt < 0 or mass < 0:
-                                raise ValueError(f'{source}: negative pT or mass')
-                            px, py, pz = pt * math.cos(phi), pt * math.sin(phi), pt * math.sinh(eta)
-                            energy = math.hypot(px, py, pz, mass)
+                            if cartesian:
+                                px, py, pz, energy = (fields[name] for name in ('px', 'py', 'pz', 'energy'))
+                                if energy < 0:
+                                    raise ValueError(f'{source}: negative energy')
+                            else:
+                                pt, eta, phi = (fields[name] for name in ('pt', 'eta', 'phi'))
+                                mass = fields.get('mass', {'Electron': 0.00051099895, 'Muon': 0.1056583755}.get(source, 0.0))
+                                if pt < 0:
+                                    raise ValueError(f'{source}: negative pT')
+                                px, py, pz = pt * math.cos(phi), pt * math.sin(phi), pt * math.sinh(eta)
+                                if mass < 0:
+                                    # ROOT's signed invariant mass can be slightly
+                                    # negative after cancellation for massless jets.
+                                    tolerance = MASS_ROUNDOFF_RELATIVE_TOLERANCE * math.hypot(px, py, pz)
+                                    if -mass > tolerance:
+                                        raise ValueError(f'{source}: negative mass exceeds roundoff tolerance')
+                                    mass = 0.0
+                                    event['mass_roundoff_corrections'][key] = event['mass_roundoff_corrections'].get(key, 0) + 1
+                                energy = math.hypot(px, py, pz, mass)
                             if not all(math.isfinite(value) for value in (px, py, pz, energy)):
                                 raise ValueError(f'{source}: nonfinite four-vector')
                             particles.append(Momentum(px, py, pz, energy, pdg_id=fields.get('pdg_id'),
