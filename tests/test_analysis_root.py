@@ -100,7 +100,7 @@ class RootAnalysisTests(unittest.TestCase):
     def test_empty_tree_and_packaged_example(self):
         self.write(empty=True)
         self.assertEqual(self.calculate()['events_processed'], 0)
-        plan = plan_analysis(self.path, yaml.safe_load(analysis_example('delphes-dileptons')))
+        plan = plan_analysis(self.path, yaml.safe_load(analysis_example('dileptons-root')))
         self.assertTrue(plan['execution_available'])
 
     def test_other_collections_and_derived_fields(self):

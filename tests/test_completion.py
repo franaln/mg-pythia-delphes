@@ -56,7 +56,7 @@ class CompletionTests(unittest.TestCase):
             (['create', '--mode', '='], ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']),
             (['merge', '--event-count', 'non'], ['nonempty']),
             (['completion', 'z'], ['zsh']),
-            (['analyze', '--example', 'lhe'], ['lhe-dileptons']),
+            (['analyze', '--example', 'dileptons-l'], ['dileptons-lhe', 'dileptons-lhco']),
             (['create', '--njobs', ''], []),
             (['create', '--process', ''], []),
         ]:

@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["mg-pythia-delphes[configuration]>=0.3.0,<0.4", "mcp>=2.3,<3"]
 
+[project.optional-dependencies]
+analysis = ["mg-pythia-delphes[analysis]>=0.3.0,<0.4"]
+
 [project.scripts]
 mgpd-mcp = "mgpd_mcp.server:main"
 

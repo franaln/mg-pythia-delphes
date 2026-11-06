@@ -594,7 +594,7 @@ Generate the packaged dilepton starter, then edit its object selection,
 variables, cuts, bins and labels for the simulated process:
 
 ```bash
-mgpd analyze --example lhe-dileptons > analysis.yml
+mgpd analyze --example dileptons-lhe > analysis.yml
 ```
 
 Use a validated LHE file from a small merged production. Change the PDG/object
@@ -638,7 +638,7 @@ The analysis output must be outside the managed merge directory.
 For reconstructed Delphes electrons:
 
 ```bash
-mgpd analyze --example delphes-dileptons > analysis-delphes.yml
+mgpd analyze --example dileptons-root > analysis-delphes.yml
 mgpd analyze /path/to/merged_delphes_events.root --config analysis-delphes.yml --validate-only
 mgpd analyze /path/to/merged_delphes_events.root --config analysis-delphes.yml --plots -o analysis-delphes
 ```
@@ -678,7 +678,7 @@ compatibility with every Delphes TClonesArray layout.
 For standard LHCO files:
 
 ```bash
-mgpd analyze --example lhco-dileptons > analysis-lhco.yml
+mgpd analyze --example dileptons-lhco > analysis-lhco.yml
 mgpd analyze /path/to/merged_delphes_events.lhco.gz --config analysis-lhco.yml --validate-only
 mgpd analyze /path/to/merged_delphes_events.lhco.gz --config analysis-lhco.yml --plots -o analysis-lhco
 ```
@@ -852,3 +852,69 @@ throughput. The driver requires Linux `/usr/bin/time`; each selected collection
 must have the branches required by the analysis reader. Use raw normalization
 for this acceptance test; physical normalization requires a separate verified
 weight convention and full generated denominator.
+
+### MCP analysis development and acceptance
+
+Install the core and adapter in the same Python 3.11+ environment. The adapter's
+`analysis` extra supplies the numerical and plotting dependencies:
+
+```bash
+python -m pip install -e '.[dev]' -e 'packages/mg-pythia-delphes-mcp[analysis]'
+python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
+```
+
+Configure the stdio client to launch `mgpd-mcp --workspace /path/to/workspace`.
+Add `--allow-analysis` to enable analysis writes. This flag is independent of
+configuration writes, preparation, submission and merging. Without it,
+`plan_analysis`, `analysis_status`, `analysis_report` and the `mgpd://analysis`
+resource remain available; `start_analysis` is not exposed. The analysis resource
+contains the expression vocabulary and packaged `dileptons-lhe.yml`,
+`dileptons-root.yml` and `dileptons-lhco.yml` starters. Save the selected YAML in
+the workspace and adapt it to the sample before planning.
+
+Use this tool sequence:
+
+1. Call `plan_analysis` with `inputs`, `config`, a new `output`, and explicit
+   `format`/`sample` for ambiguous managed data. Set `base_directory` when paths
+   are relative to a project. Review cuts, variables, normalization, preview,
+   input hashes, output and plots. Use `offset`/`limit` and returned totals to
+   inspect additional summary pages without changing the review checksum.
+2. Call `start_analysis` with its `analysis_sha256` and identical analysis
+   options, including output and plots. YAML byte changes, event/merge metadata
+   changes and changed options invalidate the review. No files are created
+   during planning. Execution reserves the output before launching a detached
+   worker and returns a durable operation ID.
+3. Reconnect as needed and call `analysis_status` with that operation ID and
+   the workspace-relative output returned by planning. Status/report paths are
+   relative to the workspace, independent of the planning base directory.
+   Paginate logs with `log_offset`/`log_limit`. Disconnecting does not stop the
+   analysis. A startup/interruption without terminal evidence is `unknown`;
+   inspect the recorded operation instead of automatically starting another.
+4. After `completed`, call `analysis_report` for paginated cutflows, histogram
+   metadata and artifact paths. The adapter verifies the saved numerical data
+   and completed-report identity without reopening the original simulation
+   inputs. JSON contains full histogram bins; PNG/PDF paths are artifact
+   references, not images automatically transferred to a remote client.
+
+All managed paths, including YAML, merge metadata references, outputs and
+symlinks, must stay inside the configured workspace. Repeating an identical
+start returns the existing operation; failed/unknown operations are not relaunched.
+Use a new reviewed output only after inspecting the previous outcome. Numerical
+readers, cuts, normalization and publication run through the same core API as the
+CLI; the adapter does not accept Python snippets or execute simulation programs.
+
+Run the real stdio acceptance driver on existing data using the installed
+core/adapter candidate wheels and SDK:
+
+```bash
+python scripts/test_analysis_mcp.py \
+  --workspace "$PWD" --input /path/inside/workspace/merged \
+  --format root --sample signal --plots \
+  --output test-results/analysis-mcp-root-01
+```
+
+Use a new output for each representation. The driver records tool calls,
+review/operation identities and CLI logs, disconnects and reconnects, verifies a
+repeated start returns the same completed operation, and compares numerical
+JSON with a separate CLI analysis. It uses existing inputs and creates only
+analysis/test artifacts; it never creates simulation jobs or invokes a container.

@@ -33,19 +33,19 @@ class AnalysisExampleTests(unittest.TestCase):
         self.assertIn('m_ee', order)
         output = io.StringIO()
         with redirect_stdout(output):
-            self.assertEqual(main(['analyze', '--example', 'lhe-dileptons']), 0)
+            self.assertEqual(main(['analyze', '--example', 'dileptons-lhe']), 0)
         self.assertEqual(output.getvalue(), text)
-        code = "import sys; from mgpd.cli import main; main(['analyze','--example','lhe-dileptons']); assert not {'numpy','uproot','matplotlib'} & set(sys.modules)"
+        code = "import sys; from mgpd.cli import main; main(['analyze','--example','dileptons-lhe']); assert not {'numpy','uproot','matplotlib'} & set(sys.modules)"
         subprocess.run([sys.executable, '-c', code], check=True, capture_output=True, text=True)
 
     def test_cli_modes_are_mutually_exclusive(self):
-        cases = [['--example', 'lhe-dileptons', '--config', 'analysis.yml'],
-                 ['--example', 'lhe-dileptons', '-o', 'results'],
+        cases = [['--example', 'dileptons-lhe', '--config', 'analysis.yml'],
+                 ['--example', 'dileptons-lhe', '-o', 'results'],
                  ['--from-results', 'saved'], ['--from-results', 'saved', '-o', 'new', 'events.lhe'],
                  ['--from-results', 'saved', '-o', 'new', '--validate-only'],
                  ['events.lhe'], ['--config', 'analysis.yml'],
                  ['--from-results', 'saved', '-o', 'new', '--chunk-size', '10000'],
-                 ['--example', 'lhe-dileptons', '--plots'],
+                 ['--example', 'dileptons-lhe', '--plots'],
                  ['events.lhe', '--config', 'analysis.yml', '--validate-only', '--plots']]
         for args in cases:
             with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

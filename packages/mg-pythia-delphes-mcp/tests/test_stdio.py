@@ -55,11 +55,12 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
         async with self.client() as client:
             tools = (await client.list_tools()).tools
             self.assertEqual({tool.name for tool in tools}, {'validate_config', 'inspect_production',
-                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change'})
+                             'production_status', 'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change', 'plan_analysis', 'analysis_status', 'analysis_report'})
             for tool in tools:
                 self.assertTrue(tool.annotations.read_only_hint)
                 self.assertFalse(tool.annotations.destructive_hint)
-                self.assertIn('path', tool.input_schema['properties'])
+                if tool.name not in ('plan_analysis', 'analysis_status', 'analysis_report'):
+                    self.assertIn('path', tool.input_schema['properties'])
             resources = await client.list_resources()
             self.assertIn('mgpd://capabilities', [str(resource.uri) for resource in resources.resources])
             resource = await client.read_resource('mgpd://capabilities')

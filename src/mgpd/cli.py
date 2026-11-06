@@ -57,7 +57,7 @@ def _parser():
     analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
     analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
     analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
-    analyze.add_argument('--example', choices=('lhe-dileptons', 'delphes-dileptons', 'lhco-dileptons'), help='Print an editable packaged analysis YAML')
+    analyze.add_argument('--example', choices=('dileptons-lhe', 'dileptons-root', 'dileptons-lhco'), help='Print an editable packaged analysis YAML')
     analyze.add_argument('--format', choices=('lhe', 'root', 'lhco'))
     analyze.add_argument('--sample', help='Select a managed sample, or label explicit files')
     analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')

@@ -1,4 +1,4 @@
-"""Durable, one-shot Condor submission operations; independent of MCP lifetime."""
+"""Durable workflow operations and shared detached launch/persistence helpers."""
 import fcntl
 import json
 import os
@@ -72,6 +72,24 @@ def read(workspace, production, operation_id=None):
     return record
 
 
+def launch(workspace, directory, record, module, arguments, log_name='submission.log'):
+    """Launch an already reserved one-shot operation independently of MCP lifetime."""
+    with open(directory / log_name, 'xb', buffering=0) as log:
+        for parent in (directory, directory.parent):
+            descriptor = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        try:
+            subprocess.Popen([sys.executable, '-m', module, *arguments],
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                             cwd=workspace.root, start_new_session=True, close_fds=True)
+        except OSError as exc:
+            record.update(state='unknown', error=f'Worker launch failed: {exc}', finished_at=timestamp())
+            save(directory, record)
+
+
 def start(workspace, path, checksum):
     production = workspace.production(path)
     prepared = mgpd.load_prepared_production(production)
@@ -104,20 +122,8 @@ def start(workspace, path, checksum):
               'kind': 'condor_submission'}
     save(directory, record)
     # Reservation persists even if launching fails. Never remove it or retry execution.
-    with open(directory / 'submission.log', 'xb', buffering=0) as log:
-        descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        try:
-            subprocess.Popen([sys.executable, '-m', 'mgpd_mcp.operations',
-                              str(workspace.root), str(production), record['operation_id']],
-                             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                             cwd=workspace.root, start_new_session=True, close_fds=True)
-        except OSError as exc:
-            record.update(state='unknown', error=f'Worker launch failed: {exc}', finished_at=timestamp())
-            save(directory, record)
+    launch(workspace, directory, record, 'mgpd_mcp.operations',
+           [str(workspace.root), str(production), record['operation_id']])
     return {**record, 'log': str((directory / 'submission.log').relative_to(workspace.root))}
 
 
@@ -205,20 +211,8 @@ def start_merge(workspace, path, selection_sha256, options):
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    with open(directory / 'submission.log', 'xb', buffering=0) as log:
-        descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        try:
-            subprocess.Popen([sys.executable, '-m', 'mgpd_mcp.operations',
-                              str(workspace.root), str(production), operation_id],
-                             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                             cwd=workspace.root, start_new_session=True, close_fds=True)
-        except OSError as exc:
-            record.update(state='unknown', error=f'Worker launch failed: {exc}', finished_at=timestamp())
-            save(directory, record)
+    launch(workspace, directory, record, 'mgpd_mcp.operations',
+           [str(workspace.root), str(production), operation_id])
     return record
 
 

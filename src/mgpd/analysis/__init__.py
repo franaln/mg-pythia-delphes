@@ -145,11 +145,11 @@ def run_analysis(plan, output, *, plots=False):
     return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination, plots=plots)
 
 
-def analysis_example(name='lhe-dileptons'):
+def analysis_example(name='dileptons-lhe'):
     """Return a packaged editable starter, with no writes or optional imports."""
 
-    if name not in ('lhe-dileptons', 'delphes-dileptons', 'lhco-dileptons'):
-        raise ValueError('Unknown analysis example; choose lhe-dileptons, delphes-dileptons or lhco-dileptons')
+    if name not in ('dileptons-lhe', 'dileptons-root', 'dileptons-lhco'):
+        raise ValueError('Unknown analysis example; choose dileptons-lhe, dileptons-root or dileptons-lhco')
     return _resource(f'analysis/{name}.yml').read_text(encoding='utf-8')
 
 

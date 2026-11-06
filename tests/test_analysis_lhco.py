@@ -29,7 +29,7 @@ class LHCOTests(unittest.TestCase):
                      + '\n0 102 0 # empty event\n0 103 0\n' + row(1, 1, pt=20, ntrk=-1)
                      + row(2, 1, pt=20, phi=math.pi, ntrk=1))
         self.path.write_text(self.text)
-        self.config = yaml.safe_load(analysis_example('lhco-dileptons'))
+        self.config = yaml.safe_load(analysis_example('dileptons-lhco'))
 
     def plan(self, **options):
         return plan_analysis(self.path, self.config, **options)
