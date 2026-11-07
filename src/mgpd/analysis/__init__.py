@@ -86,7 +86,7 @@ def _verify_inputs(plan):
             raise ValueError(f'Analysis input missing or changed: {path}; plan the analysis again')
 
 
-def run_analysis(plan, output, *, plots=False):
+def run_analysis(plan, output, *, plots=False, export_root=False):
     """Compute raw event statistics and publish a new complete numerical result."""
 
     if not isinstance(plan, dict) or plan.get('plan_sha256') != _checksum(plan):
@@ -94,6 +94,8 @@ def run_analysis(plan, output, *, plots=False):
 
     if type(plots) is not bool:
         raise ValueError('plots must be a boolean')
+    if type(export_root) is not bool:
+        raise ValueError('export_root must be a boolean')
     destination = check_output(output, plan)
 
     if not plan.get('execution_available') or plan.get('engine') != f"{plan.get('format')}-scalar-v1":
@@ -142,7 +144,8 @@ def run_analysis(plan, output, *, plots=False):
         'compute_seconds': compute_seconds
     }
 
-    return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination, plots=plots)
+    return publish_results(report, plan['config'], result['cutflow'], result['histograms'], destination,
+                           plots=plots, export_root=export_root)
 
 
 def analysis_example(name='dileptons-lhe'):
@@ -153,10 +156,12 @@ def analysis_example(name='dileptons-lhe'):
     return _resource(f'analysis/{name}.yml').read_text(encoding='utf-8')
 
 
-def render_analysis(source, output):
+def render_analysis(source, output, *, plots=True, export_root=False):
     """Regenerate CSV and plots from saved numbers, never opening original events."""
 
 
+    if type(plots) is not bool or type(export_root) is not bool:
+        raise ValueError('plots and export_root must be booleans')
     source_path = Path(source).expanduser().resolve(strict=True)
     report, config, cutflow, histograms, provenance = load_saved_results(source_path)
     destination = check_output(output, {'inputs': [{'path': str(source_path / name)} for name in
@@ -164,7 +169,10 @@ def render_analysis(source, output):
     if destination.is_relative_to(source_path):
         raise ValueError('Rendering output must be outside the saved analysis directory')
 
-    require_dependencies(('matplotlib',))
+    if plots:
+        require_dependencies(('matplotlib',))
+    if export_root:
+        require_dependencies(('numpy', 'uproot'))
 
     report = copy.deepcopy(report)
     report['output'] = str(destination)
@@ -174,7 +182,7 @@ def render_analysis(source, output):
     if not provenance['original_artifact_hashes_verified']:
         report.setdefault('warnings', []).append('Source result has no artifact hashes; integrity before rendering cannot be established.')
 
-    return publish_results(report, config, cutflow, histograms, destination, plots=True)
+    return publish_results(report, config, cutflow, histograms, destination, plots=plots, export_root=export_root)
 
 
 __all__ = ['plan_analysis', 'run_analysis', 'render_analysis', 'analysis_example']

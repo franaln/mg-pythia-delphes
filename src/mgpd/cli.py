@@ -56,6 +56,7 @@ def _parser():
     analyze.add_argument('inputs', nargs='*', help='Explicit files or one managed merge/production directory')
     analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
     analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
+    analyze.add_argument('--export-root', action='store_true', help='Export weighted TH1D histograms with variances and flow bins')
     analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
     analyze.add_argument('--example', choices=('dileptons-lhe', 'dileptons-root', 'dileptons-lhco'), help='Print an editable packaged analysis YAML')
     analyze.add_argument('--format', choices=('lhe', 'root', 'lhco'))
@@ -144,7 +145,7 @@ def parse_args(argv=None):
         if args.example or args.from_results:
             incompatible = (args.inputs or args.config or args.format or args.sample or args.validate_only
                             or args.max_events is not None or args.chunk_size is not None)
-            if incompatible or args.example and (args.output or args.from_results or args.plots):
+            if incompatible or args.example and (args.output or args.from_results or args.plots or args.export_root):
                 parser.error('analyze --example/--from-results cannot be combined with event-analysis options')
             if args.from_results and not args.output:
                 parser.error('analyze --from-results requires a new --output')
@@ -153,8 +154,8 @@ def parse_args(argv=None):
                 parser.error('analyze requires input files and --config')
             if not args.validate_only and not args.output:
                 parser.error('analyze requires --output, or use --validate-only')
-            if args.validate_only and args.plots:
-                parser.error('analyze --plots requires execution, not --validate-only')
+            if args.validate_only and (args.plots or args.export_root):
+                parser.error('analyze --plots/--export-root require execution, not --validate-only')
             if args.validate_only and args.output:
                 parser.error('analyze --validate-only does not accept --output')
 
@@ -212,15 +213,16 @@ def main(argv=None):
                 print(analysis_example(args.example), end='')
                 return 0
             if args.from_results:
-                report = render_analysis(args.from_results, args.output)
-                print(f"Analysis plots and CSV regenerated: {report['output']} (no events reread)")
+                report = render_analysis(args.from_results, args.output,
+                                         plots=args.plots or not args.export_root, export_root=args.export_root)
+                print(f"Analysis artifacts regenerated: {report['output']} (no events reread)")
                 return 0
             plan = plan_analysis(args.inputs, args.config, format=args.format, sample=args.sample,
                                  max_events=args.max_events, chunk_size=args.chunk_size if args.chunk_size is not None else DEFAULT_CHUNK_SIZE)
             if args.validate_only:
                 print(json.dumps(plan, indent=2, allow_nan=False))
             else:
-                report = run_analysis(plan, args.output, plots=args.plots)
+                report = run_analysis(plan, args.output, plots=args.plots, export_root=args.export_root)
                 print(f"Analysis completed: {report['output']} ({report['events_processed']} events; {report['normalization']} normalization)")
             return 0
 

@@ -155,7 +155,7 @@ def render_plots(report, cutflow, histograms, directory):
     return render(report, cutflow, histograms, directory)
 
 
-def publish_results(report, config, cutflow, histograms, destination, *, plots=False):
+def publish_results(report, config, cutflow, histograms, destination, *, plots=False, export_root=False):
     """Render/stage all artifacts and exclusively publish one complete directory."""
 
     validate_numerical(config, cutflow, histograms)
@@ -166,6 +166,13 @@ def publish_results(report, config, cutflow, histograms, destination, *, plots=F
         for name, data in [('cutflow.json', cutflow), ('histograms.json', histograms)]:
             (staged / name).write_text(json.dumps(data, indent=2, allow_nan=False) + '\n', encoding='utf-8')
         write_cutflow_csv(cutflow, staged / 'cutflow.csv')
+        report['root_export'] = {'enabled': False}
+        if export_root:
+            from .root_export import write_root_histograms
+            write_root_histograms(report, histograms, staged / 'histograms.root', file_sha256(staged / 'histograms.json'))
+            report['root_export'] = {'enabled': True, 'mgpd_version': __version__, 'uproot_version': version('uproot'),
+                                     'format': 'TH1D', 'raw_directory': 'raw', 'normalized_directory': 'normalized',
+                                     'statistics': 'bin-center moments; exclude flows'}
         report['rendering'] = {'enabled': False, 'formats': []}
         if plots:
             started = time.perf_counter()

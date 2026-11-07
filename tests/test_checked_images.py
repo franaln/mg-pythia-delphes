@@ -20,6 +20,12 @@ sources = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sources)
 
 
+def supported_recipes():
+    # The source catalog defines the supported image builds. Local experimental
+    # Dockerfiles do not inherit the production recipe contract.
+    return [CHECKED / f'mg-pythia-delphes-{version}.Dockerfile' for version in sources.TOOLS]
+
+
 class CheckedImageTests(unittest.TestCase):
     def archive(self):
         stream = io.BytesIO()
@@ -177,7 +183,7 @@ class CheckedImageTests(unittest.TestCase):
             self.assertEqual(lock.read_bytes(), original)
 
     def test_all_archive_and_pdf_steps_mount_cache_without_copying_it_to_runtime(self):
-        for recipe in CHECKED.glob('*.Dockerfile'):
+        for recipe in supported_recipes():
             text = recipe.read_text()
             self.assertIn('FROM scratch AS mgpd_sources', text)
             self.assertIn('COPY ${SOURCE_CACHE}/ /archives/', text)
@@ -205,7 +211,7 @@ class CheckedImageTests(unittest.TestCase):
             self.assertEqual(sources.TOOLS, original)
 
     def test_recipe_copy_paths_exist_and_no_legacy_recipe_paths_remain(self):
-        for recipe in CHECKED.glob('*.Dockerfile'):
+        for recipe in supported_recipes():
             content = recipe.read_text()
             self.assertNotIn('dockerfiles/', content)
             for line in content.splitlines():

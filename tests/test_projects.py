@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import yaml
 
 import mgpd
 from mgpd.cli import main, PROJECT_TEMPLATES, PROJECT_LEVELS
@@ -53,8 +54,12 @@ class ProjectTests(unittest.TestCase):
         with patch('mgpd.config.socket.gethostname', return_value='jupiter'):
             project = create_project(self.root / 'local', template='proc')
             self.assertEqual(load_project_config(project['directory'])['run']['image'], '/opt/images/mg-pythia-delphes-3.5.6.sif')
-        project = create_project(self.root / 'custom', template='proc', image='custom.sif')
-        self.assertEqual(load_project_config(project['directory'])['run']['image'], 'custom.sif')
+        for hostname in ('jupiter', 'workstation'):
+            with self.subTest(hostname=hostname), patch('mgpd.config.socket.gethostname', return_value=hostname):
+                project = create_project(self.root / ('custom-' + hostname), template='proc', image='custom.sif')
+                expected = str(Path(project['directory']) / 'custom.sif') if hostname == 'jupiter' else 'custom.sif'
+                self.assertEqual(load_project_config(project['directory'])['run']['image'], expected)
+                self.assertEqual(yaml.safe_load((Path(project['directory'])/'config.yml').read_text())['run']['image'], 'custom.sif')
 
     def test_create_never_overwrites_and_invalid_requests_leave_no_project(self):
         folder = self.root / 'existing'; folder.mkdir()

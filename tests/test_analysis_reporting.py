@@ -46,6 +46,8 @@ class AnalysisExampleTests(unittest.TestCase):
                  ['events.lhe'], ['--config', 'analysis.yml'],
                  ['--from-results', 'saved', '-o', 'new', '--chunk-size', '10000'],
                  ['--example', 'dileptons-lhe', '--plots'],
+                 ['--example', 'dileptons-lhe', '--export-root'],
+                 ['events.lhe', '--config', 'analysis.yml', '--validate-only', '--export-root'],
                  ['events.lhe', '--config', 'analysis.yml', '--validate-only', '--plots']]
         for args in cases:
             with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
