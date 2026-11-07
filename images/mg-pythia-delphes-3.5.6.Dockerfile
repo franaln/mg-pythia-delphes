@@ -250,24 +250,24 @@ COPY images/setup_mg_pythia_delphes.sh ${DATA_TMP_DIR}
 RUN sed "s|__INS_DIR__|${INSTALL_DIR}|g" ${DATA_TMP_DIR}/setup_mg_pythia_delphes.sh > /setup_mg_pythia_delphes.sh
 
 # Install/compile needed tools for loops
-# RUN source /setup_mg_pythia_delphes.sh && \
-#     echo "install ninja" | mg5_aMC && \
-#     echo "install collier" | mg5_aMC && \
-#     rm -rf MG5_aMC/HEPTools/collier/COLLIER-1.2.9/build
+RUN source /setup_mg_pythia_delphes.sh && \
+    echo "install ninja" | mg5_aMC && \
+    echo "install collier" | mg5_aMC && \
+    rm -rf MG5_aMC/HEPTools/collier/COLLIER-1.2.9/build
 
 # build cuttools
-# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
-#     make clean && \
-#     make
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/CutTools && \
+    make clean && \
+    make
 
-# # build iregi
-# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
-#     make clean && \
-#     make
+# build iregi
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/IREGI/src && \
+    make clean && \
+    make
 
-# # build StdHEP
-# RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
-#     make
+# build StdHEP
+RUN cd ${INSTALL_DIR}/MG5_aMC/vendor/StdHEP && \
+    make
 
 # Install extra models
 COPY images/models/*.tar.gz /tmp/models/
