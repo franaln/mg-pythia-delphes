@@ -32,6 +32,7 @@ def parse_condor_job_ids(stdout, expected_count=None):
 
 def query_condor_ads(command, ids, production_id=None, timeout=30):
     """Query only recorded IDs in bounded batches, preserving errors as unknown."""
+
     ads, errors = {}, []
     for start in range(0, len(ids), 100):
         batch = ids[start:start + 100]
@@ -102,13 +103,20 @@ def condor_ad_status(ad):
 
 def production_status(output_dir, timeout=30):
     """Read-only scheduler snapshot; never submit, reset attempts or validate physics."""
+
     manifest = read_production_manifest(output_dir)
-    result = {'production_id': manifest.get('production_id'), 'recorded_state': manifest.get('state'),
-              'checked_at': datetime.now(timezone.utc).isoformat(), 'jobs': [], 'query_errors': []}
+    result = {
+        'production_id': manifest.get('production_id'),
+        'recorded_state': manifest.get('state'),
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+        'jobs': [],
+        'query_errors': []
+    }
     if manifest.get('mode') not in ('condor', 'jupiter'):
         result.update(state=manifest.get('state', 'unknown'), counts={},
                       note='Recorded local state only; no live process or output validation')
         return result
+
     submission = manifest.get('submission', {})
     mappings = submission.get('jobs', [])
     if not mappings and submission.get('stdout') and manifest.get('state') == 'submitted':
@@ -119,19 +127,24 @@ def production_status(output_dir, timeout=30):
                         for job, value in zip(manifest['jobs'], ids)]
         except ValueError as exc:
             result['query_errors'].append({'command': 'parse_submission', 'error': str(exc)})
+
     expected = {job['job_id']: job for job in manifest.get('jobs', [])}
     mapped = {entry['job_id']: entry for entry in mappings}
     if len(mapped) != len(mappings) or any(key not in expected for key in mapped):
         raise ValueError('Recorded scheduler mapping does not match the production')
+
     ids = [entry['scheduler_id'] for entry in mappings]
     if len(set(ids)) != len(ids):
         raise ValueError('Duplicate recorded scheduler IDs')
+
     tagged_id = manifest.get('production_id') if submission.get('identity_tagged') else None
     if mappings and not tagged_id:
         result['note'] = 'Legacy submission: scheduler IDs have no production identity tags'
+
     queued, errors = query_condor_ads('condor_q', ids, tagged_id, timeout)
     result['query_errors'].extend(errors)
     missing = [value for value in ids if value not in queued]
+
     history, errors = query_condor_ads('condor_history', missing, tagged_id, timeout)
     result['query_errors'].extend(errors)
     for job_id, job in expected.items():
@@ -152,16 +165,18 @@ def production_status(output_dir, timeout=30):
             item['reason'] = 'No recorded scheduler ID' if scheduler_id is None else 'Not found or query unavailable; never treated as completed'
             if scheduler_id is None and manifest.get('state') == 'prepared':
                 item['state'] = 'prepared'
+
         result['jobs'].append(item)
+
     result['counts'] = dict(Counter(item['state'] for item in result['jobs']))
     states = set(result['counts'])
     result['state'] = next((state for state in ('failed', 'removed', 'held', 'unknown', 'running',
                             'transferring', 'suspended', 'pending', 'prepared', 'completed') if state in states), 'unknown')
     result['submission_host'] = submission.get('host')
     result['identity_checks_enabled'] = bool(tagged_id)
+
     return result
 
 
 CONDOR_STATUS_ATTRIBUTES = ('ClusterId,ProcId,JobStatus,ExitCode,ExitBySignal,ExitSignal,'
                             'HoldReason,HoldReasonCode,RemoveReason,MGProductionId,MGJobId')
-

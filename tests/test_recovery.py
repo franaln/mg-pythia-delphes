@@ -114,15 +114,52 @@ class RecoveryTests(unittest.TestCase):
                 child = prepare_recovery(parent.output_dir, root / 'retry')
             self.assertEqual([job['job_id'] for job in child.manifest['jobs']], ['sample_00001'])
             self.assertEqual(child.manifest['jobs'][0]['seed'], 102)
-            for relative in ('run_sample.tar.gz', 'sample_00001.mg5', 'run_mgpd_condor.sh'):
+            for relative in ('run_sample.tar.gz', 'run_mgpd_condor.sh'):
                 self.assertEqual(Path(child.output_dir, relative).read_bytes(), Path(parent.output_dir, relative).read_bytes())
             submission = Path(child.output_dir, child.submit_file).read_text()
             self.assertEqual(submission.count('queue 1'), 1)
+            self.assertIn('seed = 102\n', submission)
+            self.assertNotIn('seed_file', submission)
             self.assertIn(child.manifest['production_id'], submission)
             self.assertNotIn(parent.manifest['production_id'], submission)
             self.assertFalse(Path(child.output_dir, 'sample_00000.mg5').exists())
             self.assertFalse(list(Path(child.output_dir).glob('output_*.tar.gz')))
             self.assertEqual(Path(parent.output_dir, 'output_sample_123_0.tar.gz').read_bytes(), good_output)
+
+    def test_legacy_condor_recovery_keeps_frozen_wrapper_and_job_files(self):
+        from mgpd.preparation import prepare_condor_submission
+        from mgpd.storage import file_sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = self.fixture(root, 'condor')
+            directory = Path(parent.output_dir)
+            manifest = parent.manifest
+            # Reconstruct the former Condor layout, including its frozen wrapper.
+            wrapper = directory / 'run_mgpd_condor.sh'
+            wrapper.write_text('#!/bin/bash\ntar -xzf "$2" || exit 1\n'
+                               'cp -- "$5" run.mg5 || exit 1\nmg5_aMC run.mg5\n')
+            for job in manifest['jobs']:
+                job['run_file'] = job['job_id'] + '.mg5'
+                (directory / job['run_file']).write_text(f"set iseed = {job['seed']}\ndone\n")
+            prepare_condor_submission(manifest['config'], directory, manifest['image'],
+                                      manifest['jobs'], manifest['production_id'])
+            inputs = {str(path.relative_to(directory)): file_sha256(path)
+                      for path in directory.iterdir()
+                      if path.name != 'manifest.json' and path.suffix in ('.mg5', '.sh', '.sub', '.gz')
+                      and not path.name.startswith('output_')}
+            manifest['prepared_input_sha256'] = inputs
+            manifest['execution_input_sha256'] = inputs
+            manifest['plan_sha256'] = plan_sha256(manifest)
+            write_manifest(directory, manifest)
+            with patch.object(recovery_module, 'production_status', return_value=self.scheduler(['completed', 'failed'])):
+                child = prepare_recovery(directory, root / 'retry')
+            child_dir = Path(child.output_dir)
+            self.assertEqual((child_dir / 'run_mgpd_condor.sh').read_bytes(), wrapper.read_bytes())
+            self.assertEqual((child_dir / 'sample_00001.mg5').read_text(), 'set iseed = 102\ndone\n')
+            submission = (child_dir / child.submit_file).read_text()
+            self.assertIn('$(seed_file)', submission)
+            self.assertIn('seed_file = sample_00001.mg5', submission)
+            load_prepared_production(child_dir)
 
     def test_local_child_runs_once_and_cannot_be_claimed_twice(self):
         with tempfile.TemporaryDirectory() as tmp:

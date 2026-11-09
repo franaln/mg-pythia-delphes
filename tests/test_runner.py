@@ -68,14 +68,14 @@ class RunnerTests(unittest.TestCase):
                     executable = root / 'mg5_aMC'
                     executable.write_text('#!/bin/bash\nexit 42\n')
                     executable.chmod(0o755)
-                    (root / 'run.mg5').write_text('')
+                    (root / 'run.mg5').write_text('set iseed = XXXX\ndone\n')
                     script = root / 'run.sh'
                     script.write_text(template)
                     subprocess.run(['bash', '-n', str(script)], check=True)
                     with tarfile.open(root / 'inputs.tar.gz', 'w:gz') as archive:
                         archive.add(root / 'run.mg5', arcname='run.mg5')
                     env = dict(os.environ, MG_DIR='/unused', PATH=str(root) + ':' + os.environ['PATH'])
-                    result = subprocess.run(['bash', str(script), 'sample', 'inputs.tar.gz', 'lhe', 'output'],
+                    result = subprocess.run(['bash', str(script), 'sample', 'inputs.tar.gz', 'lhe', 'output', '123'],
                                             cwd=root, env=env, capture_output=True, text=True)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn('ERROR running MadGraph', result.stderr)
@@ -115,6 +115,9 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(manifest['state'], 'prepared')
                 self.assertEqual([job['seed'] for job in manifest['jobs']], [20, 21, 22])
                 for job in manifest['jobs']:
+                    if mode == 'condor':
+                        self.assertNotIn('run_file', job)
+                        continue
                     path = output / job['run_file']
                     self.assertIn(f"set iseed = {job['seed']}", path.read_text())
                     self.assertIn(job['run_file'], manifest['prepared_input_sha256'])
@@ -124,17 +127,21 @@ class RunnerTests(unittest.TestCase):
                     submission = next(output.glob('*.sub')).read_text()
                     self.assertEqual(submission.count('queue 1'), 3)
                     for job in manifest['jobs']:
-                        self.assertIn(job['run_file'], submission)
+                        self.assertIn(f"seed = {job['seed']}\n", submission)
+                    self.assertNotIn('seed_file', submission)
+                    self.assertEqual(list(output.glob('*.mg5')), [])
+                    with tarfile.open(next(output.glob('run_*.tar.gz'))) as archive:
+                        text = archive.extractfile('./run.mg5').read().decode()
+                    self.assertEqual(text.count('set iseed = XXXX'), 1)
                 else:
                     self.assertEqual(len(list(output.glob('run_*/run_mgpd_local.sh'))), 3)
 
     def test_condor_worker_uses_prepared_seed_and_lhe_only_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / 'run.mg5').write_text('set iseed = 0\ndone\n')
+            (root / 'run.mg5').write_text('set iseed = XXXX\ndone\n')
             with tarfile.open(root / 'inputs.tar.gz', 'w:gz') as archive:
                 archive.add(root / 'run.mg5', arcname='run.mg5')
-            (root / 'seeded.mg5').write_text('set iseed = 123\ndone\n')
             executable = root / 'mg5_aMC'
             executable.write_text('#!/bin/bash\ncat run.mg5 > actual.mg5\n'
                                   'mkdir -p RUN/Events/run_01\n'
@@ -144,12 +151,36 @@ class RunnerTests(unittest.TestCase):
             script.write_text(load_template('run_mgpd_condor.sh'))
             env = dict(os.environ, MG_DIR='/unused', PATH=str(root) + ':' + os.environ['PATH'])
             result = subprocess.run(['bash', str(script), 'sample', 'inputs.tar.gz',
-                                     'lhe', 'output', 'seeded.mg5'], cwd=root, env=env,
+                                     'lhe', 'output', '123'], cwd=root, env=env,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((root / 'actual.mg5').read_text(), (root / 'seeded.mg5').read_text())
+            self.assertEqual((root / 'actual.mg5').read_text(), 'set iseed = 123\ndone\n')
             with tarfile.open(root / 'output.tar.gz') as archive:
                 self.assertIn('output_unweighted_events.lhe.gz', archive.getnames())
+
+    def test_condor_worker_rejects_invalid_seed_or_template_before_madgraph(self):
+        cases = [(seed, 'set iseed = XXXX\ndone\n')
+                 for seed in ('', '0', '-1', '30081', '01', '1; echo bad', 'seeded.mg5')]
+        cases += [('17', text) for text in ('done\n', 'set iseed = 0\ndone\n',
+                  'set iseed = XXXX\nset iseed = XXXX\ndone\n',
+                  'set iseed = XXXX\nset iseed 42\ndone\n')]
+        for seed, text in cases:
+            with self.subTest(seed=seed, text=text), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'run.mg5').write_text(text)
+                with tarfile.open(root / 'inputs.tar.gz', 'w:gz') as archive:
+                    archive.add(root / 'run.mg5', arcname='run.mg5')
+                (root / 'worker.sh').write_text(load_template('run_mgpd_condor.sh'))
+                executable = root / 'mg5_aMC'
+                executable.write_text('#!/bin/bash\ntouch launched\n')
+                executable.chmod(0o755)
+                env = dict(os.environ, MG_DIR='/unused', PATH=str(root) + ':' + os.environ['PATH'])
+                result = subprocess.run(['bash', 'worker.sh', 'sample', 'inputs.tar.gz',
+                                         'lhe', 'output', seed], cwd=root, env=env,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('ERROR:', result.stderr)
+                self.assertFalse((root / 'launched').exists())
 
     def test_local_execution_failure_updates_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,7 +222,7 @@ class RunnerTests(unittest.TestCase):
                 config['options'] = {'seed': 203}
                 production = prepare_production(config, root / 'production')
                 frozen = {job['run_file']: (Path(production.output_dir) / job['run_file']).read_bytes()
-                          for job in production.manifest['jobs']}
+                          for job in production.manifest['jobs'] if 'run_file' in job}
                 with patch.object(preparation_module, 'allocate_seeds', side_effect=AssertionError('must not reallocate')), \
                      patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='123.0 - 123.1\n', stderr='')) as launch:
                     result = execute_production(production)
@@ -268,7 +299,7 @@ class RunnerTests(unittest.TestCase):
                     self.assertIn(str(moved.resolve()), str(launch.call_args.args))
 
     def test_changed_execution_inputs_are_rejected_before_launch(self):
-        cases = [('condor', 'sample_00000.mg5'), ('condor', 'run_sample.tar.gz'),
+        cases = [('condor', 'run_sample.tar.gz'),
                  ('condor', 'job_sample.sub'), ('condor', 'run_mgpd_condor.sh'),
                  ('local-docker', 'run_sample/cards/run_card.dat'),
                  ('local-docker', 'run_sample/run_mgpd_local.sh')]

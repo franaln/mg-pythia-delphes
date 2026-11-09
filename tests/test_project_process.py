@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 import yaml
 from mgpd import create_project, copy_project, load_project_config, prepare_project
@@ -27,9 +28,11 @@ class ProcessTests(unittest.TestCase):
         self.assertIn('process: |', (project / 'config.yml').read_text())
         with redirect_stdout(io.StringIO()):
             prepared = prepare_project(project)
-        run_file = Path(prepared.output_dir) / prepared.manifest['jobs'][0]['run_file']
-        self.assertIn(self.process, run_file.read_text())
-        self.assertNotIn('generate p p > e+ e-', run_file.read_text())
+        sample = prepared.manifest['jobs'][0]['sample']
+        with tarfile.open(Path(prepared.output_dir) / f'run_{sample}.tar.gz') as archive:
+            text = archive.extractfile('./run.mg5').read().decode()
+        self.assertIn(self.process, text)
+        self.assertNotIn('generate p p > e+ e-', text)
 
     def test_copy_preserves_process_or_explicitly_replaces_process_card(self):
         source = self.root / 'source'

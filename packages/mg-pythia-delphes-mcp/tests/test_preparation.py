@@ -93,6 +93,8 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                 actual = mgpd.load_prepared_production(self.root / output)
                 self.assertEqual(actual.manifest['jobs'], reference.manifest['jobs'])
                 for job in actual.manifest['jobs']:
+                    if 'run_file' not in job:
+                        continue
                     self.assertEqual((Path(actual.output_dir) / job['run_file']).read_bytes(),
                                      (Path(reference.output_dir) / job['run_file']).read_bytes())
                 self.assertNotIn('execution_attempt', actual.manifest)

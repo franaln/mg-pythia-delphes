@@ -56,6 +56,14 @@ python scripts/test_examples.py --mode condor --output test-results/preparation-
 python scripts/test_examples.py --mode local  --output test-results/preparation-local
 ```
 
+New Condor preparations package a shared `run.mg5` with one
+`set iseed = XXXX` command. Each job's frozen numeric seed is passed as the fifth
+wrapper argument; the worker validates it (1–30080) and substitutes the marker
+before invoking MadGraph. No per-job `.mg5` file is generated or transferred.
+Local jobs retain their fully rendered `run.mg5`. Existing saved Condor plans
+and their recoveries retain their original wrapper and per-job command files;
+do not replace frozen files manually.
+
 These validate/prepare the examples in `examples/catalog.json`, checking job and
 sample counts, seeds, frozen files, archives and Bash syntax. They do not launch
 containers or contact Condor. Add new examples to the catalog. `--events` changes

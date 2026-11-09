@@ -32,11 +32,11 @@ class TemplateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'job.sub'
             values = {key: 'example' for key in ('container_image', 'input_file', 'arguments',
-                                               'notifications', 'requirements', 'jobs')}
+                                               'notifications', 'requirements', 'jobs', 'transfer_inputs')}
             create_file_from_template('job.sub', path, values)
             text = path.read_text()
             self.assertIn('job_name = $(Cluster)_$(Process)', text)
-            self.assertIn('transfer_input_files = $(input_file),$(seed_file)', text)
+            self.assertIn('transfer_input_files = example', text)
             self.assertNotIn('${container_image}', text)
 
     def test_shell_templates_preserve_expansions_and_parse(self):

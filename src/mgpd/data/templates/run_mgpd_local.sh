@@ -53,30 +53,30 @@ if [[ " ${outputs:-} " == *" lhco "* ]]; then
     final_lhco="${output_dir}/${run_name}_delphes_events.lhco"
     echo "> Creating lhco output from ${root_file}"
     if [ ! -s "${root_file}" ]; then
-        echo "ERROR: ROOT input for LHCO conversion is missing or empty: ${root_file}" >&2
-        exit 1
-    fi
-    if ! command -v root2lhco >/dev/null 2>&1; then
-        echo "ERROR: root2lhco is unavailable in the container environment" >&2
-        exit 1
-    fi
-    if ! root2lhco "${root_file}" "${temporary_lhco}"; then
-        echo "ERROR: root2lhco failed; preserving ROOT input and partial output" >&2
-        exit 1
-    fi
-    if [ ! -s "${temporary_lhco}" ]; then
-        echo "ERROR: root2lhco produced no LHCO output: ${temporary_lhco}" >&2
-        exit 1
-    fi
-    banner="${output_dir}/${output_dir_name}_${run_name}_banner.txt"
-    if [ -f "${banner}" ]; then
-        sed -e 's/^/# /g' "${banner}" > "${final_lhco}" || exit 1
-        echo "" >> "${final_lhco}"
-        cat "${temporary_lhco}" >> "${final_lhco}" || exit 1
-        rm "${temporary_lhco}" || exit 1
+        echo "WARNING: ROOT input for LHCO conversion is missing or empty: ${root_file}; keeping other outputs" >&2
+    elif ! command -v root2lhco >/dev/null 2>&1; then
+        echo "WARNING: root2lhco is unavailable; omitting LHCO and keeping other requested outputs" >&2
+    elif ! root2lhco "${root_file}" "${temporary_lhco}"; then
+        echo "WARNING: root2lhco failed; omitting LHCO and keeping other requested outputs" >&2
+    elif [ ! -s "${temporary_lhco}" ]; then
+        echo "WARNING: root2lhco produced no LHCO output; keeping other requested outputs" >&2
     else
-        mv "${temporary_lhco}" "${final_lhco}" || exit 1
+        banner="${output_dir}/${output_dir_name}_${run_name}_banner.txt"
+        staged_lhco="${final_lhco}.pending"
+        if {
+            if [ -f "${banner}" ]; then
+                sed -e 's/^/# /g' "${banner}" && echo ""
+            else
+                true
+            fi && cat "${temporary_lhco}"
+        } > "${staged_lhco}" && mv -- "${staged_lhco}" "${final_lhco}"; then
+            : # Complete LHCO published.
+        else
+            echo "WARNING: LHCO assembly failed; omitting LHCO and keeping other requested outputs" >&2
+        fi
+        rm -f -- "${staged_lhco}" || echo "WARNING: could not remove staged LHCO" >&2
     fi
+    rm -f -- "${temporary_lhco}" || echo "WARNING: could not remove temporary LHCO" >&2
 fi
 
 ls "${output_dir}"

@@ -152,6 +152,24 @@ ROOT/LHCO output requires a Delphes card. `hepmc0` keeps HepMC only from the
 first job of each sample in Condor mode. Use explicit output types when you
 intend to validate results; `outputs: [all]` is not supported by validation.
 
+For LHCO conversion, choose a Delphes card that writes the branches required by
+`root2lhco`: Event, Track, Tower, Photon, Electron, Muon, Jet and MissingET.
+In particular, `TreeWriter` must enable `add Branch Calorimeter/towers Tower Tower`
+when that collection is provided by the card. mgpd does not modify your detector
+card automatically.
+
+Each requested output is prepared independently. A missing file or a failure to
+prepare ROOT, LHE, HepMC, logs or LHCO emits a warning and preserves the other
+available outputs. If renaming a native file fails, Condor returns it under its
+original name when available. Failed LHCO conversion or assembly never publishes
+the partial file as final LHCO. If no requested file can be prepared, Condor
+returns an empty archive.
+
+Input preparation, simulation and final archive creation failures remain fatal.
+Successful execution does not establish output completeness: run
+`mgpd validate-results` to check the requested outputs. This behavior applies to
+newly prepared jobs; saved preparations retain their frozen wrappers.
+
 ## Status and validation
 
 ```bash

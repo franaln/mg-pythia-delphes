@@ -219,7 +219,7 @@ def prepare_sample_inputs(config, output_dir):
 
 
 def prepare_job_plan(config, output_dir, run_dirs, run_mode):
-    """Assign concrete seeds and write exact per-job command files."""
+    """Freeze seeds; write local commands or a shared Condor seed template."""
 
     output_dir = Path(output_dir)
 
@@ -234,26 +234,28 @@ def prepare_job_plan(config, output_dir, run_dirs, run_mode):
     for sample, directory in run_dirs.items():
         directory = Path(directory)
         text = (directory / 'run.mg5').read_text()
+        if run_mode in RUN_MODE_CONDOR_ALIASES:
+            (directory / 'run.mg5').write_text(render_seeded_run(text, 'XXXX'))
         for index in range(run_njobs):
             seed = next(seeds)
             job_id = f'{sample}_{index:05d}'
-            seeded_text = render_seeded_run(text, seed)
             outputs = [value for value in run_outputs if value != 'hepmc0']
             if 'hepmc0' in run_outputs and index == 0 and 'hepmc' not in outputs:
                 outputs.append('hepmc')
             if run_mode in RUN_MODE_CONDOR_ALIASES:
-                seed_path = output_dir / f'{job_id}.mg5'
+                seed_path = None
             else:
                 job_directory = directory if run_njobs == 1 else directory.with_name(f'{directory.name}_job{index:05d}')
                 if job_directory != directory:
                     shutil.copytree(directory, job_directory)
                 local_dirs[job_id] = (sample, str(job_directory))
                 seed_path = job_directory / 'run.mg5'
-            seed_path.write_text(seeded_text)
+            if seed_path is not None:
+                seed_path.write_text(render_seeded_run(text, seed))
 
             planned_jobs.append({'job_id': job_id, 'sample': sample, 'index': index,
                                  'seed': seed, 'nevents': run_nevents, 'outputs': outputs or ['log'],
-                                 'run_file': str(seed_path.relative_to(output_dir))})
+                                 **({'run_file': str(seed_path.relative_to(output_dir))} if seed_path is not None else {})})
 
     if local_dirs and run_njobs > 1:
         for directory in run_dirs.values():
@@ -321,7 +323,11 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
         job_replace_dict['requirements'] = ''
 
     job_replace_dict['input_file'] = 'run_$(run_name).tar.gz'
-    job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) $(seed_file)'
+    legacy = all('run_file' in job for job in planned_jobs)
+    if not legacy and any('run_file' in job for job in planned_jobs):
+        raise ValueError('Cannot mix legacy and numeric-seed Condor jobs')
+    job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) ' + ('$(seed_file)' if legacy else '$(seed)')
+    job_replace_dict['transfer_inputs'] = '$(input_file),$(seed_file)' if legacy else '$(input_file)'
 
     jobs = ''
     for job in planned_jobs:
@@ -329,9 +335,14 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
             jobs += f'+MGProductionId = "{production_id}"\n'
             jobs += f'+MGJobId = "{job["job_id"]}"\n'
         jobs += f"run_name = {job['sample']}\n"
-        jobs += f"seed_file = {job['run_file']}\n"
+        if legacy:
+            jobs += f"seed_file = {job['run_file']}\n"
+        else:
+            if type(job['seed']) is not int or not 1 <= job['seed'] <= MAX_SEED:
+                raise ValueError('Invalid frozen job seed')
+            jobs += f"seed = {job['seed']}\n"
         jobs += f"outputs = {','.join(job['outputs'])}\n"
-        jobs += 'queue 1\n'
+        jobs += 'queue 1\n\n'
 
     job_replace_dict['jobs'] = jobs
 

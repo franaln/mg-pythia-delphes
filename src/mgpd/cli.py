@@ -45,14 +45,14 @@ def _parser():
     completion = commands.add_parser('completion', help=argparse.SUPPRESS)
     completion.add_argument('shell', choices=('bash', 'zsh'))
 
-    images = commands.add_parser('images', help='List installed images or published Docker Hub tags')
+    images = commands.add_parser('images', aliases=['img'], help='List installed images or published Docker Hub tags')
     images.add_argument('--backend', choices=('local-apptainer', 'local-docker'))
     images.add_argument('--directory', type=Path, default=Path('/opt/images'), help='SIF directory')
     images.add_argument('--repository', default='franaln/mg-pythia-delphes')
     images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
     images.add_argument('--json', action='store_true', dest='json_output')
 
-    analyze = commands.add_parser('analyze', help='Analyze LHE, Delphes ROOT or LHCO files/managed merges')
+    analyze = commands.add_parser('analyze', aliases=['ana'], help='Analyze LHE, Delphes ROOT or LHCO files/managed merges')
     analyze.add_argument('inputs', nargs='*', help='Explicit files or one managed merge/production directory')
     analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
     analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
@@ -95,7 +95,7 @@ def _parser():
     execute.add_argument('directory')
 
     # Check production status
-    status = commands.add_parser('status', help='Read execution state from local records or Condor')
+    status = commands.add_parser('status', aliases=['st'], help='Read execution state from local records or Condor')
     status.add_argument('directory')
     status.add_argument('--json', action='store_true', dest='json_output')
 

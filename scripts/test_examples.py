@@ -36,6 +36,8 @@ def check_prepared(output, entry):
     if len(set(seeds)) != len(jobs) or not all(1 <= x <= 30080 for x in seeds):
         raise ValueError('Seeds must be distinct and within the supported range')
     for job in jobs:
+        if manifest['mode'] in ('condor', 'jupiter'):
+            continue
         path = output / job['run_file']
         text = path.read_text()
         values = re.findall(r'^set iseed = (\d+)$', text, re.MULTILINE)
@@ -50,10 +52,19 @@ def check_prepared(output, entry):
         submission = next(output.glob('*.sub')).read_text()
         if submission.count('queue 1\n') != len(jobs):
             raise ValueError('Submission job count differs from manifest')
+        for job in jobs:
+            if f"seed = {job['seed']}\n" not in submission:
+                raise ValueError('Submission seed differs from manifest')
         for sample in entry['samples']:
-            with tarfile.open(output / f'run_{sample}.tar.gz') as archive:
+            relative = f'run_{sample}.tar.gz'
+            if hashlib.sha256((output / relative).read_bytes()).hexdigest() != manifest['execution_input_sha256'][relative]:
+                raise ValueError(f'Input checksum mismatch: {relative}')
+            with tarfile.open(output / relative) as archive:
                 if not any(Path(member.name).name == 'run.mg5' for member in archive.getmembers()):
                     raise ValueError('Sample archive is missing run.mg5')
+                member = next(member for member in archive.getmembers() if Path(member.name).name == 'run.mg5')
+                if archive.extractfile(member).read().decode().count('set iseed = XXXX\n') != 1:
+                    raise ValueError('Sample archive must contain one seed placeholder')
     return manifest
 
 

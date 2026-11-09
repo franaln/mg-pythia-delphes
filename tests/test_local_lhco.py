@@ -44,11 +44,13 @@ class LocalLhcoTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(list(events.glob('*.lhco')))
 
-    def test_failed_converter_and_missing_or_empty_output_fail_the_job(self):
+    def test_failed_converter_warns_and_preserves_root(self):
         for converter, message in ((None, 'unavailable'), ('exit 42\n', 'root2lhco failed'),
                                    ('exit 0\n', 'no LHCO output'), (': > "$2"\n', 'no LHCO output')):
             with self.subTest(converter=converter):
                 result, events = self.run_wrapper(['lhco'], converter)
-                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(message, result.stderr)
+                self.assertIn('WARNING:', result.stderr)
+                self.assertFalse(list(events.glob('*.lhco')))
                 self.assertTrue((events / 'sample_delphes_events.root').exists())

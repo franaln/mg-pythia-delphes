@@ -124,7 +124,8 @@ def prepare_recovery(output_dir, output, job_ids=None, **policy):
                     copy_input(f'run_{sample}.tar.gz')
                 copy_input('run_mgpd_condor.sh')
                 for job in jobs:
-                    copy_input(job['run_file'])
+                    if 'run_file' in job:  # Saved legacy Condor plans retain their original wrapper.
+                        copy_input(job['run_file'])
             else:
                 roots = [Path(job['run_file']).parent for job in jobs]
                 for relative in parent.manifest['execution_input_sha256']:
