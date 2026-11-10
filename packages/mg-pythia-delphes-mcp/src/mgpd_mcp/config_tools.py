@@ -6,6 +6,18 @@ import mgpd
 def dispatch(workspace, request):
     operation = request['operation']
     guard = lambda data, base: workspace.config_inputs(data, Path(base))
+    if operation == 'create_analysis':
+        from mgpd.analysis import create_analysis_config
+        base = workspace.path(request.get('base_directory', '.'))
+        if not base.is_dir():
+            raise FileNotFoundError('Analysis base directory does not exist')
+        raw = Path(request.get('output', 'analysis.yml'))
+        output = workspace.new_output(raw if raw.is_absolute() else base / raw)
+        format = request.get('format', 'root')
+        create_analysis_config(output, format=format)
+        return {'config_path': str(output.relative_to(workspace.root)),
+                'base_directory': str(base.relative_to(workspace.root)),
+                'format': format, 'review_required': True, 'submitted': False}
     if operation == 'create_project':
         output = workspace.new_output(request['output'])
         options = {key: request[key] for key in ('name', 'level', 'mode', 'image', 'nevents', 'njobs', 'seed', 'process')

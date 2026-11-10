@@ -156,6 +156,17 @@ def analysis_example(name='dileptons-lhe'):
     return _resource(f'analysis/{name}.yml').read_text(encoding='utf-8')
 
 
+def create_analysis_config(path='analysis.yml', *, format='root'):
+    """Copy an editable packaged analysis starter without overwriting files."""
+    if format not in ('lhe', 'root', 'lhco'):
+        raise ValueError('Analysis format must be lhe, root, or lhco')
+    text = analysis_example(f'dileptons-{format}')
+    destination = Path(path)
+    with destination.open('x', encoding='utf-8') as target:
+        target.write(text)
+    return str(destination)
+
+
 def render_analysis(source, output, *, plots=True, export_root=False):
     """Regenerate CSV and plots from saved numbers, never opening original events."""
 
@@ -185,4 +196,4 @@ def render_analysis(source, output, *, plots=True, export_root=False):
     return publish_results(report, config, cutflow, histograms, destination, plots=plots, export_root=export_root)
 
 
-__all__ = ['plan_analysis', 'run_analysis', 'render_analysis', 'analysis_example']
+__all__ = ['plan_analysis', 'run_analysis', 'render_analysis', 'analysis_example', 'create_analysis_config']

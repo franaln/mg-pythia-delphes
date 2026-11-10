@@ -89,7 +89,7 @@ def _family(directory, stack):
     return family
 
 
-def merge_production(directory, output=None, *, samples=None, allow_partial=False,
+def merge_production(directory, output=None, *, samples=None, allow_partial=False, formats=None,
                      backend=None, image=None, extract_lhe=False, keep_all=False,
                      preview=False, selection_sha256=None, **policy):
     """Select the first validated stopped attempt per job, then merge per sample.
@@ -97,7 +97,17 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
     Traverses only registered, verified descendants in parent-first order. It
     never queries/submits scheduler jobs or changes production manifests.
     """
+
+    requested_formats = None
+    if formats is not None:
+        if isinstance(formats, str):
+            raise ValueError('formats must be a nonempty sequence of lhe, root, lhco')
+        requested_formats = set(formats)
+        if not requested_formats or requested_formats - MERGEABLE:
+            raise ValueError('formats must select lhe, root, or lhco')
+
     policy = {'event_count': 'exact', 'require_positive_cross_section': True, 'check_seed': True, **policy}
+
     root = Path(directory).resolve()
     destination = Path(output).absolute() if output is not None else root / 'merged'
     if destination.exists() or destination.is_symlink():
@@ -118,15 +128,18 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
             compatible = (backend == 'local-apptainer' and manifest['image'].endswith('.sif')
                           or backend == 'local-docker' and manifest['mode'] == 'local-docker')
             image = manifest['image'] if compatible else (APPTAINER_IMAGE if backend == 'local-apptainer' else DOCKER_IMAGE)
+
         jobs = manifest['jobs']
         if len({job['job_id'] for job in jobs}) != len(jobs):
             raise ValueError('Duplicate logical job IDs')
+
         names = {job['sample'] for job in jobs}
         selected_samples = set(samples) if samples else names
         if not selected_samples or selected_samples - names:
             raise ValueError(f'Unknown or empty sample selection; available: {sorted(names)}')
         if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name) for name in selected_samples):
             raise ValueError('Unsafe sample name')
+
         targets = [job for job in jobs if job['sample'] in selected_samples]
         attempts = {job['job_id']: [] for job in targets}
         for production in family:
@@ -139,8 +152,15 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                     continue
                 stopped = (row['execution_state'] == 'completed' if production.manifest['mode'] in ('condor', 'jupiter')
                            else production.manifest['state'] in ('execution_finished', 'failed'))
-                attempts[row['job_id']].append((production, definitions[row['job_id']], row,
-                                                row['state'] == 'valid' and stopped))
+                definition = definitions[row['job_id']]
+                valid = row['state'] == 'valid'
+                if requested_formats is not None:
+                    valid = (row['execution_state'] != 'failed' and
+                             all(row['outputs'].get(kind, {}).get('state') == 'valid'
+                                 for kind in requested_formats))
+                    definition = dict(definition, outputs=sorted(requested_formats))
+                attempts[row['job_id']].append((production, definition, row, valid and stopped))
+
         chosen, omitted = [], []
         for job in targets:
             candidates = attempts[job['job_id']]
@@ -156,8 +176,30 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                                               'outputs': entry[2]['outputs']} for entry in candidates]})
 
         if omitted and not allow_partial:
-            raise ValueError('Missing/invalid or unfinished jobs: ' + ', '.join(row['job_id'] for row in omitted)
-                             + '; inspect mgpd validate-results or use --allow-partial explicitly')
+
+            details = []
+            for row in omitted:
+
+                reasons = []
+                for attempt in row['attempts']:
+                    problems = [f"{kind}: {entry['state']}"
+                                for kind, entry in sorted(attempt['outputs'].items())
+                                if entry['state'] != 'valid' and
+                                (requested_formats is None or kind in requested_formats)]
+
+                    if attempt['execution_state'] != 'completed':
+                        problems.append(f"execution: {attempt['execution_state']}")
+
+                    if attempt.get('error'):
+                        problems.append(attempt['error'])
+
+                    reasons.append(f"{attempt['directory']}: " + ', '.join(problems or ['no eligible attempt']))
+
+                details.append(f"{row['job_id']} [" + '; '.join(reasons or ['no recorded attempt']) + ']')
+
+            raise ValueError('Missing/invalid outputs or unfinished jobs:\n ' + '\n '.join(details)
+                             + '\n inspect mgpd validate-results; use --formats lhe root (for example) '
+                               'to require only selected formats, or --allow-partial to omit jobs explicitly')
 
         if not chosen:
             raise ValueError('No validated stopped jobs are available for merging')
@@ -176,6 +218,13 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                 formats = set(entries[0][1]['outputs']) & MERGEABLE
                 if not formats or any(set(entry[1]['outputs']) & MERGEABLE != formats for entry in entries):
                     raise ValueError(f'No consistent mergeable LHE/ROOT/LHCO selection for sample {sample}')
+
+        if requested_formats is not None:
+            report['requested_formats'] = sorted(requested_formats)
+            report['excluded_outputs'] = {
+                sample: sorted(set().union(*(set(job['outputs']) for job in targets
+                                            if job['sample'] == sample)) - requested_formats)
+                for sample in sorted(selected_samples)}
 
         selection = []
         for production, job, row, _ in chosen:
@@ -198,6 +247,8 @@ def merge_production(directory, output=None, *, samples=None, allow_partial=Fals
                   'allow_partial': allow_partial, 'extract_lhe': extract_lhe, 'keep_all': keep_all,
                   'samples': sorted(selected_samples), 'selection': selection,
                   'omitted_job_ids': [job['job_id'] for job in omitted], 'family': report['family']}
+        if requested_formats is not None:
+            review['requested_formats'] = sorted(requested_formats)
         digest = hashlib.sha256(json.dumps(review, sort_keys=True).encode()).hexdigest()
         if selection_sha256 is not None and selection_sha256 != digest:
             raise ValueError('Merge selection changed since review; plan the merge again')

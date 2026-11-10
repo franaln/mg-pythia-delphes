@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import shlex
 import tarfile
 import yaml
 
@@ -18,7 +19,7 @@ from .merge import merge_outputs
 from .production_merging import merge_production
 from .config import resolve_run_mode
 from .images import list_sif_images, list_docker_images
-from .analysis import plan_analysis, run_analysis, render_analysis, analysis_example, DEFAULT_CHUNK_SIZE
+from .analysis import plan_analysis, run_analysis, render_analysis, analysis_example, create_analysis_config, DEFAULT_CHUNK_SIZE
 
 RUN_MODES = ['local', 'local-docker', 'local-apptainer', 'condor', 'jupiter']
 
@@ -52,19 +53,6 @@ def _parser():
     images.add_argument('--remote', action='store_true', help='Query published Docker Hub tags instead of local images')
     images.add_argument('--json', action='store_true', dest='json_output')
 
-    analyze = commands.add_parser('analyze', aliases=['ana'], help='Analyze LHE, Delphes ROOT or LHCO files/managed merges')
-    analyze.add_argument('inputs', nargs='*', help='Explicit files or one managed merge/production directory')
-    analyze.add_argument('--config', help='Analysis YAML (not generation YAML)')
-    analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
-    analyze.add_argument('--export-root', action='store_true', help='Export weighted TH1D histograms with variances and flow bins')
-    analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
-    analyze.add_argument('--example', choices=('dileptons-lhe', 'dileptons-root', 'dileptons-lhco'), help='Print an editable packaged analysis YAML')
-    analyze.add_argument('--format', choices=('lhe', 'root', 'lhco'))
-    analyze.add_argument('--sample', help='Select a managed sample, or label explicit files')
-    analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')
-    analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
-    analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
-    analyze.add_argument('--chunk-size', type=int)
 
     # Create project
     create = commands.add_parser('create', help='Create project with editable YAML/cards from a template or another project')
@@ -124,22 +112,44 @@ def _parser():
     merge.add_argument('inputs', nargs='+', help='One production directory, or explicit job output archives (.tar.gz)')
     merge.add_argument('-o', '--output', help='New output; default for a production: DIRECTORY/merged')
     merge.add_argument('--sample', action='append', help='Select a production sample; repeat as needed')
+    merge.add_argument('--formats', nargs='+', choices=['lhe', 'root', 'lhco'], help='Validate and merge only these production output formats')
     merge.add_argument('--allow-partial', action='store_true', help='Explicitly permit omitted invalid/missing jobs')
     merge.add_argument('--event-count', choices=['exact', 'nonempty', 'ignore'], default='exact')
     merge.add_argument('--allow-nonpositive-cross-section', action='store_true')
     merge.add_argument('--skip-seed-check', action='store_true')
     merge.add_argument('-e', '--extract-lhe', action='store_true')
     merge.add_argument('-k', '--keep-all', action='store_true', help='Retain extracted inputs under all/')
-    merge.add_argument('--backend', choices=['local-docker', 'local-apptainer'],
-                        help='Default: Apptainer on jupiter, Docker elsewhere')
+    merge.add_argument('--backend', choices=['local-docker', 'local-apptainer'], help='Default: Apptainer on jupiter, Docker elsewhere')
     merge.add_argument('--image', help='Override the container image/reference')
+
+    # Analyze production
+    create_analysis = commands.add_parser('create-analysis', help='Copy an editable starter analysis YAML')
+    create_analysis.add_argument('file', nargs='?', default='analysis.yml', help='New YAML file (default: analysis.yml)')
+    create_analysis.add_argument('--format', choices=('root', 'lhe', 'lhco'), default='root', help='Starter input format (default: root)')
+
+    analyze = commands.add_parser('analyze', aliases=['ana', 'analyse'], help='Analyze LHE, Delphes ROOT or LHCO files/managed merges')
+    analyze.add_argument('inputs', nargs='*', help='Explicit files or one managed merge/production directory')
+    analyze.add_argument('-c', '--config', help='Analysis YAML (not generation YAML)')
+    analyze.add_argument('--plots', action='store_true', help='Generate PNG/PDF plots alongside numerical results')
+    analyze.add_argument('--export-root', action='store_true', help='Export weighted TH1D histograms with variances and flow bins')
+    analyze.add_argument('--from-results', help='Regenerate CSV/plots from a saved analysis directory, without reading events')
+    analyze.add_argument('--example', choices=('dileptons-lhe', 'dileptons-root', 'dileptons-lhco'), help='Print an editable packaged analysis YAML')
+    analyze.add_argument('--format', choices=('lhe', 'root', 'lhco'))
+    analyze.add_argument('--sample', help='Select a managed sample, or label explicit files')
+    analyze.add_argument('-o', '--output', help='New output directory; required unless --validate-only')
+    analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
+    analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
+    analyze.add_argument('--chunk-size', type=int)
 
     return parser
 
 
 def parse_args(argv=None):
+
     parser = _parser()
     args = parser.parse_args(argv)
+    if args.command in ('ana', 'analyse'):
+        args.command = 'analyze'
 
     if args.command == 'analyze':
         if args.example or args.from_results:
@@ -207,6 +217,12 @@ def main(argv=None):
 
     parser, args = parse_args(arguments)
     try:
+
+        if args.command == 'create-analysis':
+            path = create_analysis_config(args.file, format=args.format)
+            print(f'Created analysis configuration: {path}')
+            print(f'Edit it, then run: mgpd analyse INPUT --config {shlex.quote(path)} -o analysis-results')
+            return 0
 
         if args.command == 'analyze':
             if args.example:
@@ -339,7 +355,7 @@ def main(argv=None):
             try:
                 if len(args.inputs) == 1 and Path(args.inputs[0]).is_dir():
                     result = merge_production(args.inputs[0], args.output, samples=args.sample,
-                                              allow_partial=args.allow_partial, backend=args.backend, image=args.image,
+                                              allow_partial=args.allow_partial, formats=args.formats, backend=args.backend, image=args.image,
                                               extract_lhe=args.extract_lhe, keep_all=args.keep_all,
                                               event_count=args.event_count,
                                               require_positive_cross_section=not args.allow_nonpositive_cross_section,
@@ -347,7 +363,7 @@ def main(argv=None):
                 else:
                     if not args.output:
                         parser.error('Explicit archive merging requires --output')
-                    if args.sample or args.allow_partial or args.event_count != 'exact' or args.allow_nonpositive_cross_section or args.skip_seed_check:
+                    if args.sample or args.allow_partial or args.formats or args.event_count != 'exact' or args.allow_nonpositive_cross_section or args.skip_seed_check:
                         parser.error('Sample selection, partial merging and validation policies require a production directory')
 
                     result = merge_outputs(args.inputs, args.output, backend=args.backend, image=args.image,

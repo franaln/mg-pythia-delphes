@@ -11,7 +11,7 @@ from .paths import PathError, Workspace
 
 WRITE_OPERATIONS = {'prepare_production', 'prepare_recovery'}
 ANALYSIS_OPERATIONS = {'plan_analysis', 'start_analysis', 'analysis_status', 'analysis_report'}
-OPERATIONS = {'inspect_config', 'plan_config_change', 'apply_config_change', 'create_project', 'execute_production', 'operation_status', 'plan_merge', 'merge_production', 'merge_report'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'} | ANALYSIS_OPERATIONS
+OPERATIONS = {'inspect_config', 'plan_config_change', 'apply_config_change', 'create_project', 'create_analysis', 'execute_production', 'operation_status', 'plan_merge', 'merge_production', 'merge_report'} | WRITE_OPERATIONS | {'validate_config', 'inspect_production', 'production_status', 'validate_results', 'plan_recovery'} | ANALYSIS_OPERATIONS
 
 
 def error(code, message):
@@ -47,8 +47,8 @@ def dispatch(request):
             return error('ANALYSIS_DISABLED', 'Server analysis writes are disabled')
         from . import analysis_tools
         return {'schema_version': 1, 'ok': True, 'data': analysis_tools.dispatch(workspace, request)}
-    if operation in ('inspect_config', 'plan_config_change', 'apply_config_change', 'create_project'):
-        if operation in ('apply_config_change', 'create_project') and not request.get('allow_config_write', False):
+    if operation in ('inspect_config', 'plan_config_change', 'apply_config_change', 'create_project', 'create_analysis'):
+        if operation in ('apply_config_change', 'create_project', 'create_analysis') and not request.get('allow_config_write', False):
             return error('CONFIG_WRITE_DISABLED', 'Server configuration writes are disabled')
         from . import config_tools
         data = config_tools.dispatch(workspace, request)

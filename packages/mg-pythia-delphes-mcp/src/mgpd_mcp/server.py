@@ -25,7 +25,7 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
     server = MCPServer('mg-pythia-delphes', version=__version__,
                        instructions='Workflow inspection and optional preparation tools. Paths are relative to the workspace. '
                        'Execution supports prepared Condor plans; merging is separately opt-in. '
-                       'Analysis writes require --allow-analysis, use existing outputs only, and never launch physics jobs. '
+                       'Analysis execution requires --allow-analysis, uses existing outputs only, and never launches physics jobs. Analysis starter creation requires --allow-config-write. '
                        'Review configuration diffs before applying changes; source configurations and frozen productions are separate. '
                        'Review returned identity, checksum and jobs. Scheduler completion and valid outputs are separate.')
     annotations = ToolAnnotations(read_only_hint=True, destructive_hint=False,
@@ -94,7 +94,7 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
                            'schema_version': 1, 'workspace': str(root), 'transport': 'stdio',
                            'read_only': not (allow_prepare or allow_execute or allow_merge or allow_config_write or allow_analysis), 'preparation_enabled': allow_prepare, 'execution_enabled': allow_execute, 'merge_enabled': allow_merge, 'config_write_enabled': allow_config_write, 'analysis_enabled': allow_analysis, 'timeout_seconds': timeout,
                            'tools': ['validate_config', 'inspect_production', 'production_status',
-                                     'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change', 'plan_analysis', 'analysis_status', 'analysis_report'] + (['start_analysis'] if allow_analysis else []) + (['prepare_production', 'prepare_recovery'] if allow_prepare else []) + (['execute_production'] if allow_execute else []) + (['merge_production'] if allow_merge else []) + (['apply_config_change', 'create_project'] if allow_config_write else [])})
+                                     'validate_results', 'plan_recovery', 'operation_status', 'plan_merge', 'merge_report', 'inspect_config', 'plan_config_change', 'plan_analysis', 'analysis_status', 'analysis_report'] + (['start_analysis'] if allow_analysis else []) + (['prepare_production', 'prepare_recovery'] if allow_prepare else []) + (['execute_production'] if allow_execute else []) + (['merge_production'] if allow_merge else []) + (['apply_config_change', 'create_project', 'create_analysis'] if allow_config_write else [])})
 
     @server.resource('mgpd://analysis', mime_type='application/json')
     def analysis_schema() -> str:
@@ -165,6 +165,13 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
 
         creation = ToolAnnotations(read_only_hint=False, destructive_hint=False,
                                    idempotent_hint=False, open_world_hint=False)
+
+        @server.tool(annotations=creation, structured_output=False)
+        async def create_analysis(output: str = 'analysis.yml',
+                                  format: Literal['root', 'lhe', 'lhco'] = 'root',
+                                  base_directory: str = '.') -> CallToolResult:
+            """Copy a NEW editable analysis YAML starter inside the workspace. Default: analysis.yml for Delphes ROOT. Never overwrite; edit selections, then review with plan_analysis before execution. No events are processed."""
+            return await call('create_analysis', output=output, format=format, base_directory=base_directory)
 
         @server.tool(annotations=creation, structured_output=False)
         async def create_project(output: str, template: Literal['proc'] | None = None,
@@ -287,7 +294,7 @@ def main():
     parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); configuration writes, preparation, Condor submission and merging are separately opt-in')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--workspace', type=Path, required=True, help='Existing root for all tool-managed paths')
-    parser.add_argument('--allow-config-write', action='store_true', help='Enable project creation, copying and reviewed YAML edits')
+    parser.add_argument('--allow-config-write', action='store_true', help='Enable project/analysis starter creation, project copying and reviewed YAML edits')
     parser.add_argument('--allow-analysis', action='store_true', help='Enable reviewed detached analysis writes; never enables generation or submission')
     parser.add_argument('--allow-merge', action='store_true', help='Enable reviewed managed merges in detached workers')
     parser.add_argument('--allow-execute', action='store_true', help='Enable one-shot prepared Condor submission; jobs run as the SSH user')

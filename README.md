@@ -227,8 +227,24 @@ One valid attempt is selected per job. Different samples are kept separate,
 under `merged/<sample>/` when several samples are selected. Repeat `--sample`
 to choose several. Existing destinations are never overwritten.
 
-Missing or invalid jobs block merging by default. Use `--allow-partial` explicitly
+Missing or invalid outputs and unfinished jobs block merging by default. The
+error identifies affected jobs, formats and execution states. Use `--allow-partial` explicitly
 for an incomplete dataset; omissions are recorded in `merge-report.json`.
+To merge only selected formats, for example when LHCO conversion failed but all
+jobs have valid LHE and ROOT, use:
+
+```bash
+mgpd merge production --formats lhe root
+```
+
+Only the selected formats are required, copied and merged. Other outputs do not
+block this merge; they are excluded explicitly in `merge-report.json`. Every
+logical job must still have a stopped, valid attempt for all selected formats.
+`--allow-partial` separately permits omitting jobs that fail that requirement.
+Formats from different attempts of the same job are never combined. The original
+production manifest and full `validate-results` checks remain unchanged. This
+option applies to production directories, not explicit archive merging.
+
 `--backend local-apptainer` or `--backend local-docker` and `--image` override
 the merge container. `--extract-lhe` decompresses LHE output; `--keep-all`
 retains the input files. LHE, ROOT and LHCO are merged; HepMC is not.
@@ -271,3 +287,19 @@ user_cuts.f = custom_fcts
 
 The optional [MCP adapter](packages/mg-pythia-delphes-mcp/README.md) provides
 SSH configuration and an end-to-end example for the same Condor workflow.
+
+## Starting an analysis
+
+Create an editable analysis YAML, using the basic Delphes ROOT example:
+
+```bash
+mgpd create-analysis
+# Edit analysis.yml: objects, variables, cuts and histograms.
+mgpd analyse production/merged --config analysis.yml -o analysis-results
+```
+
+`create-analysis` defaults to `analysis.yml` and never overwrites an existing
+file. Choose another path or input format with
+`mgpd create-analysis my-analysis.yml --format lhe` (also `root` or `lhco`).
+The starter uses example dilepton selections; adapt them to your sample.
+`analyse`, `analyze` and `ana` invoke the same analysis command.

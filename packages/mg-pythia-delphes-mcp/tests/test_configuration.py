@@ -37,6 +37,41 @@ class ConfigurationTests(unittest.IsolatedAsyncioTestCase):
         return await client.call_tool('apply_config_change',
             {'proposal': proposal, 'change_sha256': proposal['change_sha256'], **extra})
 
+    async def test_create_analysis_starter_protocol_and_workspace_guards(self):
+        from mgpd.analysis import analysis_example
+        from mgpd_mcp.worker import dispatch
+        disabled = dispatch({'workspace': str(self.root), 'operation': 'create_analysis'})
+        self.assertFalse(disabled['ok'])
+        self.assertEqual(disabled['error']['code'], 'CONFIG_WRITE_DISABLED')
+        self.assertFalse((self.root / 'analysis.yml').exists())
+        async with self.client(True) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            self.assertIn('create_analysis', tools)
+            self.assertFalse(tools['create_analysis'].annotations.read_only_hint)
+            self.assertFalse(tools['create_analysis'].annotations.destructive_hint)
+            for format in ('root', 'lhe', 'lhco'):
+                options = {} if format == 'root' else {
+                    'output': format + '.yml', 'format': format, 'base_directory': 'project'}
+                result = await client.call_tool('create_analysis', options)
+                self.assertFalse(result.is_error, result)
+                data = result.structured_content['data']
+                self.assertEqual(data['format'], format)
+                path = self.root / data['config_path']
+                self.assertEqual(path.read_text(), analysis_example('dileptons-' + format))
+                self.assertFalse(data['submitted'])
+            default = self.root / 'analysis.yml'
+            default.write_text('user edits')
+            rejected = await client.call_tool('create_analysis', {})
+            self.assertTrue(rejected.is_error)
+            self.assertEqual(default.read_text(), 'user edits')
+            with tempfile.TemporaryDirectory() as outside:
+                (self.root / 'outside').symlink_to(outside, target_is_directory=True)
+                (self.root / 'dangling.yml').symlink_to(Path(outside) / 'missing.yml')
+                for output in (str(Path(outside) / 'a.yml'), 'outside/a.yml', 'dangling.yml'):
+                    result = await client.call_tool('create_analysis', {'output': output})
+                    self.assertTrue(result.is_error, output)
+                self.assertFalse(list(Path(outside).iterdir()))
+
     async def test_default_inspection_planning_and_write_opt_in(self):
         before = {str(p): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         async with self.client() as client:
@@ -44,6 +79,7 @@ class ConfigurationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('inspect_config', tools)
             self.assertIn('plan_config_change', tools)
             self.assertNotIn('apply_config_change', tools)
+            self.assertNotIn('create_analysis', tools)
             inspected = await client.call_tool('inspect_config', {'path': 'config.yml', 'base_directory': 'project'})
             self.assertTrue(inspected.structured_content['data']['validation']['valid'])
             proposal = await self.plan(client, changes={'run.nevents': 20})

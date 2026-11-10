@@ -39,7 +39,7 @@ class ProductionMergingTests(unittest.TestCase):
                   'process': 'generate p p > e+ e-', 'cards': {'run': str(card)}, 'options': {'seed': 101}}
         if multiple:
             config['cards']['param'] = {'a': str(card), 'b': str(card)}
-        if outputs and 'root' in outputs:
+        if outputs and {'root', 'lhco'} & set(outputs):
             config['cards']['delphes'] = str(card)
         with redirect_stdout(io.StringIO()):
             production = mgpd.prepare_production(config, self.root / 'parent')
@@ -100,6 +100,61 @@ class ProductionMergingTests(unittest.TestCase):
         with patch('mgpd.merge.subprocess.run', side_effect=self.fake_container):
             output = merge_production(directory, backend='local-apptainer', **kwargs)
         return Path(output), json.loads((Path(output) / 'merge-report.json').read_text())
+
+    def test_selected_formats_merge_without_missing_lhco_and_preserve_plan(self):
+        parent = self.fixture(outputs=['lhe', 'root', 'lhco'])
+        before = Path(parent.output_dir, 'manifest.json').read_bytes()
+        with self.assertRaises(ValueError) as failure:
+            self.merge(parent.output_dir)
+        self.assertIn('lhco: missing', str(failure.exception))
+        self.assertIn('sample_00000', str(failure.exception))
+        self.assertIn('--formats lhe root', str(failure.exception))
+        self.assertIn('--allow-partial to omit jobs', str(failure.exception))
+        output, report = self.merge(parent.output_dir, formats=['lhe', 'root'])
+        self.assertFalse(report['partial'])
+        self.assertEqual(report['requested_formats'], ['lhe', 'root'])
+        self.assertEqual(report['excluded_outputs'], {'sample': ['lhco']})
+        self.assertEqual(report['samples']['sample']['formats'], ['lhe', 'root'])
+        self.assertEqual(report['samples']['sample']['metrics']['lhe_events'], 4)
+        self.assertEqual(report['samples']['sample']['metrics']['delphes_events'], 4)
+        self.assertEqual(len(report['samples']['sample']['jobs']), 2)
+        self.assertFalse(list(output.glob('*.lhco')))
+        self.assertEqual(Path(parent.output_dir, 'manifest.json').read_bytes(), before)
+
+    def test_formats_selection_keeps_job_completeness_and_validation(self):
+        parent = self.fixture(outputs=['lhe', 'root', 'lhco'])
+        self.native_output(parent, 1).write_bytes(b'corrupt LHE')
+        with self.assertRaises(ValueError) as failure:
+            self.merge(parent.output_dir, formats=['lhe', 'root'])
+        self.assertIn('lhe: invalid', str(failure.exception))
+        self.assertNotIn('lhco: missing', str(failure.exception))
+        _, report = self.merge(parent.output_dir, formats=['lhe', 'root'], allow_partial=True)
+        self.assertTrue(report['partial'])
+        self.assertEqual(report['samples']['sample']['metrics']['lhe_events'], 2)
+        self.assertEqual(report['samples']['sample']['metrics']['delphes_events'], 2)
+        self.assertEqual(len(report['omitted_jobs']), 1)
+
+    def test_formats_review_and_cli_selection(self):
+        parent = self.fixture(outputs=['lhe', 'root', 'lhco'])
+        options = {'backend': 'local-apptainer'}
+        review = mgpd.plan_production_merge(parent.output_dir, formats=['lhe', 'root'], **options)
+        other = mgpd.plan_production_merge(parent.output_dir, formats=['lhe'], **options)
+        self.assertNotEqual(review['selection_sha256'], other['selection_sha256'])
+        with self.assertRaisesRegex(ValueError, 'selection changed'):
+            self.merge(parent.output_dir, formats=['lhe'], selection_sha256=review['selection_sha256'])
+        with patch('mgpd.cli.merge_production', return_value='merged') as merge:
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(cli_main(['merge', parent.output_dir, '--formats', 'lhe', 'root']), 0)
+            self.assertEqual(merge.call_args.kwargs['formats'], ['lhe', 'root'])
+        for formats in ([], ['hepmc'], 'lhe'):
+            with self.subTest(formats=formats), self.assertRaises(ValueError):
+                self.merge(parent.output_dir, formats=formats)
+
+    def test_formats_selection_does_not_accept_failed_condor_job(self):
+        parent = self.fixture(mode='condor', outputs=['lhe', 'lhco'])
+        Path(parent.output_dir, 'job_sample_123_1.log').write_text('Normal termination (return value 1)\n')
+        with self.assertRaisesRegex(ValueError, 'Missing/invalid'):
+            self.merge(parent.output_dir, formats=['lhe'])
 
     def test_review_is_stable_and_changed_source_blocks_execution(self):
         parent = self.fixture()

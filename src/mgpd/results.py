@@ -114,9 +114,11 @@ def inspect_outputs(files, job, **policy):
         matches = [name for name in files if name.endswith(suffixes[kind])]
         if len(matches) != 1:
             raise ValueError(f'Expected one {kind} output, found {matches}')
+
         with files[matches[0]]() as source:
             if kind == 'lhe':
                 checks.update(check_lhe(source, job, **policy))
+
             elif kind == 'root':
                 import uproot
                 with tempfile.TemporaryDirectory() as tmp:
@@ -128,6 +130,7 @@ def inspect_outputs(files, job, **policy):
                         if entries <= 0:
                             raise ValueError('Delphes tree is empty')
                         checks['delphes_events'] = entries
+
             elif kind == 'hepmc':
                 with gzip.GzipFile(fileobj=source) as hepmc:
                     size = 0
@@ -136,9 +139,11 @@ def inspect_outputs(files, job, **policy):
                     if not size:
                         raise ValueError('Empty HepMC output')
                     checks['hepmc_bytes'] = size
+
             elif kind == 'log':
                 with tarfile.open(fileobj=source, mode='r:') as logs:
                     checks['log_files'] = len(logs.getmembers())
+
             elif not source.read(1):
                 raise ValueError(f'Empty {kind} output')
 
@@ -236,8 +241,14 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
     mapped = {entry['job_id']: entry['scheduler_id'] for entry in mappings}
     if len(mapped) != len(mappings) or len(set(mapped.values())) != len(mapped):
         raise ValueError('Invalid duplicate scheduler mapping')
-    suffixes = {'lhe': '_unweighted_events.lhe.gz', 'root': '_delphes_events.root',
-                'hepmc': '_pythia8_events.hepmc.gz', 'lhco': '_delphes_events.lhco', 'log': '_logs.tar'}
+
+    suffixes = {
+        'lhe': '_unweighted_events.lhe.gz',
+        'root': '_delphes_events.root',
+        'hepmc': '_pythia8_events.hepmc.gz',
+        'lhco': '_delphes_events.lhco',
+        'log': '_logs.tar'
+    }
 
     for job in manifest['jobs']:
         scheduler_id = mapped.get(job['job_id'])
@@ -277,6 +288,7 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
                         entry.update(state='invalid', error=f'{type(exc).__name__}: {exc}')
                 states = {entry['state'] for entry in item['outputs'].values()}
                 item['outputs_state'] = next((state for state in ('invalid', 'missing', 'unavailable', 'valid') if state in states), 'invalid')
+
         except FileNotFoundError as exc:
             item.update(outputs_state='missing', error=str(exc))
         except LookupError as exc:
@@ -297,6 +309,7 @@ def validate_production(output_dir, event_count='exact', require_positive_cross_
             sample['validated_delphes_events'] += item['metrics'].get('delphes_events', 0)
             if 'cross_section_pb' in item['metrics']:
                 sample['cross_sections_pb'].append({'job_id': job['job_id'], 'value': item['metrics']['cross_section_pb']})
+
     report['counts'] = dict(Counter(job['state'] for job in report['jobs']))
     report['state'] = ('invalid' if report['metadata_errors'] or 'invalid' in report['counts'] else
                        'valid' if report['jobs'] and set(report['counts']) == {'valid'} else 'incomplete')

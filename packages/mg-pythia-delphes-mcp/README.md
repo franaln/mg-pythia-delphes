@@ -51,7 +51,7 @@ you need:
 
 | Flag | Actions |
 | --- | --- |
-| `--allow-config-write` | Create/copy projects and save reviewed YAML edits |
+| `--allow-config-write` | Create/copy projects, create analysis starters and save reviewed YAML edits |
 | `--allow-prepare` | Prepare productions and selected recoveries |
 | `--allow-execute` | Submit prepared productions to Condor |
 | `--allow-merge` | Merge validated outputs |
@@ -174,3 +174,13 @@ survive an MCP disconnect: reconnect and inspect `operation_status` with the sav
 ID. If an outcome is `unknown`, inspect the operation and production before taking
 action. After interrupted preparation, inspect the requested directory before
 trying again.
+### Create an analysis starter
+
+With `--allow-config-write`, call `create_analysis()` to copy the basic Delphes
+ROOT analysis into `analysis.yml`. Use, for example,
+`create_analysis(output="my-analysis.yml", format="lhe", base_directory="project")`
+for another name, input format (`root`, `lhe`, `lhco`) or existing directory.
+Paths stay inside the configured workspace and existing files are never
+overwritten. Edit the starter for your sample, then call `plan_analysis` with
+the returned configuration path. This tool processes no events and does not
+require `--allow-analysis`; that separate permission enables analysis execution.
