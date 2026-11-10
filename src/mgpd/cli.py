@@ -150,6 +150,10 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.command in ('ana', 'analyse'):
         args.command = 'analyze'
+    if args.command == 'img':
+        args.command = 'images'
+    if args.command == 'st':
+        args.command = 'status'
 
     if args.command == 'analyze':
         if args.example or args.from_results:
