@@ -78,7 +78,7 @@ def deploy(wheel, prefix, python, *, mcp_wheel=None, version=None):
     marker.write_text(actual + '\n')
     try:
         subprocess.run([python, '-m', 'venv', str(environment)], check=True)
-        command = [str(environment / 'bin/python'), '-m', 'pip', 'install', f'{wheel}[validation]']
+        command = [str(environment / 'bin/python'), '-m', 'pip', 'install', f'{wheel}[validation,configuration,analysis]']
         if mcp_wheel is not None:
             command.append(str(mcp_wheel))
         subprocess.run(command, check=True)
