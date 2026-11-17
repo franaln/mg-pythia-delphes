@@ -5,8 +5,12 @@ import shlex
 
 def command_parsers(parser):
     action = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
-    descriptions = {item.dest: '' if item.help == argparse.SUPPRESS else item.help
-                    for item in action._choices_actions}
+    primary = {item.dest: '' if item.help == argparse.SUPPRESS else (item.help or '')
+               for item in action._choices_actions}
+    # Aliases (e.g. img, st, ana) share their primary command's parser object.
+    by_parser = {id(action.choices[name]): text for name, text in primary.items()}
+    descriptions = {name: primary.get(name, by_parser.get(id(command), ''))
+                    for name, command in action.choices.items()}
     return action.choices, descriptions
 
 

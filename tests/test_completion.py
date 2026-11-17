@@ -44,7 +44,17 @@ class CompletionTests(unittest.TestCase):
             expected = {option for action in parser._actions for option in action.option_strings}
             with self.subTest(command=command):
                 self.assertEqual(set(self.bash_candidates('mgpd', command, '-')), expected)
-        self.assertEqual(self.bash_candidates('mgpd', 'cre'), ['create'])
+        self.assertEqual(sorted(self.bash_candidates('mgpd', 'cre')), ['create', 'create-analysis'])
+        self.assertEqual(self.bash_candidates('mgpd', 'create-'), ['create-analysis'])
+
+    def test_command_aliases_share_primary_descriptions(self):
+        commands, descriptions = command_parsers(_parser())
+        self.assertEqual(set(descriptions), set(commands))
+        for alias, primary in [('img', 'images'), ('st', 'status'), ('ana', 'analyze'), ('analyse', 'analyze')]:
+            with self.subTest(alias=alias):
+                self.assertTrue(descriptions[primary])
+                self.assertEqual(descriptions[alias], descriptions[primary])
+                self.assertIn(shlex.quote(alias + ':' + descriptions[primary]), self.zsh.read_text())
 
     def test_bash_choices_equals_and_free_values(self):
         for words, expected in [
