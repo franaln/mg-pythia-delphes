@@ -871,7 +871,7 @@ python -m pip install -e '.[dev]' -e 'packages/mg-pythia-delphes-mcp[analysis]'
 python -m unittest discover -s packages/mg-pythia-delphes-mcp/tests -v
 ```
 
-Configure the stdio client to launch `mgpd-mcp --workspace /path/to/workspace`.
+Configure the stdio client to launch `mgpd-mcp --workspace /path/to/workspace`; without `--workspace`, the server uses `CLAUDE_PROJECT_DIR` or its launch directory.
 Add `--allow-analysis` to enable analysis writes. This flag is independent of
 configuration writes, preparation, submission and merging. Without it,
 `plan_analysis`, `analysis_status`, `analysis_report` and the `mgpd://analysis`

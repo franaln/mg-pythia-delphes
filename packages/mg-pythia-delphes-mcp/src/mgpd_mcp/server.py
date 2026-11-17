@@ -290,10 +290,20 @@ def create_server(workspace, timeout=120, allow_prepare=False, allow_execute=Fal
     return server
 
 
+def default_workspace():
+    """Use the client's project directory (CLAUDE_PROJECT_DIR, set by Claude Code) or the launch directory."""
+    project = os.environ.get('CLAUDE_PROJECT_DIR')
+    root = Path(project or Path.cwd()).resolve(strict=True)
+    if root == Path(root.anchor) or root == Path(os.path.expanduser('~')).resolve():
+        raise ValueError(f'Project directory {root} is too broad for an implicit workspace; '
+                         'start the client in a project directory or pass --workspace')
+    return root
+
+
 def main():
     parser = argparse.ArgumentParser(description='Per-user MCP server (stdio); configuration writes, preparation, Condor submission and merging are separately opt-in')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('--workspace', type=Path, required=True, help='Existing root for all tool-managed paths')
+    parser.add_argument('--workspace', type=Path, help='Existing root for all tool-managed paths (default: $CLAUDE_PROJECT_DIR if set, otherwise the current directory; neither may be / or your home directory)')
     parser.add_argument('--allow-config-write', action='store_true', help='Enable project/analysis starter creation, project copying and reviewed YAML edits')
     parser.add_argument('--allow-analysis', action='store_true', help='Enable reviewed detached analysis writes; never enables generation or submission')
     parser.add_argument('--allow-merge', action='store_true', help='Enable reviewed managed merges in detached workers')
@@ -304,7 +314,8 @@ def main():
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
     try:
-        server = create_server(args.workspace, timeout=args.timeout, allow_prepare=args.allow_prepare, allow_execute=args.allow_execute, allow_merge=args.allow_merge, allow_config_write=args.allow_config_write, allow_analysis=args.allow_analysis)
+        workspace = args.workspace if args.workspace is not None else default_workspace()
+        server = create_server(workspace, timeout=args.timeout, allow_prepare=args.allow_prepare, allow_execute=args.allow_execute, allow_merge=args.allow_merge, allow_config_write=args.allow_config_write, allow_analysis=args.allow_analysis)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     server.run(transport='stdio')

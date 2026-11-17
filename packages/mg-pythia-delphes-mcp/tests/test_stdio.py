@@ -84,6 +84,39 @@ class StdioTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status.structured_content['data']['recorded_state'], 'execution_finished')
         self.assertEqual(self.snapshot(), before)
 
+    async def test_workspace_defaults_to_launch_directory(self):
+        env = {k: v for k, v in os.environ.items() if k != 'CLAUDE_PROJECT_DIR'}
+        params = StdioServerParameters(command=sys.executable, args=['-m', 'mgpd_mcp.server'], cwd=str(self.root), env=env)
+        async with Client(params, read_timeout_seconds=30) as client:
+            resource = await client.read_resource('mgpd://capabilities')
+            self.assertEqual(json.loads(resource.contents[0].text)['workspace'], str(self.root))
+            inspected = await client.call_tool('inspect_production', {'path': 'production', 'limit': 1})
+            self.assertFalse(inspected.is_error)
+            escaped = await client.call_tool('inspect_production', {'path': '..', 'limit': 1})
+            self.assertTrue(escaped.is_error)
+
+    async def test_workspace_prefers_claude_project_dir(self):
+        project = self.root / 'project'; project.mkdir()
+        params = StdioServerParameters(command=sys.executable, args=['-m', 'mgpd_mcp.server'], cwd=str(self.root),
+                                       env={**os.environ, 'CLAUDE_PROJECT_DIR': str(project)})
+        async with Client(params, read_timeout_seconds=30) as client:
+            resource = await client.read_resource('mgpd://capabilities')
+            self.assertEqual(json.loads(resource.contents[0].text)['workspace'], str(project))
+            escaped = await client.call_tool('inspect_production', {'path': '../production', 'limit': 1})
+            self.assertTrue(escaped.is_error)
+
+    async def test_implicit_workspace_rejects_root_and_home(self):
+        home = self.root / 'home'; home.mkdir()
+        for cwd in ('/', str(home)):
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, '-m', 'mgpd_mcp.server', cwd=cwd,
+                env={**{k: v for k, v in os.environ.items() if k != 'CLAUDE_PROJECT_DIR'}, 'HOME': str(home)},
+                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout, stderr = await process.communicate()
+            self.assertEqual(process.returncode, 2)
+            self.assertEqual(stdout, b'')
+            self.assertIn(b'pass --workspace', stderr)
+
     async def test_config_relative_paths_and_concurrent_base_directories(self):
         for name in ('a', 'b'):
             base = self.root / name; base.mkdir()

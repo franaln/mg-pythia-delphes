@@ -18,33 +18,123 @@ python -m pip install '.[validation]' ./packages/mg-pythia-delphes-mcp
 
 If your administrator provides `mgpd-mcp`, use its executable path instead.
 
-## Connect through SSH
+## Connect a client
+
+The MCP server always runs on Jupiter, where your files and Condor are. What
+changes between clients is **where the client runs**, and therefore how it
+starts the server and which directory becomes the **workspace** (the root for
+all paths that tools read or write):
+
+| Client | Where it runs | Server registered in | Workspace |
+| --- | --- | --- | --- |
+| Claude Code in a Jupiter terminal | Jupiter | `~/.claude.json` on Jupiter | Automatic: the session's project directory |
+| Claude desktop app, Code tab, SSH session to Jupiter | Jupiter | `~/.claude.json` on Jupiter | Automatic: the folder chosen for the session |
+| Claude Desktop chat, Codex or Claude Code on your computer | Your computer | The local client's config, launching `ssh` | Fixed with `--workspace` |
+
+Prefer the first two: register once and work in any project directory. Use the
+`ssh` setup only for clients that cannot run on Jupiter.
+
+The examples use the shared installation `/opt/venvs/mgpd-current/bin/mgpd-mcp`;
+replace it with your own `.venv-mcp/bin/mgpd-mcp` if you installed one. Enable
+only the [capability flags](#workspace-and-capabilities) you need.
+
+### Recommended: Claude Code running on Jupiter
+
+This covers both the `claude` command in a Jupiter terminal and SSH sessions to
+Jupiter started from the Code tab of the Claude desktop app; in both, Claude
+Code runs on Jupiter.
+
+1. On **Jupiter**, register the server once in your user scope, without
+   `--workspace`:
+
+   ```bash
+   claude mcp add --scope user mgpd -- /opt/venvs/mgpd-current/bin/mgpd-mcp \
+     --allow-config-write --allow-prepare --allow-analysis
+   ```
+
+2. Start a session in a project directory: run `claude` there, or select that
+   folder when creating the SSH session in the desktop app.
+3. Check it with `/mcp` inside the session (or `claude mcp list`). The
+   `mgpd://capabilities` resource reports the active workspace.
+
+The server takes the workspace from `CLAUDE_PROJECT_DIR`, which Claude Code sets,
+or else from its launch directory. It refuses `/` and your home directory as an
+implicit workspace, so start sessions in a project directory, not directly in
+`~`. Change flags by removing and adding the server again
+(`claude mcp remove --scope user mgpd`).
+
+Do **not** also add an `ssh` entry for this server to the desktop app's local
+`claude_desktop_config.json`. The app forwards those local servers into Code
+sessions too. Started through `ssh`, the server receives neither
+`CLAUDE_PROJECT_DIR` nor the project directory and fails with
+`... is too broad for an implicit workspace`. Use a different name if you keep
+one for the chat (next section).
+
+### Clients on your computer, through `ssh`
+
+Claude Desktop **chat**, Codex, or Claude Code running locally cannot start a
+program on Jupiter by themselves. They launch `ssh` on your computer, which
+runs `mgpd-mcp` on Jupiter as your user. The server then starts in your home
+directory without knowing your project, so `--workspace` is required. Pointing
+it to another project means editing the configuration and restarting the client.
 
 First make sure `ssh jupiter` works without an interactive password prompt;
-connect your VPN if required. Replace the host alias and paths below with yours.
+connect your VPN if required. Replace the host alias and paths with yours.
 
-For Codex, add this to the **local client's** `~/.codex/config.toml`:
+Claude Desktop chat: edit `claude_desktop_config.json` (Settings → Developer →
+Edit Config) on your computer and restart the app:
+
+```json
+{
+  "mcpServers": {
+    "mgpd-jupiter": {
+      "command": "/usr/bin/ssh",
+      "args": [
+        "-T", "-o", "BatchMode=yes", "jupiter",
+        "/opt/venvs/mgpd-current/bin/mgpd-mcp",
+        "--workspace", "/mnt/R5/USER/my-study",
+        "--allow-config-write", "--allow-prepare"
+      ]
+    }
+  }
+}
+```
+
+The app does not run `ssh` through your login shell: use the full path to
+`ssh` and make sure the `jupiter` alias and keys work non-interactively from
+`~/.ssh/config`.
+
+Codex: add this to the local `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.mgpd_jupiter]
 command = "/usr/bin/ssh"
 args = [
   "-T", "-o", "BatchMode=yes", "jupiter",
-  "/home/USER/mg-pythia-delphes/.venv-mcp/bin/mgpd-mcp",
-  "--workspace", "/home/USER/mg-pythia-delphes",
+  "/opt/venvs/mgpd-current/bin/mgpd-mcp",
+  "--workspace", "/mnt/R5/USER/my-study",
   "--allow-config-write", "--allow-prepare", "--allow-execute", "--allow-merge"
 ]
 startup_timeout_sec = 30
 tool_timeout_sec = 150
 ```
 
-Other MCP clients can launch the same command and arguments using their own
-configuration format. SSH runs on your local computer; the MCP executable runs
-remotely as your SSH user. Restart the MCP connection after configuration changes.
+Claude Code on your computer:
+`claude mcp add --scope user mgpd-jupiter -- /usr/bin/ssh -T -o BatchMode=yes jupiter /opt/venvs/mgpd-current/bin/mgpd-mcp --workspace /mnt/R5/USER/my-study ...`.
+Other MCP clients can launch the same command and arguments in their own
+configuration format.
 
-`--workspace` must be an existing directory containing your configurations,
-cards, productions and recoveries. Tool paths are relative to this directory.
-Paths referenced inside YAML resolve from the tool's `base_directory`.
+A broader workspace such as `/mnt/R5/USER` avoids reconfiguring per project,
+at the cost of a weaker path boundary and longer paths.
+
+### Workspace and capabilities
+
+The workspace must be an existing directory containing your configurations,
+cards, productions and recoveries. Tool paths are relative to it. Paths
+referenced inside YAML resolve from the tool's `base_directory`. Operations
+started in one workspace are only visible to a server with the same workspace.
+The workspace limits managed paths; it does not sandbox programs the server
+starts with your permissions.
 
 Without capability flags, the server only inspects and plans. Enable the actions
 you need:
@@ -55,6 +145,7 @@ you need:
 | `--allow-prepare` | Prepare productions and selected recoveries |
 | `--allow-execute` | Submit prepared productions to Condor |
 | `--allow-merge` | Merge validated outputs |
+| `--allow-analysis` | Run reviewed analyses of existing outputs (never generation or submission) |
 
 ## Create and edit configurations
 
@@ -174,6 +265,7 @@ survive an MCP disconnect: reconnect and inspect `operation_status` with the sav
 ID. If an outcome is `unknown`, inspect the operation and production before taking
 action. After interrupted preparation, inspect the requested directory before
 trying again.
+
 ### Create an analysis starter
 
 With `--allow-config-write`, call `create_analysis()` to copy the basic Delphes
