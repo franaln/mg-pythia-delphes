@@ -140,6 +140,7 @@ def _parser():
     analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
     analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
     analyze.add_argument('--chunk-size', type=int)
+
     simple = analyze.add_argument_group('ATLAS SimpleAnalysis backend (Delphes ROOT; replaces --config)')
     simple.add_argument('--simple-analysis', metavar='NAMES', help='Comma-separated SimpleAnalysis analyses to run on converted Delphes ROOT')
     simple.add_argument('--to-slim', action='store_true', help='Only convert Delphes ROOT to a SimpleAnalysis slim ntuple')
