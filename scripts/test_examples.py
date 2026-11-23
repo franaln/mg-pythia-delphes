@@ -50,10 +50,15 @@ def check_prepared(output, entry):
         subprocess.run(['bash', '-n', str(wrapper)], check=True, capture_output=True, text=True)
     if manifest['mode'] in ('condor', 'jupiter'):
         submission = next(output.glob('*.sub')).read_text()
-        if submission.count('queue 1\n') != len(jobs):
+        block = re.search(r'^queue mg_job_id, run_name, seed, outputs from \(\n(.*?)^\)$',
+                          submission, re.MULTILINE | re.DOTALL)
+        if block is None or submission.count('\nqueue ') != 1:
+            raise ValueError('Submission queue statement differs from expected format')
+        rows = [line.split() for line in block[1].splitlines() if line.strip()]
+        if len(rows) != len(jobs):
             raise ValueError('Submission job count differs from manifest')
-        for job in jobs:
-            if f"seed = {job['seed']}\n" not in submission:
+        for job, row in zip(jobs, rows):
+            if row[:3] != [job['job_id'], job['sample'], str(job['seed'])]:
                 raise ValueError('Submission seed differs from manifest')
         for sample in entry['samples']:
             relative = f'run_{sample}.tar.gz'

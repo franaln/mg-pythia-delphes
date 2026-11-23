@@ -966,3 +966,63 @@ signed-weight, normalization and publication tests with:
 ```bash
 python -m unittest discover -s tests -p test_analysis_root_export.py -v
 ```
+
+### ATLAS SimpleAnalysis backend (development)
+
+`mgpd analyze` can convert Delphes ROOT to the SimpleAnalysis slim ntuple and
+run catalog analyses in a separately selected SimpleAnalysis image. It is
+independent of the YAML engine (`--config` is not used) and needs no PyROOT on
+the host: conversion runs the packaged `mgpd/data/simple_analysis/delphes2slim.py`
+inside the mg-pythia-delphes image (`scripts/Delphes2SA.py` links to it), and
+`simpleAnalysis` runs inside the SimpleAnalysis image. Both images are pinned
+(SIF SHA256 or Docker digest) in the plan. There is no default SimpleAnalysis
+image: pass `--sa-image` explicitly.
+
+```bash
+SA=/mnt/R5/USER/sa-images/simple-analysis-latest-YYYYMMDD.sif
+mgpd analyze --sa-list --sa-image "$SA"
+mgpd analyze PRODUCTION_OR_ROOT --simple-analysis Diphoton2018,PhotonJets2016 \
+  --sa-image "$SA" --validate-only
+mgpd analyze PRODUCTION_OR_ROOT --simple-analysis Diphoton2018,PhotonJets2016 \
+  --sa-image "$SA" -o sa-results
+mgpd analyze PRODUCTION_OR_ROOT --to-slim -o slim-only
+mgpd analyze sa-results/slim/ntuple.root --slim --simple-analysis MonoJet2018 \
+  --sa-image "$SA" -o sa-rerun
+```
+
+Inputs are explicit Delphes ROOT files of one sample, or one managed
+merge/production directory (as for the YAML engine). `--max-events` makes a
+preview. `--image` selects the conversion image (default: the merge default);
+`--backend` chooses Apptainer or Docker. A full managed conversion must match
+the merge report's Delphes event count.
+
+The output directory contains `slim/ntuple.root` and `slim/conversion.json`
+(entries, sumw, sumw2, negative-weight events, branch presence, `sumet` source),
+native `simple-analysis/<name>.txt/.root`, parsed `results.json`, logs and
+`simple-analysis-report.json` (frozen plan, conversion contract, image
+identities, artifact SHA256). Success is judged by exit codes and expected
+files; SimpleAnalysis prints harmless ROOT `TList::Clear` errors at teardown.
+In `.txt`, the `All` row holds events, sumw and sumw2; other rows hold events,
+weighted acceptance and its error, to six significant digits.
+
+Conversion contract `delphes-slim-v1`: nominal signed `Event.Weight` as
+`mcWeights[0]` (run with `-w 0`), no cross-section/luminosity scaling, no
+SimpleAnalysis smearing (`-L` is never passed). The `all-pass-v1` object
+profile sets every e/mu/photon ID/isolation bit, GoodJet bits plus every b-tag
+WP for `Jet.BTag`, and taus from `Jet.TauTag`; these are not ATLAS efficiencies.
+`sumet` is `ScalarHT.HT`, or the scalar pT sum of output Jet/Electron/Photon/Muon
+when the card does not write ScalarHT. Truth ancestry, track jets, B hadrons,
+displaced tracks and (without a `FatJet` branch) fat jets are absent.
+
+MET depends on the Delphes card. `--met muon-corrected` subtracts reconstructed
+muons (calorimeter-only MissingET, as in the packaged ATLAS card); `--met delphes`
+keeps MissingET (e.g. eflow-based cards that already include muons). For a
+production directory the frozen card hash is checked: the packaged ATLAS card
+defaults to `muon-corrected`, any other card requires `--met`. Explicit files
+default to `muon-corrected` with a warning.
+
+Contract tests fake the containers; they do not prove real images work:
+
+```bash
+python -m unittest discover -s tests -p test_simple_analysis.py -v
+```

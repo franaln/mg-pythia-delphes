@@ -329,20 +329,33 @@ def prepare_condor_submission(config, output_dir, container_image_path, planned_
     job_replace_dict['arguments'] = '$(run_name) $(input_file) $(outputs) $(output_name) ' + ('$(seed_file)' if legacy else '$(seed)')
     job_replace_dict['transfer_inputs'] = '$(input_file),$(seed_file)' if legacy else '$(input_file)'
 
-    jobs = ''
+    # A single itemdata queue statement: HTCondor >= 25 rejects submit files
+    # with statements after a queue, so one 'queue 1' block per job no longer
+    # parses. Items are submitted in order, keeping the -terse ID mapping.
+    # 'outputs' goes last because the last variable takes the rest of the line
+    # (its value contains commas).
+    seed_var = 'seed_file' if legacy else 'seed'
+    rows = []
     for job in planned_jobs:
-        if production_id:
-            jobs += f'+MGProductionId = "{production_id}"\n'
-            jobs += f'+MGJobId = "{job["job_id"]}"\n'
-        jobs += f"run_name = {job['sample']}\n"
         if legacy:
-            jobs += f"seed_file = {job['run_file']}\n"
+            seed_value = str(job['run_file'])
         else:
             if type(job['seed']) is not int or not 1 <= job['seed'] <= MAX_SEED:
                 raise ValueError('Invalid frozen job seed')
-            jobs += f"seed = {job['seed']}\n"
-        jobs += f"outputs = {','.join(job['outputs'])}\n"
-        jobs += 'queue 1\n\n'
+            seed_value = str(job['seed'])
+        row = [job['job_id'], job['sample'], seed_value]
+        for value in row:
+            if not value or re.search(r'[\s,()"]', value):
+                raise ValueError(f'Unsafe Condor itemdata value: {value!r}')
+        rows.append(' '.join(row + [','.join(job['outputs'])]))
+
+    jobs = ''
+    if production_id:
+        jobs += f'+MGProductionId = "{production_id}"\n'
+        jobs += '+MGJobId = "$(mg_job_id)"\n'
+    jobs += f'queue mg_job_id, run_name, {seed_var}, outputs from (\n'
+    jobs += ''.join(f'{row}\n' for row in rows)
+    jobs += ')\n'
 
     job_replace_dict['jobs'] = jobs
 

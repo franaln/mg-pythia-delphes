@@ -117,8 +117,8 @@ class RecoveryTests(unittest.TestCase):
             for relative in ('run_sample.tar.gz', 'run_mgpd_condor.sh'):
                 self.assertEqual(Path(child.output_dir, relative).read_bytes(), Path(parent.output_dir, relative).read_bytes())
             submission = Path(child.output_dir, child.submit_file).read_text()
-            self.assertEqual(submission.count('queue 1'), 1)
-            self.assertIn('seed = 102\n', submission)
+            self.assertEqual(submission.count('\nqueue '), 1)
+            self.assertIn('\nsample_00001 sample 102 ', submission)
             self.assertNotIn('seed_file', submission)
             self.assertIn(child.manifest['production_id'], submission)
             self.assertNotIn(parent.manifest['production_id'], submission)
@@ -158,7 +158,8 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual((child_dir / 'sample_00001.mg5').read_text(), 'set iseed = 102\ndone\n')
             submission = (child_dir / child.submit_file).read_text()
             self.assertIn('$(seed_file)', submission)
-            self.assertIn('seed_file = sample_00001.mg5', submission)
+            self.assertIn('queue mg_job_id, run_name, seed_file, outputs from (\n', submission)
+            self.assertIn('\nsample_00001 sample sample_00001.mg5 ', submission)
             load_prepared_production(child_dir)
 
     def test_local_child_runs_once_and_cannot_be_claimed_twice(self):

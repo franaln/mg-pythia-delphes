@@ -18,7 +18,9 @@ Conventions and approximations (not ATLAS working points):
 - MET is the Delphes ``MissingET`` minus every reconstructed muon (the packaged
   ATLAS card builds MET from calorimeter towers, where muons deposit nothing).
   Disable with ``--no-muon-met-correction`` for cards whose MET includes muons.
-- ``sumet`` is ``ScalarHT.HT``; ``genMET`` comes from ``GenMissingET`` when
+- ``sumet`` is ``ScalarHT.HT``, or, when the card does not write ScalarHT, the
+  scalar pT sum of the output Jet, Electron, Photon and Muon collections (equal
+  to ScalarHT for the packaged ATLAS card); ``genMET`` comes from ``GenMissingET`` when
   present; ``genHT`` is 0. PDF scalars and ``mcChannel`` (ProcessID) are copied
   from the Delphes ``Event`` record, which may contain zeros only.
 - ``fatjet_*`` is filled from a ``FatJet`` branch when present, else empty.
@@ -30,10 +32,15 @@ Requires ROOT (PyROOT) and Delphes, e.g. inside the mg-pythia-delphes image:
     source /mg_pythia_delphes/root/bin/thisroot.sh
     export DELPHES_PATH=/mg_pythia_delphes/Delphes
     export ROOT_INCLUDE_PATH=$DELPHES_PATH:$DELPHES_PATH/external
-    python3 Delphes2SA.py -i delphes_events.root -o events_SA.root
+    python3 delphes2slim.py -i delphes_events.root -o events_SA.root
+
+mgpd runs this file inside the pinned mg-pythia-delphes image for
+``mgpd analyze --simple-analysis/--to-slim``; ``scripts/Delphes2SA.py`` is a
+link to it for standalone use.
 """
 
 import argparse
+import json
 import os
 import sys
 from array import array
@@ -58,7 +65,7 @@ FLOAT_SCALARS = (
     "sumet", "met_pt", "met_phi",
 )
 COLLECTIONS = ("el", "mu", "tau", "ph", "jet", "fatjet")
-REQUIRED_BRANCHES = ("Event", "MissingET", "ScalarHT", "Photon", "Electron", "Muon", "Jet")
+REQUIRED_BRANCHES = ("Event", "MissingET", "Photon", "Electron", "Muon", "Jet")
 MASSIVE = ("jet", "fatjet")
 
 
@@ -72,6 +79,8 @@ def parse_args():
                         help="Convert at most N events (preview); default: all")
     parser.add_argument("--no-muon-met-correction", action="store_true",
                         help="Keep Delphes MissingET unchanged")
+    parser.add_argument("--summary",
+                        help="New JSON file with event count, sumw/sumw2 and branch presence")
     return parser.parse_args()
 
 
@@ -163,9 +172,11 @@ def main():
     partial = args.output + ".partial"
     if os.path.exists(partial):
         sys.exit(f"refusing to overwrite existing partial output: {partial}")
+    if args.summary and os.path.exists(args.summary):
+        sys.exit(f"refusing to overwrite existing summary: {args.summary}")
     load_delphes()
     try:
-        convert(args, partial)
+        summary = convert(args, partial)
     except BaseException:
         if os.path.exists(partial):
             os.unlink(partial)
@@ -173,6 +184,10 @@ def main():
     # Publish only a complete file; os.link fails instead of replacing output.
     os.link(partial, args.output)
     os.unlink(partial)
+    if args.summary:
+        with open(args.summary, "x", encoding="utf-8") as stream:
+            json.dump(summary, stream, indent=2, allow_nan=False)
+            stream.write("\n")
     print(f"Published {args.output}")
 
 
@@ -195,7 +210,7 @@ def convert(args, partial):
 
     branch_event = reader.UseBranch("Event")
     branch_met = reader.UseBranch("MissingET")
-    branch_ht = reader.UseBranch("ScalarHT")
+    branch_ht = optional_branch("ScalarHT")
     branch_photon = reader.UseBranch("Photon")
     branch_electron = reader.UseBranch("Electron")
     branch_muon = reader.UseBranch("Muon")
@@ -212,6 +227,7 @@ def convert(args, partial):
 
     sumw = 0.0
     sumw2 = 0.0
+    negative = 0
     print(f"Converting {n_events} events")
     for entry in range(n_events):
         out.clear()
@@ -221,6 +237,7 @@ def convert(args, partial):
         weight = float(event.Weight)
         sumw += weight
         sumw2 += weight * weight
+        negative += weight < 0
         out.weights.push_back(weight)
         out.set("Event", int(event.Number))
         out.set("mcChannel", int(event.ProcessID))
@@ -234,27 +251,33 @@ def convert(args, partial):
         if branch_gen_met is not None and branch_gen_met.GetEntries() > 0:
             out.set("genMET", branch_gen_met.At(0).MET)
 
+        object_ht = 0.0
         met = ROOT.TLorentzVector()
         met.SetPtEtaPhiM(branch_met.At(0).MET, 0.0, branch_met.At(0).Phi, 0.0)
 
         for idx in range(branch_electron.GetEntries()):
             electron = branch_electron.At(idx)
             out.add("el", electron, ALL_ID, electron.Charge)
+            object_ht += electron.PT
 
         for idx in range(branch_muon.GetEntries()):
             muon = branch_muon.At(idx)
             out.add("mu", muon, ALL_ID, muon.Charge)
+            object_ht += muon.PT
             if not args.no_muon_met_correction:
                 muon_vec = ROOT.TLorentzVector()
                 muon_vec.SetPtEtaPhiM(muon.PT, muon.Eta, muon.Phi, MUON_MASS_GEV)
                 met -= muon_vec
 
         for idx in range(branch_photon.GetEntries()):
-            out.add("ph", branch_photon.At(idx), ALL_ID, 0)
+            photon = branch_photon.At(idx)
+            out.add("ph", photon, ALL_ID, 0)
+            object_ht += photon.PT
 
         for idx in range(branch_jet.GetEntries()):
             jet = branch_jet.At(idx)
             out.add("jet", jet, jet_id(jet), jet.Charge, jet.Mass)
+            object_ht += jet.PT
             if jet.TauTag:
                 tau_id = TAU_ALL
                 if jet.NCharged == 1:
@@ -268,7 +291,7 @@ def convert(args, partial):
                 fatjet = branch_fatjet.At(idx)
                 out.add("fatjet", fatjet, jet_id(fatjet), fatjet.Charge, fatjet.Mass)
 
-        out.set("sumet", branch_ht.At(0).HT)
+        out.set("sumet", branch_ht.At(0).HT if branch_ht is not None else object_ht)
         out.set("met_pt", met.Pt())
         out.set("met_phi", met.Phi())
         out_tree.Fill()
@@ -280,6 +303,22 @@ def convert(args, partial):
     out_file.Close()
     print(f"Converted {n_events} entries")
     print(f"sumw={sumw!r} sumw2={sumw2!r} fatjet_branch={branch_fatjet is not None}")
+    return {
+        "schema_version": 1,
+        "tree": "ntuple",
+        "input_entries": int(reader.GetEntries()),
+        "entries": int(n_events),
+        "limit_reached": n_events < reader.GetEntries(),
+        "sumw": sumw,
+        "sumw2": sumw2,
+        "negative_weight_events": int(negative),
+        "muon_met_correction": not args.no_muon_met_correction,
+        "branches": {"FatJet": branch_fatjet is not None,
+                     "GenMissingET": branch_gen_met is not None,
+                     "ScalarHT": branch_ht is not None},
+        "sumet_source": "ScalarHT.HT" if branch_ht is not None else "sum of output Jet/Electron/Photon/Muon PT",
+        "root_version": ROOT.gROOT.GetVersion(),
+    }
 
 
 if __name__ == "__main__":

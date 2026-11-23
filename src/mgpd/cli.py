@@ -140,6 +140,15 @@ def _parser():
     analyze.add_argument('--validate-only', action='store_true', help='Print the validated plan without processing events or writing files')
     analyze.add_argument('--max-events', type=int, help='Process at most this many events across all inputs')
     analyze.add_argument('--chunk-size', type=int)
+    simple = analyze.add_argument_group('ATLAS SimpleAnalysis backend (Delphes ROOT; replaces --config)')
+    simple.add_argument('--simple-analysis', metavar='NAMES', help='Comma-separated SimpleAnalysis analyses to run on converted Delphes ROOT')
+    simple.add_argument('--to-slim', action='store_true', help='Only convert Delphes ROOT to a SimpleAnalysis slim ntuple')
+    simple.add_argument('--slim', action='store_true', help='Inputs are existing slim ntuples; skip conversion')
+    simple.add_argument('--sa-list', action='store_true', help='List the analyses available in --sa-image and exit')
+    simple.add_argument('--sa-image', help='SimpleAnalysis image: SIF path (Apptainer) or Docker reference; required to run or list')
+    simple.add_argument('--image', help='mg-pythia-delphes image used for conversion (default: as for merge)')
+    simple.add_argument('--backend', choices=['local-apptainer', 'local-docker'], help='Container backend (default: Apptainer on jupiter, Docker elsewhere)')
+    simple.add_argument('--met', choices=['muon-corrected', 'delphes'], help='MET convention for conversion: subtract muons (calorimeter-only MET, default for the packaged ATLAS card) or keep Delphes MissingET; required for other production cards')
 
     return parser
 
@@ -155,7 +164,36 @@ def parse_args(argv=None):
     if args.command == 'st':
         args.command = 'status'
 
-    if args.command == 'analyze':
+    simple_mode = args.command == 'analyze' and (args.simple_analysis or args.to_slim or args.slim or args.sa_list)
+    if args.command == 'analyze' and not simple_mode:
+        if (args.sa_image or args.image or args.backend or args.met):
+            parser.error('--sa-image/--image/--backend/--met need --simple-analysis, --to-slim, --slim or --sa-list')
+    if simple_mode:
+        if args.config or args.example or args.from_results or args.plots or args.export_root or args.chunk_size is not None:
+            parser.error('SimpleAnalysis options cannot be combined with --config/--example/--from-results/--plots/--export-root/--chunk-size')
+        if args.format not in (None, 'root'):
+            parser.error('SimpleAnalysis works on ROOT inputs only')
+        if args.sa_list:
+            if args.inputs or args.simple_analysis or args.to_slim or args.slim or args.output or args.validate_only or args.sample or args.max_events is not None:
+                parser.error('--sa-list only accepts --sa-image and --backend')
+            if not args.sa_image:
+                parser.error('--sa-list requires --sa-image')
+        else:
+            if args.to_slim and (args.simple_analysis or args.slim):
+                parser.error('--to-slim converts only; it cannot be combined with --simple-analysis or --slim')
+            if args.slim and not args.simple_analysis:
+                parser.error('--slim requires --simple-analysis')
+            if args.slim and (args.image or args.met):
+                parser.error('--image/--met apply to conversion, not --slim inputs')
+            if args.simple_analysis and not args.sa_image:
+                parser.error('--simple-analysis requires --sa-image')
+            if not args.inputs:
+                parser.error('SimpleAnalysis requires input files or one managed merge/production directory')
+            if not args.validate_only and not args.output:
+                parser.error('analyze requires --output, or use --validate-only')
+            if args.validate_only and args.output:
+                parser.error('analyze --validate-only does not accept --output')
+    elif args.command == 'analyze':
         if args.example or args.from_results:
             incompatible = (args.inputs or args.config or args.format or args.sample or args.validate_only
                             or args.max_events is not None or args.chunk_size is not None)
@@ -226,6 +264,29 @@ def main(argv=None):
             path = create_analysis_config(args.file, format=args.format)
             print(f'Created analysis configuration: {path}')
             print(f'Edit it, then run: mgpd analyse INPUT --config {shlex.quote(path)} -o analysis-results')
+            return 0
+
+        if args.command == 'analyze' and (args.simple_analysis or args.to_slim or args.slim or args.sa_list):
+            from .analysis import simple_analysis as sa
+            if args.sa_list:
+                catalog = sa.list_simple_analyses(args.sa_image, backend=args.backend)
+                print('\n'.join(catalog['analyses']))
+                return 0
+            plan = sa.plan_simple_analysis(args.inputs, args.simple_analysis, slim_input=args.slim, sample=args.sample,
+                                           max_events=args.max_events, met=args.met,
+                                           backend=args.backend, image=args.image, sa_image=args.sa_image)
+            if args.validate_only:
+                print(json.dumps(plan, indent=2, allow_nan=False))
+                return 0
+            report = sa.run_simple_analysis(plan, args.output)
+            for warning in report['warnings']:
+                print(f'Warning: {warning}', file=sys.stderr)
+            if 'conversion' in report:
+                summary = report['conversion']
+                print(f"Converted {summary['entries']} events (sumw={summary['sumw']:.6g}) to {report['output']}/slim/ntuple.root")
+            for name, value in report.get('results', {}).items():
+                print(f"{name}: {value['all']['events']} events; {len(value['regions'])} regions")
+            print(f"SimpleAnalysis output: {report['output']} (raw weights; see simple-analysis-report.json)")
             return 0
 
         if args.command == 'analyze':

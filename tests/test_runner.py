@@ -125,9 +125,11 @@ class RunnerTests(unittest.TestCase):
                 self.assertNotIn('hepmc', manifest['jobs'][1]['outputs'])
                 if mode == 'condor':
                     submission = next(output.glob('*.sub')).read_text()
-                    self.assertEqual(submission.count('queue 1'), 3)
+                    self.assertEqual(submission.count('\nqueue '), 1)
+                    self.assertNotIn('queue 1', submission)
                     for job in manifest['jobs']:
-                        self.assertIn(f"seed = {job['seed']}\n", submission)
+                        self.assertIn(f"\n{job['job_id']} {job['sample']} {job['seed']} {','.join(job['outputs'])}\n",
+                                      submission)
                     self.assertNotIn('seed_file', submission)
                     self.assertEqual(list(output.glob('*.mg5')), [])
                     with tarfile.open(next(output.glob('run_*.tar.gz'))) as archive:
