@@ -1,0 +1,1 @@
+../src/mgpd/data/simple_analysis/delphes2slim.py
