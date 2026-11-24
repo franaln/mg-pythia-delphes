@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mg-pythia-delphes-mcp"
-version = "0.5.0.dev0"
+version = "0.5.0"
 description = "Per-user MCP adapter for the MadGraph/Pythia/Delphes workflow"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["mg-pythia-delphes[configuration]>=0.5.0.dev0,<0.6", "mcp>=2.3,<3"]
+dependencies = ["mg-pythia-delphes[configuration]>=0.5.0,<0.6", "mcp>=2.3,<3"]
 
 [project.optional-dependencies]
-analysis = ["mg-pythia-delphes[analysis]>=0.5.0.dev0,<0.6"]
+analysis = ["mg-pythia-delphes[analysis]>=0.5.0,<0.6"]
 
 [project.scripts]
 mgpd-mcp = "mgpd_mcp.server:main"

@@ -168,11 +168,11 @@ python -m build --outdir dist/core
 python -m build packages/mg-pythia-delphes-mcp --outdir dist/mcp
 ```
 
-Install both wheels in a fresh Python 3.11+ environment. For example, for 0.4.0:
+Install both wheels in a fresh Python 3.11+ environment. For example, for 0.5.0:
 
 ```bash
-python -m pip install 'dist/core/mg_pythia_delphes-0.4.0-py3-none-any.whl[validation]' \
-  dist/mcp/mg_pythia_delphes_mcp-0.4.0-py3-none-any.whl
+python -m pip install 'dist/core/mg_pythia_delphes-0.5.0-py3-none-any.whl[validation]' \
+  dist/mcp/mg_pythia_delphes_mcp-0.5.0-py3-none-any.whl
 python -m pip check
 ```
 
@@ -205,10 +205,10 @@ and select shared environments as their administrator.
 | `--update-current` | Validate/select an existing environment |
 | `--create-wrapper --bin-dir DIR` | Create managed CLI/MCP launchers |
 
-Build the intended checkout (0.4.0 example):
+Build the intended checkout (0.5.0 example):
 
 ```bash
-python scripts/deploy_shared.py --build --with-mcp --version 0.4.0 --outdir dist/0.4.0
+python scripts/deploy_shared.py --build --with-mcp --version 0.5.0 --outdir dist/0.5.0
 ```
 
 Use `--source PATH` to select another checkout, including a detached worktree at
@@ -220,9 +220,9 @@ wheel builder. Core-only installations support Python 3.9+; MCP requires 3.11+.
 Stage the tested pair without changing current:
 
 ```bash
-sudo python3.11 scripts/deploy_shared.py --deploy-venv --version 0.4.0 \
-  --wheel dist/0.4.0/mg_pythia_delphes-0.4.0-py3-none-any.whl \
-  --mcp-wheel dist/0.4.0/mg_pythia_delphes_mcp-0.4.0-py3-none-any.whl \
+sudo python3.11 scripts/deploy_shared.py --deploy-venv --version 0.5.0 \
+  --wheel dist/0.5.0/mg_pythia_delphes-0.5.0-py3-none-any.whl \
+  --mcp-wheel dist/0.5.0/mg_pythia_delphes_mcp-0.5.0-py3-none-any.whl \
   --prefix /opt/venvs --python /usr/bin/python3.11
 ```
 
@@ -231,16 +231,16 @@ for diagnosis and cannot be activated. Test the staged commands as a normal
 user before selection:
 
 ```bash
-/opt/venvs/mgpd-0.4.0/bin/mgpd --version
-/opt/venvs/mgpd-0.4.0/bin/mgpd-mcp --version
-/opt/venvs/mgpd-0.4.0/bin/python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
+/opt/venvs/mgpd-0.5.0/bin/mgpd --version
+/opt/venvs/mgpd-0.5.0/bin/mgpd-mcp --version
+/opt/venvs/mgpd-0.5.0/bin/python packages/mg-pythia-delphes-mcp/scripts/check_server.py \
   --workspace /home/USER/mg-pythia-delphes --production production
 ```
 
 Activate both commands and create launchers:
 
 ```bash
-sudo python3.11 scripts/deploy_shared.py --update-current --version 0.4.0 \
+sudo python3.11 scripts/deploy_shared.py --update-current --version 0.5.0 \
   --with-mcp --prefix /opt/venvs --create-wrapper --bin-dir /usr/local/bin
 ```
 
@@ -306,7 +306,7 @@ code; workspace checks are not a Unix execution sandbox.
 
 ### Copyable MCP acceptance-test prompt
 
-Connect the client to the candidate 0.4.0 MCP installation on Jupiter, with the
+Connect the client to the candidate 0.5.0 MCP installation on Jupiter, with the
 four capability flags above enabled. Use an existing workspace with enough
 space for disposable projects and productions; the selected image must also be
 available to Condor workers. Replace `mgpd_jupiter` below with the configured
@@ -316,7 +316,7 @@ The test submits two small detector-level jobs and runs a real merge.
 Paste this prompt into the MCP client:
 
 ```text
-Test the candidate mgpd 0.4.0 MCP server named mgpd_jupiter on Jupiter.
+Test the candidate mgpd 0.5.0 MCP server named mgpd_jupiter on Jupiter.
 Use this image: /opt/images/mg-pythia-delphes-3.5.6.sif.
 
 Use only that server's MCP tools/resources for this test. Do not fall back to
