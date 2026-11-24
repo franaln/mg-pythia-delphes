@@ -1,6 +1,7 @@
 """Production/recovery assembly using real plans/files and fake container tools."""
 from contextlib import redirect_stdout
 import gzip
+from importlib.util import find_spec
 import io
 import json
 from pathlib import Path
@@ -70,6 +71,8 @@ class ProductionMergingTests(unittest.TestCase):
                     self.root_file(folder / 'tag_delphes_events.root', 2)
 
     def root_file(self, path, events):
+        if not (find_spec('numpy') and find_spec('uproot')):
+            self.skipTest('synthetic ROOT outputs require numpy and uproot')
         import numpy as np
         import uproot
         with uproot.recreate(path) as output:
